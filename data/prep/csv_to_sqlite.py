@@ -128,8 +128,10 @@ CONVERTERS = {
 }
 
 
-def read_rows(path: Path, columns: list[tuple[str, str]], key_column: str, keys: set[str]):
-    """Yield typed rows from `path` whose `key_column` value is in `keys`."""
+def read_rows(
+    path: Path, columns: list[tuple[str, str]], key_column: str, keys: set[str] | None
+):
+    """Yield typed rows from `path` whose `key_column` value is in `keys` (all rows if None)."""
     expected = [name for name, _ in columns]
     converters = [CONVERTERS[kind] for _, kind in columns]
     # utf-8-sig strips the byte order mark the source files start with.
@@ -140,7 +142,7 @@ def read_rows(path: Path, columns: list[tuple[str, str]], key_column: str, keys:
             raise SystemExit(f"{path.name}: unexpected columns {header}, expected {expected}")
         key_index = expected.index(key_column)
         for line_number, row in enumerate(reader, start=2):
-            if row[key_index] not in keys:
+            if keys is not None and row[key_index] not in keys:
                 continue
             try:
                 yield [
