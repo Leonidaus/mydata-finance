@@ -24,7 +24,8 @@ export type Basket = "regular" | "irregular" | "everyday";
 export interface TxFilter {
   from?: string;
   to?: string;
-  kind?: "spending" | "income" | "saving" | "all";
+  /** "net" is income and spending together, without transfers to or from savings. */
+  kind?: "spending" | "income" | "saving" | "net" | "all";
   category?: string;
   mcc?: string;
   basket?: Basket;
@@ -42,6 +43,8 @@ export interface EngineResult {
   value?: number;
   unit?: string;
   caption?: string;
+  /** Plain-language assumptions behind an estimate, for explanations. */
+  assumptions?: string[];
   /** Filter for the transactions behind this result; templates add the clicked datum. */
   filter?: TxFilter;
 }
@@ -51,6 +54,7 @@ export const ENGINE_FNS = [
   "monthlyTrend",
   "baskets",
   "safeToSpend",
+  "safeToSave",
   "balanceForecast",
   "whatIf",
   "peerCompare",

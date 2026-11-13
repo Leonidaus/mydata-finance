@@ -32,6 +32,10 @@ export function contextFromFixture(bundle: FixtureBundle, cohorts: Cohorts | nul
       transaction_type: r[idx.transaction_type] as Transaction["transaction_type"],
       merchant_id: r[idx.merchant_id] as string | null,
       mcc_code: r[idx.mcc_code] as string | null,
+      ...(idx.basket !== undefined && {
+        basket: r[idx.basket] as Transaction["basket"],
+        basket_rule: r[idx.basket_rule] as string | null,
+      }),
     }))
     .filter((t) => t.tx_date <= today);
   return { customer: bundle.customer, mortgage: bundle.mortgage, tx, today, cohorts };

@@ -22,15 +22,18 @@ import random
 from collections import defaultdict
 from pathlib import Path
 
+from build_database import classify
 from csv_to_sqlite import to_iso_timestamp
 
 TODAY = "2026-09-15"
-# Full calendar months used for averages (data starts 2024-10-01).
-BENCH_FROM, BENCH_TO = "2024-10-01", "2026-08-31"
-BENCH_MONTHS = 23
+# Full calendar months used for peer averages: the last 12 before TODAY, the same window
+# the engine uses for a customer's own monthly averages (and build_database.py for cohorts).
+BENCH_FROM, BENCH_TO = "2025-09-01", "2026-08-31"
+BENCH_MONTHS = 12
 
 ROW_FIELDS = ["tx_date", "tx_timestamp", "category", "tx_amount_eur",
-              "balance_after_eur", "transaction_type", "merchant_id", "mcc_code"]
+              "balance_after_eur", "transaction_type", "merchant_id", "mcc_code",
+              "basket", "basket_rule"]
 INCOME_CATEGORIES = {"Salary", "Other Income"}
 SAVING_CATEGORIES = {"Invest Deposit", "Salary Sweep"}
 NOT_SPENDING = INCOME_CATEGORIES | SAVING_CATEGORIES | {"Invest Withdraw"}
@@ -129,10 +132,13 @@ def main() -> None:
     rows = defaultdict(list)
     for r in read_csv(tx_path):
         if r["customer_id"] in chosen and r["tx_date"] <= TODAY:
+            amount, mcc = float(r["tx_amount_eur"]), none_if_blank(r["mcc_code"])
+            _flow, basket, basket_rule, _large = classify(r["transaction_type"], r["category"], mcc, amount)
             rows[r["customer_id"]].append([
                 r["tx_date"], to_iso_timestamp(r["tx_timestamp"]), r["category"],
-                float(r["tx_amount_eur"]), float(r["balance_after_eur"]), r["transaction_type"],
-                none_if_blank(r["merchant_id"]), none_if_blank(r["mcc_code"]),
+                amount, float(r["balance_after_eur"]), r["transaction_type"],
+                none_if_blank(r["merchant_id"]), mcc,
+                basket, basket_rule if basket else None,
             ])
 
     args.out.mkdir(parents=True, exist_ok=True)

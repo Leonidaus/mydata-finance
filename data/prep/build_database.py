@@ -8,7 +8,7 @@ The backend opens this file read-only. It holds the four source tables, typed
 the same way as the per-customer bundles from csv_to_sqlite.py, plus:
 
   transactions.flow         income | spending | saving | saving_withdrawal
-  transactions.basket       essential | unexpected | everyday (spending only)
+  transactions.basket       regular | irregular | everyday (spending only)
   transactions.basket_rule  which rule assigned the basket (for explanations)
   transactions.is_large     1 for card purchases of LARGE_PURCHASE_EUR or more
   monthly_summary           per customer and month: income, baskets, saving, balance
@@ -17,9 +17,13 @@ the same way as the per-customer bundles from csv_to_sqlite.py, plus:
   cohort_stats              percentiles of those averages per age band and area
   meta                      demo date, rule thresholds, row counts
 
-The basket rules are a first version and live in `classify` below, in one place.
+The basket rules live in `classify` below. The finance engine applies the same
+rules in TypeScript (packages/shared/src/engine/baskets.ts) to transactions that
+carry no label; change both together and bump RULES_VERSION.
+
 "Today" for the demo is fixed with --today: summaries ignore later transactions,
-and the averages use only complete months before it.
+and the averages use the last AVERAGE_WINDOW_MONTHS complete months before it,
+the same window the engine uses for a customer's own monthly averages.
 """
 
 import argparse
@@ -32,13 +36,15 @@ from pathlib import Path
 
 from csv_to_sqlite import INTEGER, REAL, TABLES, TEXT, create_table, read_rows
 
-RULES_VERSION = "1"
+RULES_VERSION = "2"
 DEFAULT_TODAY = "2026-09-15"
 
 # A card purchase of this size or more counts as large.
 LARGE_PURCHASE_EUR = 500.0
 # Health purchases of this size or more count as an unexpected necessity.
-HEALTH_UNEXPECTED_EUR = 100.0
+HEALTH_IRREGULAR_EUR = 100.0
+# Monthly averages and cohort benchmarks cover this many complete months before today.
+AVERAGE_WINDOW_MONTHS = 12
 TAXI_MCC = "4121"
 
 AGE_BANDS = [(18, 24), (25, 34), (35, 44), (45, 54), (55, 64), (65, 200)]
@@ -50,8 +56,10 @@ def classify(transaction_type: str, category: str, mcc_code: str | None, amount:
     """Return (flow, basket, basket_rule, is_large) for one transaction.
 
     The three baskets apply to spending only:
-      essential   mandatory and regular (housing, utilities, groceries, getting around)
-      unexpected  mandatory and irregular (a large health or home purchase)
+      regular     mandatory and regular (housing, utilities, groceries, getting around,
+                  routine health costs)
+      irregular   mandatory and irregular, the "unexpected necessities" (a large health
+                  or home purchase)
       everyday    everything discretionary, large or small
 
     This dataset has no recurring payments at merchant level (no customer pays one
@@ -65,27 +73,27 @@ def classify(transaction_type: str, category: str, mcc_code: str | None, amount:
     if transaction_type in ("investment_deposit", "salary_sweep"):
         return ("saving", None, transaction_type, 0)
     if transaction_type == "housing_payment":
-        return ("spending", "essential", "housing", 0)
+        return ("spending", "regular", "housing", 0)
     if transaction_type == "utilities_payment":
-        return ("spending", "essential", "utilities", 0)
+        return ("spending", "regular", "utilities", 0)
     if transaction_type != "purchase":
         raise ValueError(f"unknown transaction_type {transaction_type!r}")
 
     size = -amount
     is_large = int(size >= LARGE_PURCHASE_EUR)
     if category == "Groceries":
-        return ("spending", "essential", "groceries", is_large)
+        return ("spending", "regular", "groceries", is_large)
     if category == "Transportation":
         if mcc_code == TAXI_MCC:
             return ("spending", "everyday", "taxi", is_large)
-        return ("spending", "essential", "transport", is_large)
+        return ("spending", "regular", "transport", is_large)
     if category == "Health":
-        if size >= HEALTH_UNEXPECTED_EUR:
-            return ("spending", "unexpected", "health_large", is_large)
-        return ("spending", "essential", "health_routine", is_large)
+        if size >= HEALTH_IRREGULAR_EUR:
+            return ("spending", "irregular", "health_large", is_large)
+        return ("spending", "regular", "health_routine", is_large)
     if category == "Home & Tech":
         if is_large:
-            return ("spending", "unexpected", "home_large", is_large)
+            return ("spending", "irregular", "home_large", is_large)
         return ("spending", "everyday", "home_small", is_large)
     return ("spending", "everyday", "discretionary", is_large)
 
@@ -162,13 +170,16 @@ def build_monthly_summary(conn: sqlite3.Connection, today: str) -> None:
             customer_id,
             substr(tx_date, 1, 7) AS month,
             round(sum(CASE WHEN flow = 'income' THEN tx_amount_eur ELSE 0 END), 2) AS income,
-            round(-sum(CASE WHEN basket = 'essential' THEN tx_amount_eur ELSE 0 END), 2) AS essential,
-            round(-sum(CASE WHEN basket = 'unexpected' THEN tx_amount_eur ELSE 0 END), 2) AS unexpected,
+            round(-sum(CASE WHEN basket = 'regular' THEN tx_amount_eur ELSE 0 END), 2) AS regular,
+            round(-sum(CASE WHEN basket = 'irregular' THEN tx_amount_eur ELSE 0 END), 2) AS irregular,
             round(-sum(CASE WHEN basket = 'everyday' THEN tx_amount_eur ELSE 0 END), 2) AS everyday,
             round(-sum(CASE WHEN flow = 'saving' THEN tx_amount_eur ELSE 0 END), 2) AS saving,
             round(sum(CASE WHEN flow = 'saving_withdrawal' THEN tx_amount_eur ELSE 0 END), 2)
                 AS saving_withdrawal,
-            round(sum(tx_amount_eur), 2) AS net,
+            -- net: income minus spending, before any transfer to or from savings
+            round(sum(CASE WHEN flow IN ('income', 'spending') THEN tx_amount_eur ELSE 0 END), 2) AS net,
+            -- balance_change: everything that moved the account balance
+            round(sum(tx_amount_eur), 2) AS balance_change,
             round(min(balance_after_eur), 2) AS min_balance,
             max(tx_id) AS last_tx_id,
             count(*) AS transactions,
@@ -190,18 +201,23 @@ def build_monthly_summary(conn: sqlite3.Connection, today: str) -> None:
     conn.execute("CREATE UNIQUE INDEX idx_summary ON monthly_summary (customer_id, month)")
 
 
-def build_customer_tables(conn: sqlite3.Connection, today: str) -> int:
-    """Create customer_profile and customer_category_avg. Returns the number of complete months."""
+def build_customer_tables(conn: sqlite3.Connection, today: str) -> tuple[int, str, str]:
+    """Create customer_profile and customer_category_avg.
+
+    Returns the averaging window: (number of months, first month, last month).
+    """
     current_month = today[:7]
-    (complete_months,) = conn.execute(
-        "SELECT count(DISTINCT month) FROM monthly_summary WHERE month < ?", (current_month,)
-    ).fetchone()
-    if complete_months == 0:
+    window = [row[0] for row in conn.execute(
+        "SELECT DISTINCT month FROM monthly_summary WHERE month < ? ORDER BY month DESC LIMIT ?",
+        (current_month, AVERAGE_WINDOW_MONTHS),
+    )]
+    if not window:
         raise SystemExit(f"No complete months before {today}")
+    complete_months, first_month, last_month = len(window), window[-1], window[0]
 
     conn.create_function("age_band", 1, age_band, deterministic=True)
-    # Averages divide by the number of complete months in the data, not by the months
-    # a customer happened to be active, so a quiet month counts as zero.
+    # Averages divide by the number of months in the window, not by the months a
+    # customer happened to be active, so a quiet month counts as zero.
     conn.execute(
         """
         CREATE TABLE customer_profile AS
@@ -214,18 +230,18 @@ def build_customer_tables(conn: sqlite3.Connection, today: str) -> int:
             EXISTS (SELECT 1 FROM mortgage_outcomes o WHERE o.customer_id = c.customer_id)
                 AS has_mortgage_application,
             round(coalesce(sum(m.income), 0) / :n, 2) AS avg_income,
-            round(coalesce(sum(m.essential), 0) / :n, 2) AS avg_essential,
-            round(coalesce(sum(m.unexpected), 0) / :n, 2) AS avg_unexpected,
+            round(coalesce(sum(m.regular), 0) / :n, 2) AS avg_regular,
+            round(coalesce(sum(m.irregular), 0) / :n, 2) AS avg_irregular,
             round(coalesce(sum(m.everyday), 0) / :n, 2) AS avg_everyday,
             round(coalesce(sum(m.saving), 0) / :n, 2) AS avg_saving,
             round(coalesce(sum(m.net), 0) / :n, 2) AS avg_net,
             coalesce(sum(m.min_balance < 0), 0) AS months_below_zero
         FROM customers c
         LEFT JOIN monthly_summary m
-            ON m.customer_id = c.customer_id AND m.month < :current_month
+            ON m.customer_id = c.customer_id AND m.month BETWEEN :first_month AND :last_month
         GROUP BY c.customer_id
         """,
-        {"n": complete_months, "current_month": current_month},
+        {"n": complete_months, "first_month": first_month, "last_month": last_month},
     )
     conn.execute("CREATE UNIQUE INDEX idx_profile ON customer_profile (customer_id)")
 
@@ -238,22 +254,22 @@ def build_customer_tables(conn: sqlite3.Connection, today: str) -> int:
             round(-sum(tx_amount_eur) / :n, 2) AS monthly_avg,
             count(*) AS transactions
         FROM transactions
-        WHERE flow = 'spending' AND substr(tx_date, 1, 7) < :current_month
+        WHERE flow = 'spending' AND substr(tx_date, 1, 7) BETWEEN :first_month AND :last_month
         GROUP BY customer_id, category
         """,
-        {"n": complete_months, "current_month": current_month},
+        {"n": complete_months, "first_month": first_month, "last_month": last_month},
     )
     conn.execute(
         "CREATE UNIQUE INDEX idx_category_avg ON customer_category_avg (customer_id, category)"
     )
-    return complete_months
+    return complete_months, first_month, last_month
 
 
 def build_cohort_stats(conn: sqlite3.Connection) -> int:
     """Percentiles of the per-customer monthly averages, per cohort and for everyone."""
     profiles = conn.execute(
         """SELECT customer_id, age_band, postal_area,
-                  avg_income, avg_essential, avg_unexpected, avg_everyday, avg_saving
+                  avg_income, avg_regular, avg_irregular, avg_everyday, avg_saving
            FROM customer_profile"""
     ).fetchall()
     categories = [row[0] for row in conn.execute(
@@ -268,11 +284,11 @@ def build_cohort_stats(conn: sqlite3.Connection) -> int:
 
     # cohort key -> metric -> list of customer values
     cohorts: dict[tuple[str, str], dict[str, list[float]]] = {}
-    for customer_id, band, area, income, essential, unexpected, everyday, saving in profiles:
+    for customer_id, band, area, income, regular, irregular, everyday, saving in profiles:
         values = {
             "income": income,
-            "basket:essential": essential,
-            "basket:unexpected": unexpected,
+            "basket:regular": regular,
+            "basket:irregular": irregular,
             "basket:everyday": everyday,
             "saving": saving,
         }
@@ -326,7 +342,7 @@ def build(raw: Path, out: Path, today: str) -> None:
             raise SystemExit(f"--today {today} is outside the data ({first_date} to {last_date})")
 
         build_monthly_summary(conn, today)
-        complete_months = build_customer_tables(conn, today)
+        window_months, window_first, window_last = build_customer_tables(conn, today)
         cohort_rows = build_cohort_stats(conn)
         print(f"  built summaries and cohorts ({time.monotonic() - started:.0f}s)", flush=True)
 
@@ -336,10 +352,12 @@ def build(raw: Path, out: Path, today: str) -> None:
             "built_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "rules_version": RULES_VERSION,
             "large_purchase_eur": LARGE_PURCHASE_EUR,
-            "health_unexpected_eur": HEALTH_UNEXPECTED_EUR,
+            "health_irregular_eur": HEALTH_IRREGULAR_EUR,
             "first_tx_date": first_date,
             "last_tx_date": last_date,
-            "complete_months": complete_months,
+            "average_window_months": window_months,
+            "average_window_first_month": window_first,
+            "average_window_last_month": window_last,
             **{f"rows_{table}": count for table, count in counts.items()},
         }
         conn.executemany("INSERT INTO meta VALUES (?, ?)", [(k, str(v)) for k, v in meta.items()])
@@ -356,7 +374,7 @@ def build(raw: Path, out: Path, today: str) -> None:
     print(
         f"Wrote {out} ({out.stat().st_size / 1e6:.0f} MB) in {time.monotonic() - started:.0f}s: "
         f"{counts['transactions']:,} transactions, {counts['customers']:,} customers, "
-        f"{complete_months} complete months before {today}, {cohort_rows} cohort rows"
+        f"averages over {window_first} to {window_last}, {cohort_rows} cohort rows"
     )
 
 
