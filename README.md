@@ -311,9 +311,44 @@ Related definitions, used the same way everywhere:
   the demo's today. Peers are the synthetic customers in the dataset, by age band.
 - **Safe to spend** is the balance minus bills still due before payday, groceries
   and other regular essentials at the recent daily rate, the usual saving transfer,
-  and a buffer for unexpected necessities. What is left is for everyday spending.
+  a buffer for unexpected necessities (at least one typical such purchase) and a
+  margin in case the salary arrives late. What is left is for everyday spending.
 - **Safe to save** is what would remain at payday at the usual pace of everyday
   spending, minus a cushion of one month of regular essentials.
+
+## Backtest
+
+`npm run backtest -w @mydata/backend` replays the forecast and the safe-to-spend
+amount on past dates. For every customer and for the 5th, 15th and 25th of each month
+from October 2025 to August 2026, the engine sees only the transactions up to that
+date, and its output is compared with what happened up to the next salary. Add
+`-- --sample 500` for a quick run. The summary is written to `data/out/backtest.json`.
+
+Result on all 5,100 customers (168,133 cases):
+
+| Measure | Result |
+|---|---|
+| Balance just before the next salary | median error €381 (12% of a salary); 90% of cases within €1,552 |
+| Bills due before payday | median error €57; 90% within €198 |
+| Payday date | exact in 71% of cases, within two days in 80% |
+| Customers whose everyday spending stayed within the amount shown | 92% |
+| Of those, went below zero before the salary anyway | 1.5% |
+| If the whole amount shown had been spent: balance below zero | 20% of cases |
+
+What it taught us, and what changed because of it:
+
+- **Salaries are not always on time.** They usually arrive on the 15th, but about
+  three times in ten at the end of the month instead. The payday guess now expects
+  the late date when the usual day has passed without a salary, and safe to spend
+  holds back essentials for those extra days. Before this, the payday was within two
+  days in 69% of cases and spending the whole amount would have overdrawn in 45%.
+- **Unexpected necessities are lumpy.** A monthly average does not cover a single
+  €500 purchase, so the buffer is now at least one typical such purchase.
+- **The amount is an estimate, not a guarantee.** Spending all of it would still end
+  below zero in one case in five, mostly when the salary is late or a large purchase
+  lands. The app should present it with its assumptions, which the engine returns.
+- **Many customers hold large balances**, so the median amount shown is about
+  €4,700. A version that also keeps a fixed cushion may suit those customers better.
 
 ## Backend
 
