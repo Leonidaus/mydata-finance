@@ -1,12 +1,12 @@
 import { existsSync } from "node:fs";
 import { serve } from "@hono/node-server";
 import { createApp } from "./app";
-import { openDatabase } from "./db";
+import { openDatabase, resolveFromInvocationDir } from "./db";
 
 const db = openDatabase();
 const port = Number(process.env.PORT ?? 8787);
 // STATIC_DIR: the built web app to serve alongside the API (set in the Docker image).
-const staticDir = process.env.STATIC_DIR;
+const staticDir = process.env.STATIC_DIR && resolveFromInvocationDir(process.env.STATIC_DIR);
 if (staticDir && !existsSync(staticDir)) {
   throw new Error(`STATIC_DIR ${staticDir} does not exist. Build the app first: npm run build`);
 }

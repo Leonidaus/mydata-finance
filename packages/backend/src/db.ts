@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
@@ -22,6 +22,16 @@ export interface FinanceDb {
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Resolves a path from an environment variable against the directory the command was typed
+ * in. `npm run ... -w @mydata/backend` runs with packages/backend as the working directory
+ * and records the original one in INIT_CWD, so `FINANCE_DB=data/out/x.sqlite` typed at the
+ * repository root would otherwise point inside packages/backend.
+ */
+export function resolveFromInvocationDir(path: string, env: NodeJS.ProcessEnv = process.env): string {
+  return isAbsolute(path) ? path : resolve(env.INIT_CWD ?? process.cwd(), path);
+}
 
 /** Default location: data/out/finance.sqlite at the repository root. */
 export const DEFAULT_DB_PATH = resolve(here, "../../../data/out/finance.sqlite");
@@ -50,7 +60,9 @@ export function wrapDatabase(database: DatabaseSync): FinanceDb {
   };
 }
 
-export function openDatabase(path: string = process.env.FINANCE_DB ?? DEFAULT_DB_PATH): FinanceDb {
+export function openDatabase(
+  path: string = process.env.FINANCE_DB ? resolveFromInvocationDir(process.env.FINANCE_DB) : DEFAULT_DB_PATH,
+): FinanceDb {
   if (!existsSync(path)) {
     throw new Error(
       `Finance database not found at ${path}. Build it with:\n` +
