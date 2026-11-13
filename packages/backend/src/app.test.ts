@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import { createApp } from "./app";
 import { resolvePeriod } from "./finance/period";
 import type { SpendingResult } from "./finance/spending";
@@ -10,6 +10,21 @@ const app = createApp(createFixtureDb());
 async function get<T>(path: string): Promise<{ status: number; body: T }> {
   const response = await app.request(path);
   return { status: response.status, body: (await response.json()) as T };
+}
+
+async function post<T>(path: string, body: unknown): Promise<{ status: number; body: T }> {
+  const response = await app.request(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+  return { status: response.status, body: (await response.json()) as T };
+}
+
+interface EngineBody {
+  rows: Record<string, string | number | null>[];
+  value?: number;
+  filter?: Record<string, string>;
 }
 
 describe("resolvePeriod", () => {
@@ -127,5 +142,66 @@ describe("customer routes", () => {
   it("reports health and unknown routes", async () => {
     assert.equal((await get<{ ok: boolean }>("/api/health")).body.ok, true);
     assert.equal((await get("/api/nope")).status, 404);
+  });
+});
+
+describe("finance engine routes", () => {
+  it("runs safe to spend on the balance as of today", async () => {
+    const { status, body } = await get<EngineBody>("/api/customers/CUST00001/engine/safeToSpend");
+    assert.equal(status, 200);
+    // Balance after the last transaction on or before today (tx 8), not the later tx 9.
+    assert.deepEqual(body.rows[0], { term: "Balance today", amount: 3207.5 });
+    assert.equal(typeof body.value, "number");
+  });
+
+  it("runs a what-if with arguments from the query string", async () => {
+    // Transportation in the last 12 full months: 42.50 in total, so 20% of the monthly
+    // average is 42.50 / 12 * 0.2 a month, or 8.50 a year.
+    const { body } = await get<EngineBody>(
+      "/api/customers/CUST00001/engine/whatIf?category=Transportation&cutPct=20",
+    );
+    assert.equal(body.value, 8.5);
+    assert.equal(body.rows.length, 12);
+  });
+
+  it("runs a block's data request and gives the same answer", async () => {
+    const { status, body } = await post<EngineBody>("/api/data", {
+      customerId: "CUST00001",
+      data: { kind: "engine", fn: "whatIf", args: { category: "Transportation", cutPct: 20 } },
+    });
+    assert.equal(status, 200);
+    assert.equal(body.value, 8.5);
+  });
+
+  it("compares with the age band's averages across all areas", async () => {
+    const { body } = await post<EngineBody>("/api/data", {
+      customerId: "CUST00001",
+      data: { kind: "engine", fn: "peerCompare", args: { category: "Groceries" } },
+    });
+    assert.deepEqual(body.rows, [
+      { category: "Groceries", who: "You", amount: 6.67 },
+      { category: "Groceries", who: "Peers 25-34", amount: 400 },
+    ]);
+  });
+
+  it("returns the transactions behind a result, newest first and never after today", async () => {
+    const { status, body } = await post<{ count: number; transactions: { tx_date: string }[] }>(
+      "/api/transactions",
+      { customerId: "CUST00001", filter: { kind: "spending", mcc: "4121" }, limit: 2 },
+    );
+    assert.equal(status, 200);
+    assert.equal(body.count, 3);
+    assert.deepEqual(body.transactions.map((t) => t.tx_date), ["2026-09-10", "2026-08-20"]);
+  });
+
+  it("rejects bad requests", async () => {
+    assert.equal((await get("/api/customers/CUST00001/engine/dropTables")).status, 400);
+    assert.equal((await get("/api/customers/CUST99999/engine/whatIf")).status, 404);
+    assert.equal((await post("/api/data", "not json")).status, 400);
+    assert.equal((await post("/api/data", { customerId: "CUST00001" })).status, 400);
+    assert.equal((await post("/api/data", { customerId: "CUST00001", data: { kind: "engine", fn: "nope" } })).status, 400);
+    assert.equal((await post("/api/data", { customerId: "CUST00001", data: { kind: "sql", sql: "select 1" } })).status, 501);
+    assert.equal((await post("/api/transactions", { customerId: "CUST00001", filter: { month: 8 } })).status, 400);
+    assert.equal((await post("/api/transactions", { customerId: "CUST99999" })).status, 404);
   });
 });

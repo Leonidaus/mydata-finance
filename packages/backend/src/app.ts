@@ -1,9 +1,10 @@
-import { TRANSACTION_CATEGORIES, type TransactionCategory } from "@mydata/shared";
+import { ENGINE_FNS, TRANSACTION_CATEGORIES, type TransactionCategory, type TxFilter } from "@mydata/shared";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import type { FinanceDb } from "./db";
 import { getCustomer, listCustomers, monthlySummary } from "./finance/customers";
+import { isEngineFn, runEngineFor, transactionsFor } from "./finance/engine";
 import { isIsoDate, PERIOD_NAMES, resolvePeriod, type Period, type PeriodName } from "./finance/period";
 import { BASKETS, GROUP_BY, spending, type Basket, type GroupBy } from "./finance/spending";
 
@@ -40,6 +41,36 @@ function parsePeriod(query: Record<string, string>, today: string): Period {
   if (!isIsoDate(from) || !isIsoDate(to)) badRequest("from and to must be dates as YYYY-MM-DD");
   if (from > to) badRequest("from must not be after to");
   return { from, to };
+}
+
+const TX_FILTER_KEYS = ["from", "to", "kind", "category", "mcc", "basket", "month", "date"] as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Keeps the known string fields of a transaction filter and drops everything else. */
+function parseTxFilter(value: unknown): TxFilter {
+  if (value === undefined) return {};
+  if (!isRecord(value)) badRequest("filter must be an object");
+  const filter: Record<string, string> = {};
+  for (const key of TX_FILTER_KEYS) {
+    const field = value[key];
+    if (field === undefined || field === null) continue;
+    if (typeof field !== "string") badRequest(`filter.${key} must be a string`);
+    filter[key] = field;
+  }
+  return filter as TxFilter;
+}
+
+/** Query-string values for an engine call: whole or decimal numbers become numbers. */
+function engineArgsFromQuery(query: Record<string, string>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(query).map(([key, value]) => [
+      key,
+      /^-?\d+(\.\d+)?$/.test(value) ? Number(value) : value,
+    ]),
+  );
 }
 
 export function createApp(db: FinanceDb): Hono {
@@ -119,6 +150,62 @@ export function createApp(db: FinanceDb): Hono {
         limit: integer("limit", query.limit),
       }),
     );
+  });
+
+  // ---- finance engine (safe to spend, what-if, baskets, forecast, ...) ----
+
+  function requireEngineFn(name: unknown) {
+    if (typeof name !== "string" || !isEngineFn(name)) {
+      badRequest(`fn must be one of: ${ENGINE_FNS.join(", ")}`);
+    }
+    return name;
+  }
+
+  async function jsonBody(request: Request): Promise<Record<string, unknown>> {
+    const body: unknown = await request.json().catch(() => badRequest("Body must be JSON"));
+    if (!isRecord(body)) badRequest("Body must be a JSON object");
+    return body;
+  }
+
+  /** Convenience form for trying things out: /api/customers/CUST00001/engine/whatIf?cutPct=20 */
+  app.get("/api/customers/:id/engine/:fn", (c) => {
+    const id = customerId(c.req.param("id"));
+    const fn = requireEngineFn(c.req.param("fn"));
+    const result = runEngineFor(db, id, fn, engineArgsFromQuery(c.req.query()));
+    if (!result) throw new HTTPException(404, { message: "Customer not found" });
+    return c.json(result);
+  });
+
+  /** Runs a dashboard block's DataRequest, as defined in @mydata/shared. */
+  app.post("/api/data", async (c) => {
+    const body = await jsonBody(c.req.raw);
+    if (typeof body.customerId !== "string") badRequest("customerId is required");
+    const id = customerId(body.customerId);
+    const data = body.data;
+    if (!isRecord(data)) badRequest("data is required");
+    if (data.kind === "sql") {
+      throw new HTTPException(501, { message: "SQL data requests are not supported yet" });
+    }
+    if (data.kind !== "engine") badRequest('data.kind must be "engine" or "sql"');
+    const fn = requireEngineFn(data.fn);
+    if (data.args !== undefined && !isRecord(data.args)) badRequest("data.args must be an object");
+    const result = runEngineFor(db, id, fn, (data.args as Record<string, unknown>) ?? {});
+    if (!result) throw new HTTPException(404, { message: "Customer not found" });
+    return c.json(result);
+  });
+
+  /** The transactions behind a result: pass the result's `filter` back, newest first. */
+  app.post("/api/transactions", async (c) => {
+    const body = await jsonBody(c.req.raw);
+    if (typeof body.customerId !== "string") badRequest("customerId is required");
+    const id = customerId(body.customerId);
+    const limit = body.limit;
+    if (limit !== undefined && (typeof limit !== "number" || !Number.isInteger(limit) || limit < 0)) {
+      badRequest("limit must be a whole number");
+    }
+    const result = transactionsFor(db, id, parseTxFilter(body.filter), limit as number | undefined);
+    if (!result) throw new HTTPException(404, { message: "Customer not found" });
+    return c.json(result);
   });
 
   return app;

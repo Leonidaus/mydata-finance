@@ -50,6 +50,23 @@ export function createFixtureDb(): FinanceDb {
     INSERT INTO monthly_summary VALUES
       ('CUST00001', '2026-08', 2500, 780, 250, 42.5, 200, 0, 1227.5, 940, 7, 0, 3227.5),
       ('CUST00001', '2026-09', 0, 0, 0, 20, 0, 0, -20, 3207.5, 1, 1, 3207.5);
+
+    CREATE TABLE mortgage_outcomes (
+      mortgage_customer_id TEXT, customer_id TEXT, final_decision TEXT, rejection_reason TEXT,
+      final_property_price_eur REAL, final_requested_loan_eur REAL, final_equity_amount_eur REAL,
+      final_collateral_value_eur REAL, required_monthly_income_eur REAL, lfinal_loan_to_value REAL);
+    INSERT INTO mortgage_outcomes VALUES
+      ('C0001', 'CUST00002', 'approved', NULL, 200000, 160000, 40000, 150000, 3000, 0.8);
+
+    CREATE TABLE cohort_stats (
+      age_band TEXT, postal_area TEXT, metric TEXT, customers INTEGER,
+      p10 REAL, p25 REAL, p50 REAL, p75 REAL, p90 REAL, mean REAL);
+    INSERT INTO cohort_stats VALUES
+      ('25-34', 'all', 'category:Transportation', 10, 1, 2, 3, 4, 5, 60),
+      ('25-34', 'all', 'category:Groceries', 10, 1, 2, 3, 4, 5, 400),
+      ('25-34', '00', 'category:Groceries', 5, 1, 2, 3, 4, 5, 999),
+      ('all', 'all', 'category:Groceries', 20, 1, 2, 3, 4, 5, 450),
+      ('25-34', 'all', 'income', 10, 1, 2, 3, 4, 5, 2600);
   `);
   return wrapDatabase(database);
 }

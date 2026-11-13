@@ -306,7 +306,7 @@ the database first (see Data), then:
 ```bash
 npm install
 npm run dev -w @mydata/backend     # http://localhost:8787, restarts on changes
-npm test -w @mydata/backend        # uses a small built-in fixture, not the dataset
+npm test                           # engine and backend tests; the backend ones use a small built-in fixture
 ```
 
 It uses Node's built-in SQLite driver, which prints an "experimental" warning on
@@ -320,6 +320,9 @@ answers are cut off at the demo's "today", so later transactions never appear.
 | `GET /api/customers/:id` | Profile, current balance, monthly averages per basket |
 | `GET /api/customers/:id/summary?months=12` | Month-by-month income, baskets, saving and balance |
 | `GET /api/customers/:id/spending` | Total spent, with the transactions behind it |
+| `GET /api/customers/:id/engine/:fn` | One finance engine function, arguments in the query string |
+| `POST /api/data` | A dashboard block's data request: `{ customerId, data: { kind: "engine", fn, args } }` |
+| `POST /api/transactions` | The transactions behind an engine result: `{ customerId, filter, limit }` |
 
 The spending endpoint takes `period` (`this_month`, `last_month`, `last_30_days`,
 `last_3_months`, `last_12_months`, `this_year`, `all`) or `from` and `to`, and the
@@ -331,9 +334,27 @@ optional filters `category`, `mcc` and `basket`. `groupBy` (`category`, `mcc`,
 curl 'http://localhost:8787/api/customers/CUST04488/spending?mcc=4121&period=last_month'
 ```
 
-The functions behind the endpoints are in `packages/backend/src/finance`. They take
-plain objects and return plain JSON, so they can be given to the model as tools
-unchanged.
+The engine endpoints run the finance engine from `packages/shared/src/engine` for
+any of the 5,100 customers: `spendBy`, `monthlyTrend`, `baskets`, `safeToSpend`,
+`balanceForecast`, `whatIf`, `peerCompare`, `dailySpend`, `recurring` and
+`goalProgress`. The app runs the same engine on its 15 fixture customers; for those
+customers the backend gives identical results for every function.
+
+```bash
+curl 'http://localhost:8787/api/customers/CUST03004/engine/safeToSpend'
+curl 'http://localhost:8787/api/customers/CUST03004/engine/whatIf?category=Restaurants&cutPct=20'
+```
+
+SQL data requests (`kind: "sql"`) are not supported yet and answer 501.
+
+Two basket definitions exist for now and still need to be unified. The engine
+(`basketOf` in `packages/shared/src/engine/streams.ts`) uses regular / irregular /
+everyday, with groceries and transport as everyday and a per-customer threshold for
+irregular purchases. The database labels and the `spending` and `summary` endpoints
+use the rules in the section above.
+
+The functions behind the endpoints take plain objects and return plain JSON, so
+they can be given to the model as tools unchanged.
 
 ## Getting started
 
