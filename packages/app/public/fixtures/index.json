@@ -1,0 +1,34 @@
+{
+ "today": "2026-09-15",
+ "presets": [
+  {
+   "customer_id": "CUST01700",
+   "label": "Young adult",
+   "blurb": "21, first years of working life"
+  },
+  {
+   "customer_id": "CUST02305",
+   "label": "Home saver",
+   "blurb": "51, saving and applied for a mortgage"
+  },
+  {
+   "customer_id": "CUST03004",
+   "label": "Over-spender",
+   "blurb": "45, spends more than they earn"
+  }
+ ],
+ "pool": [
+  "CUST00841",
+  "CUST00976",
+  "CUST01831",
+  "CUST02620",
+  "CUST03449",
+  "CUST04120",
+  "CUST04196",
+  "CUST04491",
+  "CUST04563",
+  "CUST04694",
+  "CUST04927",
+  "CUST05095"
+ ]
+}
