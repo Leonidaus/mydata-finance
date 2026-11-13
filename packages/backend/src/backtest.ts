@@ -21,7 +21,7 @@ import {
   runEngine,
   type Transaction,
 } from "@mydata/shared";
-import { DEFAULT_DB_PATH, openDatabase } from "./db";
+import { DEFAULT_DB_PATH, openDatabase, resolveFromInvocationDir } from "./db";
 
 /** The engine's monthly averages look back 12 full months, so a cutoff needs that much history. */
 const MIN_HISTORY_MONTHS = 12;
@@ -200,7 +200,7 @@ function main(): void {
     throw new Error("--sample needs a positive whole number");
   }
 
-  const dbPath = process.env.FINANCE_DB ?? DEFAULT_DB_PATH;
+  const dbPath = process.env.FINANCE_DB ? resolveFromInvocationDir(process.env.FINANCE_DB) : DEFAULT_DB_PATH;
   const db = openDatabase(dbPath);
   // Cutoffs need 12 full months of history before them and a salary after them, inside the data.
   const first = new Date(`${db.meta.first_tx_date}T00:00:00Z`);
