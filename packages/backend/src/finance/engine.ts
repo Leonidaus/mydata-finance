@@ -41,11 +41,12 @@ function loadCohorts(db: FinanceDb): Cohorts | null {
   for (const row of rows) {
     (bands[row.age_band] ??= {})[row.metric.slice("category:".length)] = row.mean;
   }
-  const lastCompleteMonthEnd = new Date(`${db.today.slice(0, 7)}-01T00:00:00Z`);
-  lastCompleteMonthEnd.setUTCDate(0);
+  // The averaging window from the build: first day of its first month to last day of its last.
+  const windowEnd = new Date(`${db.meta.average_window_last_month ?? db.today.slice(0, 7)}-01T00:00:00Z`);
+  windowEnd.setUTCMonth(windowEnd.getUTCMonth() + 1, 0);
   return {
-    source: `Synthetic S-Pankki dataset, all ${db.meta.rows_customers ?? ""} customers`.replace("  ", " "),
-    window: [db.meta.first_tx_date ?? "", lastCompleteMonthEnd.toISOString().slice(0, 10)],
+    source: `Synthetic S-Pankki dataset, all ${Number(db.meta.rows_customers ?? 0).toLocaleString("en-US")} customers`,
+    window: [`${db.meta.average_window_first_month ?? ""}-01`, windowEnd.toISOString().slice(0, 10)],
     bands,
   };
 }
@@ -89,7 +90,7 @@ export function loadEngineContext(db: FinanceDb, customerId: string): EngineCont
   // Source order is chronological and the running balance follows it.
   const tx = db.all<Transaction>(
     `SELECT customer_id, bank_account_id, tx_date, tx_timestamp, category, tx_amount_eur,
-            balance_after_eur, transaction_type, merchant_id, mcc_code
+            balance_after_eur, transaction_type, merchant_id, mcc_code, basket, basket_rule
      FROM transactions
      WHERE customer_id = :customerId AND tx_date <= :today
      ORDER BY tx_id`,

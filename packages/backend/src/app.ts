@@ -1,4 +1,10 @@
-import { ENGINE_FNS, TRANSACTION_CATEGORIES, type TransactionCategory, type TxFilter } from "@mydata/shared";
+import {
+  ENGINE_FNS,
+  EngineArgumentError,
+  TRANSACTION_CATEGORIES,
+  type TransactionCategory,
+  type TxFilter,
+} from "@mydata/shared";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
@@ -81,6 +87,7 @@ export function createApp(db: FinanceDb): Hono {
 
   app.onError((error, c) => {
     if (error instanceof HTTPException) return c.json({ error: error.message }, error.status);
+    if (error instanceof EngineArgumentError) return c.json({ error: error.message }, 400);
     console.error(error);
     return c.json({ error: "Internal error" }, 500);
   });
