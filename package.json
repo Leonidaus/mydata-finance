@@ -6,12 +6,17 @@
     "packages/*"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12"
   },
   "scripts": {
-    "typecheck": "tsc -b packages/shared"
+    "dev": "npm run dev -w @mydata/app --",
+    "build": "npm run build -w @mydata/app --",
+    "typecheck": "tsc -p packages/shared/tsconfig.json --noEmit && npm run typecheck -w @mydata/app",
+    "test": "vitest run"
   },
   "devDependencies": {
-    "typescript": "^5.6.0"
+    "@types/node": "26.6.5",
+    "typescript": "^5.6.0",
+    "vitest": "5.0.5"
   }
 }

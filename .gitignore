@@ -29,4 +29,7 @@ data/raw/*.csv
 .DS_Store
 .vscode/
 .idea/
-data/
+data/raw/
+data/out/
+data/Junction-2026-S-pankki/
+__pycache__/
