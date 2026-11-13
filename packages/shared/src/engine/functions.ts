@@ -157,15 +157,40 @@ function dailySpend(ctx: EngineContext, args: Record<string, unknown>): EngineRe
 
 // ---------- payday, safe to spend, forecast ----------
 
-function nextPayday(ctx: EngineContext): string {
-  const salaryDays = ctx.tx.filter((t) => t.category === "Salary").map((t) => dayOfMonth(t.tx_date));
-  const day = Math.round(median(salaryDays)) || 1;
-  const candidate = (monthStart: string) => {
-    const last = dayOfMonth(endOfMonth(monthStart));
-    return `${monthStart.slice(0, 8)}${String(Math.min(day, last)).padStart(2, "0")}`;
-  };
-  const thisMonth = candidate(startOfMonth(ctx.today));
-  return thisMonth > ctx.today ? thisMonth : candidate(addMonths(startOfMonth(ctx.today), 1));
+/** The day of the month in `monthStart`'s month, clamped to that month's length. */
+function dayIn(monthStart: string, day: number): string {
+  const last = dayOfMonth(endOfMonth(monthStart));
+  return `${monthStart.slice(0, 8)}${String(Math.min(day, last)).padStart(2, "0")}`;
+}
+
+/**
+ * The usual salary day (median over the whole history) and the latest day it has arrived
+ * in the last 12 months. In the dataset salaries mostly come on one day but now and then
+ * at the end of the month instead, so both matter.
+ */
+function salaryDays(ctx: EngineContext): { usual: number; latest: number } {
+  const salaries = ctx.tx.filter((t) => t.category === "Salary");
+  const usual = Math.round(median(salaries.map((t) => dayOfMonth(t.tx_date)))) || 1;
+  const since = addMonths(startOfMonth(ctx.today), -12);
+  const recent = salaries.filter((t) => t.tx_date >= since).map((t) => dayOfMonth(t.tx_date));
+  return { usual, latest: Math.max(usual, ...recent) };
+}
+
+/**
+ * When the next salary is expected, and the latest date it might plausibly arrive instead.
+ * If the usual day has passed this month with no salary, it is expected on the late day.
+ */
+function nextPayday(ctx: EngineContext): { payday: string; latePayday: string } {
+  const { usual, latest } = salaryDays(ctx);
+  const thisMonth = startOfMonth(ctx.today);
+  const paidThisMonth = ctx.tx.some((t) => t.category === "Salary" && t.tx_date >= thisMonth);
+  if (!paidThisMonth) {
+    const late = dayIn(thisMonth, latest);
+    if (dayIn(thisMonth, usual) > ctx.today) return { payday: dayIn(thisMonth, usual), latePayday: late };
+    if (late > ctx.today) return { payday: late, latePayday: late };
+  }
+  const nextMonth = addMonths(thisMonth, 1);
+  return { payday: dayIn(nextMonth, usual), latePayday: dayIn(nextMonth, latest) };
 }
 
 /**
@@ -193,6 +218,12 @@ function currentBalance(ctx: EngineContext): number {
 function monthlyBasket(ctx: EngineContext, basket: Basket): number {
   const [from, to] = resolvePeriod("last_12_months", ctx.today);
   return sum(ctx.tx.filter((t) => inRange(t, from, to) && basketOf(t) === basket).map(out)) / monthsOfHistory(ctx);
+}
+
+/** The median size of the customer's unexpected-necessity purchases in the last 12 full months, or 0. */
+function typicalIrregularPurchase(ctx: EngineContext): number {
+  const [from, to] = resolvePeriod("last_12_months", ctx.today);
+  return median(ctx.tx.filter((t) => inRange(t, from, to) && basketOf(t) === "irregular").map(out));
 }
 
 /** Average spend per day over the last 3 full months for the transactions `pick` selects. */
@@ -226,14 +257,21 @@ interface Plan {
   essentialsPerDay: number;
   essentialsDue: number;
   everydayPerDay: number;
+  /** Held back for unexpected necessities: at least one typical such purchase. */
   buffer: number;
+  /** What unexpected necessities are expected to cost until payday on average; used by the forecast. */
+  expectedIrregular: number;
+  /** The latest date the salary might plausibly arrive; equals `payday` when it never comes late. */
+  latePayday: string;
+  /** Essentials and buffer for the days between `payday` and `latePayday`, kept back in case the salary is late. */
+  lateMargin: number;
   /** What is left for everyday spending until payday. */
   available: number;
 }
 
 function plan(ctx: EngineContext): Plan {
   const balance = currentBalance(ctx);
-  const payday = nextPayday(ctx);
+  const { payday, latePayday } = nextPayday(ctx);
   const daysLeft = Math.max(1, daysBetween(ctx.today, payday));
   const cycleStart = addMonths(payday, -1);
   const streams = detectStreams(ctx);
@@ -258,7 +296,11 @@ function plan(ctx: EngineContext): Plan {
   const essentialsPerDay = dailyRate(ctx, (t) => basketOf(t) === "regular" && !streamKeys.has(streamKey(t)));
   const essentialsDue = essentialsPerDay * daysLeft;
   const everydayPerDay = dailyRate(ctx, (t) => basketOf(t) === "everyday");
-  const buffer = (monthlyBasket(ctx, "irregular") * daysLeft) / 30;
+  const irregularPerDay = monthlyBasket(ctx, "irregular") / 30;
+  // Unexpected necessities come as single large purchases, so the buffer is at least the
+  // size of one typical such purchase, not only the monthly average spread over the days left.
+  const buffer = Math.max(irregularPerDay * daysLeft, typicalIrregularPurchase(ctx));
+  const lateMargin = (essentialsPerDay + irregularPerDay) * Math.max(0, daysBetween(payday, latePayday));
   return {
     balance,
     payday,
@@ -270,20 +312,30 @@ function plan(ctx: EngineContext): Plan {
     essentialsDue,
     everydayPerDay,
     buffer,
-    available: balance - billsDue - essentialsDue - savingDue - buffer,
+    expectedIrregular: irregularPerDay * daysLeft,
+    latePayday,
+    lateMargin,
+    available: balance - billsDue - essentialsDue - savingDue - buffer - lateMargin,
   };
 }
+
+/** The plan behind safe to spend and the forecast, exported for backtesting. */
+export { plan as planUntilPayday };
+export type { Plan };
 
 /** The assumptions behind a plan, in plain language. */
 function planAssumptions(ctx: EngineContext, p: Plan): string[] {
   const bills = p.due.filter((d) => !d.stream.saving).map((d) => `${d.stream.label} about €${Math.round(d.amount)}`);
   return [
     `Payday is taken to be ${p.payday}, from the day of the month your salary usually arrives.`,
+    ...(p.lateMargin > 0
+      ? [`Your salary has sometimes arrived as late as ${p.latePayday.slice(8)}th of the month, so essentials for those extra days are kept back as a margin.`]
+      : []),
     bills.length
       ? `Bills still expected before then: ${bills.join(", ")}.`
       : "No bills are expected before then: this pay cycle's housing and utilities are already paid.",
     `Groceries, transport and routine health costs are set aside at your average of the last 3 full months, about €${Math.round(p.essentialsPerDay)} a day.`,
-    `The buffer is your average for unexpected necessities over the last 12 months, about €${Math.round(monthlyBasket(ctx, "irregular"))} a month, for the days left.`,
+    `The buffer covers unexpected necessities: your average of the last 12 months (about €${Math.round(monthlyBasket(ctx, "irregular"))} a month) for the days left, or one typical such purchase if that is more.`,
     p.savingDue > 0
       ? `Your usual saving transfer of about €${Math.round(p.savingDue)} is treated as already committed.`
       : "No regular saving transfer is expected before payday.",
@@ -302,6 +354,7 @@ function safeToSpend(ctx: EngineContext, args: Record<string, unknown>): EngineR
     { term: "Groceries and other essentials until payday", amount: round2(-p.essentialsDue) },
     { term: "Planned saving before payday", amount: round2(-p.savingDue) },
     { term: "Buffer for unexpected necessities", amount: round2(-p.buffer) },
+    { term: "Margin in case your salary arrives late", amount: round2(-p.lateMargin) },
     { term: `Safe to spend until payday (${p.payday})`, amount: round2(p.available) },
   ];
   return {
@@ -373,10 +426,11 @@ function balanceForecast(ctx: EngineContext): EngineResult {
     for (; i < ctx.tx.length && ctx.tx[i].tx_date === d; i++) bal = ctx.tx[i].balance_after_eur;
     rows.push({ date: d, balance: round2(bal), kind: "Actual" });
   }
-  // Forecast: everyday spending and non-bill essentials at the recent daily rate, single bills
-  // on their due dates, and the buffer and several-times-a-month bills spread evenly.
+  // Forecast (a best estimate, without the safety margins safe-to-spend holds back): everyday
+  // spending and non-bill essentials at the recent daily rate, single bills on their due dates,
+  // and average unexpected necessities and several-times-a-month bills spread evenly.
   const spreadPerDay = sum(p.due.filter((x) => x.spread).map((x) => x.amount)) / p.daysLeft;
-  const perDay = p.everydayPerDay + p.essentialsPerDay + p.buffer / p.daysLeft + spreadPerDay;
+  const perDay = p.everydayPerDay + p.essentialsPerDay + p.expectedIrregular / p.daysLeft + spreadPerDay;
   let projected = p.balance;
   for (let d = addDays(ctx.today, 1); d <= p.payday; d = addDays(d, 1)) {
     projected -= perDay + sum(p.due.filter((x) => !x.spread && x.date === d).map((x) => x.amount));
