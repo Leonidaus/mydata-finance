@@ -150,7 +150,7 @@ becomes the Next.js app and `packages/backend` the finance engine and AI layer.
 ```
 packages/
   app/       # App (empty for now)
-  backend/   # Backend (empty for now)
+  backend/   # Voice service (ElevenLabs TTS/STT) + finance engine and AI layer
   infra/     # Infrastructure code (empty for now)
   shared/    # Dataset schema + shared types (the single source of truth)
 data/
