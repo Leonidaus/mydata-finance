@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "vitest";
 import { createApp } from "./app";
+import { resolveFromInvocationDir } from "./db";
 import { resolvePeriod } from "./finance/period";
 import type { SpendingResult } from "./finance/spending";
 import { createFixtureDb } from "./testing/fixture";
@@ -269,5 +270,13 @@ describe("serving the built app", () => {
 
   it("does not serve the app unless asked to", async () => {
     assert.equal((await app.request("/")).status, 404);
+  });
+});
+
+describe("paths from environment variables", () => {
+  it("resolves relative paths against the directory the command was typed in", () => {
+    // npm sets INIT_CWD to that directory and runs workspace scripts from the package.
+    assert.equal(resolveFromInvocationDir("packages/app/dist", { INIT_CWD: "/repo" }), "/repo/packages/app/dist");
+    assert.equal(resolveFromInvocationDir("/data/finance.sqlite", { INIT_CWD: "/repo" }), "/data/finance.sqlite");
   });
 });
