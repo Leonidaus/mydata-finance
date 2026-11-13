@@ -22,17 +22,18 @@ cdk.out/
 .env.*
 !.env.example
 
-# data (large CSVs are handled via Git LFS or downloaded separately)
-data/raw/*.csv
+# local source data and generated databases (prep scripts in data/prep stay tracked)
+data/raw/
+data/out/
+data/Junction-2026-S-pankki/
+
+# python
+__pycache__/
 
 # os / editors
 .DS_Store
 .vscode/
 .idea/
-data/raw/
-data/out/
-data/Junction-2026-S-pankki/
-__pycache__/
 
 # local deployment databases
 /deploy/
