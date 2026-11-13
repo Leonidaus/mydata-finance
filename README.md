@@ -5,9 +5,10 @@ Junction 2026. People ask questions about their own banking data and get answers
 they can inspect, in the spirit of MyData: their data, their questions, not charts
 the bank picked for them.
 
-> **Status: proposal.** This README describes a proposed starting direction and the
-> options we have. Nothing here is decided. The choices that need all three of us
-> are listed under [Open decisions](#open-decisions).
+> **Status: working prototype.** The app, the finance engine, the database build and
+> the API exist and are tested. The chat still uses keyword rules, not a language
+> model. See [Where things stand](#where-things-stand) for what is done and what is
+> next.
 
 ## The challenge in one paragraph
 
@@ -147,38 +148,53 @@ aggregates per basket, in each SQLite bundle. The app and the model then read
 labels instead of computing them — deterministic, testable, and every figure
 still opens the transactions behind it.
 
-## Proposed stack
+What was built from this: steps 1, 2, 4 and 5 are the rules in
+[Basket rules](#basket-rules), assigned in data prep and stored on each transaction
+as proposed. Step 3 found nothing in this dataset, since no customer pays one
+merchant a steady amount month after month. Step 6 is the payday logic behind safe
+to spend; see [Backtest](#backtest) for how well it holds.
 
-Rings are from the [SOK Tech Radar](https://s-group-dev.github.io/tech-radar/)
-(version 2025.5). The radar is SOK's, so S-Pankki may differ, and it has no AI
-entries at all.
+## Stack
 
-| Layer | Proposal | Radar | Why |
-|---|---|---|---|
-| App | Mobile-first web app: Next.js + React + TypeScript | ADOPT | Judges open it on their own phones from a QR code. A web view embeds in S-mobiili whether it is React Native or native. |
-| Styling | Styled components or CSS Modules | ADOPT / TRIAL | Tailwind is not on the radar. |
-| API | Next.js route handlers in TypeScript, described with OpenAPI | ADOPT | One deployable for app and API. |
-| Finance engine | Typed TypeScript functions: `spend_by`, `baskets`, `safe_to_spend`, `what_if`, `compare_to_peers`, `mortgage_readiness` | ADOPT (TypeScript, Node.js) | Deterministic and testable; the model only chooses which to call. |
-| Free exploration | A read-only SQL tool, with the query shown to the user | — | Keeps the "every answer shows its work" idea from the first skeleton. |
-| Database | PostgreSQL, one read-only role with row-level security per customer | Aurora is ADOPT | SQL written for Postgres ports to Aurora unchanged. |
-| AI | One provider interface; model to be decided (see below) | not on radar | Lets us compare models on the same test questions. |
-| Data prep | Python | ADOPT | CSV cleaning, recurring-payment detection, baskets, cohorts. |
-| Tests | Jest, React Testing Library, ESLint, Prettier | ADOPT | |
-| Deploy | One Docker container | ADOPT | Maps to ECS and Fargate. EC2 and Nginx are on HOLD. |
+What the prototype is built with. Rings are from the
+[SOK Tech Radar](https://s-group-dev.github.io/tech-radar/) (version 2025.5). The
+radar is SOK's, so S-Pankki may differ, and it has no AI entries at all.
+
+| Layer | What we use | Radar |
+|---|---|---|
+| App | Vite + React + TypeScript, mobile-first, Vega-Lite charts | React and TypeScript are ADOPT; Vite and Vega are not listed |
+| Finance engine | Pure TypeScript functions in `packages/shared`, used by both app and backend | ADOPT (TypeScript) |
+| API | Hono on Node.js, read-only | Node.js is ADOPT; Hono is not listed |
+| Database | One SQLite file with all customers, built by Python | not listed; Aurora would be the ADOPT choice in production |
+| Data prep | Python, standard library only | ADOPT |
+| Tests | Vitest | not listed; Jest is the ADOPT choice |
+| Deploy | One Docker container serving the API and the built app | ADOPT (Docker) |
+| AI | Not connected yet; the chat is a keyword mock | not on the radar |
 
 Production path for the pitch, not for the weekend: Lambda or Fargate, Aurora,
 DynamoDB for sessions and pinned cards, Kinesis for proactive nudges, CDK, GitLab.
 All of these are ADOPT.
 
-## Open decisions
+## Decisions
 
-| Decision | Option A (proposed) | Option B | What decides it |
-|---|---|---|---|
-| App shell | Next.js web app, embedded as a web view | React Native with Expo, as in the first skeleton | Whether one of us has shipped React Native, and whether S-mobiili is React Native (ask the mentors). |
-| Where data lives | Server-side Postgres | On the device in SQLite, with a stateless backend, as in the first skeleton | B has the stronger privacy story. A is faster to build, supports cohort benchmarks, and ports to Aurora. A middle path is SQLite in the browser for personal data plus a server for cohorts. |
-| Model | Open-weight model hosted in Europe (Verda or NVIDIA Nemotron) | Claude through the Anthropic API | A fits two tech challenges and the "bank data stays in Europe" pitch. B is the safer choice for reliable tool calling. We can build behind one interface and test both. |
-| API style | Plain route handlers + OpenAPI | GraphQL with Apollo | GraphQL is ADOPT and Apollo is TRIAL, but it is more setup than we need for a demo. |
-| Tech challenges | Verda + Nemotron, ElevenLabs if time allows | Add Aiven and Oxylabs | How much time we have after the core demo works. |
+Settled:
+
+| Decision | Outcome |
+|---|---|
+| App shell | Web app (Vite + React), not React Native. S-Pankki said where the feature would live in S-mobiili is not our concern. |
+| Where data lives | On the server, in SQLite. S-Pankki said data location and what the model may read are out of scope for the hackathon. The app can also run on 15 bundled fixture customers. |
+| Basket rules | One rule set, with groceries as a regular essential. See [Basket rules](#basket-rules). |
+| API style | Plain JSON routes, no GraphQL. |
+| Branches | Feature branches into `develop`; `main` only from `develop`. |
+
+Still open:
+
+| Decision | Options | What decides it |
+|---|---|---|
+| Model for the chat | Claude through the Anthropic API, or an open-weight model (NVIDIA Nemotron, Verda) | Which API keys we have and which tech challenges we enter. Planned for 14 November. |
+| Interface language | Finnish first with an English toggle, or English only | Time left once the chat works. |
+| Tech challenges | Verda + Nemotron, ElevenLabs, Aiven, Oxylabs | Time left after the core demo. |
+| Safe-to-spend cushion | Spend down to zero (now), or always keep a fixed cushion | Many customers hold large balances; see [Backtest](#backtest). |
 
 ## Tech challenges worth entering
 
@@ -195,23 +211,30 @@ Side challenges can be combined with the S-Pankki challenge. Shortlist:
 To check at the booths: whether Verda's inference API serves Nemotron (one
 integration would then cover both), and how ElevenLabs sounds in Finnish.
 
-## Suggested first steps
+## Where things stand
 
-A possible split for three people, to adjust when we talk:
+Done:
 
-1. **Data and finance engine.** Fix the prep script, load Postgres, detect recurring
-   payments, assign baskets, compute safe to spend, build cohort aggregates.
-2. **AI layer.** Provider interface, tool definitions, a set of test questions with
-   known answers, the first model comparison.
-3. **App.** Chat, answer cards, the pinned home view, Finnish and English.
+- Database build with basket labels, monthly summaries and peer cohorts for all
+  5,100 customers.
+- Finance engine with eleven functions, including safe to spend, safe to save,
+  what-if, forecast, peer comparison and goals. Every result carries a filter for
+  the transactions behind it, and estimates carry their assumptions.
+- API over the database: the engine for any customer, plus spending and summaries.
+- App with configurable cards, charts and transaction drill-downs.
+- A backtest of the forecast and safe to spend on all customers.
 
-First milestone for everyone: one customer asks "how much did I spend on taxis last
-month?" and gets a correct number that opens the transactions behind it.
+Next, in order:
 
-Questions for the S-Pankki mentors:
+1. Connect a language model to the chat: a server endpoint that lets the model call
+   the engine functions as tools. The engine already checks every argument.
+2. Add an app card for safe to save.
+3. Deploy (see [Deploy](#deploy)) and test the whole flow on a phone.
+4. Stretch: mortgage readiness, the multi-bank view, a voice mode, read-only SQL
+   exploration.
 
-- Is S-mobiili React Native or native, and can it host an embedded web view?
-- Is there any constraint on which model provider or cloud a real version could use?
+Not planned for the hackathon: authentication, per-customer access control and
+restricting which origins may call the API. See [Demo boundary](#demo-boundary).
 
 ## Branches
 
@@ -442,6 +465,45 @@ SQL data requests (`kind: "sql"`) are not supported yet and answer 501.
 
 The functions behind the endpoints take plain objects and return plain JSON, so
 they can be given to the model as tools unchanged.
+
+## Deploy
+
+One Docker image serves the API and the built app from the same address. The
+database is not in the image; mount the directory that holds it at `/data`.
+
+```bash
+docker build -t mydata-finance .
+docker run --rm -p 8787:8787 -v "$PWD/data/out:/data:ro" mydata-finance
+# open http://localhost:8787
+```
+
+The full database is 663 MB. For a host where that is awkward, build a small one
+that keeps only chosen customers' transactions. Peer cohorts are still computed
+from all 5,100 customers, so comparisons do not change:
+
+```bash
+python3 data/prep/build_database.py --raw data/raw --out deploy/finance.sqlite \
+  --keep-customers packages/app/public/fixtures/index.json   # the 15 demo customers, about 2 MB
+docker run --rm -p 8787:8787 -v "$PWD/deploy:/data:ro" mydata-finance
+```
+
+`--keep-customers` also accepts a comma-separated list of customer ids. The image
+reads `PORT`, `FINANCE_DB` and `STATIC_DIR`; the defaults suit the commands above.
+Without Docker, the same setup is `npm run build` followed by
+`STATIC_DIR=packages/app/dist npm run start -w @mydata/backend`.
+
+## Demo boundary
+
+This is a demo on synthetic data, not a secure banking service:
+
+- The API has no login. Anyone who can reach it can ask for any customer id.
+- It accepts requests from any origin, and the database holds every customer.
+- The app's fixture files are public static files.
+
+S-Pankki told us that where data lives, what a language model may read and how the
+feature fits into S-mobiili are theirs to solve after the hackathon. Before any use
+with real customer data, access would have to be tied to a logged-in customer, every
+query scoped to that customer, origins restricted, and what reaches the model defined.
 
 ## Getting started
 

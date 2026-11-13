@@ -45,7 +45,7 @@ function loadCohorts(db: FinanceDb): Cohorts | null {
   const windowEnd = new Date(`${db.meta.average_window_last_month ?? db.today.slice(0, 7)}-01T00:00:00Z`);
   windowEnd.setUTCMonth(windowEnd.getUTCMonth() + 1, 0);
   return {
-    source: `Synthetic S-Pankki dataset, all ${Number(db.meta.rows_customers ?? 0).toLocaleString("en-US")} customers`,
+    source: `Synthetic S-Pankki dataset, all ${Number(db.meta.cohort_customers ?? db.meta.rows_customers ?? 0).toLocaleString("en-US")} customers`,
     window: [`${db.meta.average_window_first_month ?? ""}-01`, windowEnd.toISOString().slice(0, 10)],
     bands,
   };
