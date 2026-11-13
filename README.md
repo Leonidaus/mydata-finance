@@ -24,8 +24,8 @@ Profiled from the four CSVs; these facts shape the design.
 
 - 3,626,755 transactions for 5,100 customers, one account each, from 2024-10-01 to
   2026-09-30. Every customer has the full 24 months, about 700 transactions.
-- 15 categories and 8 transaction types. Card purchases carry one of 37 merchant
-  category codes (MCC) and one of 516 synthetic merchant ids. There is no taxi
+- 15 categories and 8 transaction types. Card purchases carry one of 36 merchant
+  category codes (MCC) and one of 515 synthetic merchant ids. There is no taxi
   category: taxis are MCC 4121 inside Transportation.
 - Salary arrives once a month for everyone. Average income is €3,487 a month and
   average outflow €3,216. 26% of customers spend more than they earn on average,
@@ -183,6 +183,10 @@ Known issues in `csv_to_sqlite.py`, to fix first:
 - `tx_timestamp` stays in the source format (`03OCT24:09:04:04`), which does not
   sort as text. Convert it to ISO 8601.
 - It creates no indexes.
+
+The meaning of each merchant category code is in `packages/shared/src/mcc.json`
+(typed access through `lookupMcc` in `@mydata/shared`; Python can read the JSON
+directly).
 
 The enums in `packages/shared/src/schema.ts` (categories, transaction types,
 mortgage event types, rejection reasons) have been checked against the data and
