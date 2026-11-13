@@ -76,6 +76,43 @@ What should set us apart from a chat box on top of a pie chart:
 
 Out of scope for now: the multi-bank (PSD2) view, beyond a slide.
 
+## Suggested partitioning
+
+How to turn raw transactions into the three baskets: apply the easiest, most
+reliable signal first and let each step handle what the previous one cannot.
+
+1. **Direction of flow.** Split on the sign of `tx_amount_eur`: inflows (salary,
+   other income, invest withdrawals) vs outflows. Then split outflows into
+   spending vs saving — investment deposits and salary sweeps are saving.
+2. **Transaction type.** The 8 types classify almost everything except card
+   purchases: `housing_payment` and `utilities_payment` are regular essentials,
+   `investment_deposit` and `salary_sweep` are saving, `salary` and
+   `other_income` are income. Only `purchase` rows need real classification.
+3. **Recurrence on merchant id.** Group each customer's purchases by merchant
+   and look for monthly-ish spacing with similar amounts. Recurring payments
+   are essentials and subscriptions; large infrequent ones are unexpected
+   necessities; the small frequent remainder is everyday spending. Match on
+   merchant plus an approximate amount band — even rent varies in amount and day.
+4. **Amount band as tiebreaker.** Purchases of €500 or more cluster in Home &
+   Tech, Lifestyle, Travel and Health, so amount alone flags most surprises
+   when a merchant's history is too thin for recurrence detection.
+5. **MCC necessity class as fallback.** Group the 36 MCCs
+   (`packages/shared/src/mcc.json`) into needs (groceries, pharmacies, fuel) and
+   wants (restaurants, entertainment, travel) for purchases with no usable
+   merchant history.
+6. **Timing relative to payday.** Salary arrives monthly for everyone, so every
+   transaction can be expressed as "day N after payday". Essentials cluster
+   right after payday, and this is the basis for the safe-to-spend countdown.
+
+Separate from baskets: partitioning customers into cohorts by age band and
+postal area (00/01/02) powers the peer comparison.
+
+The logic lives in data prep, not in the app: assign each transaction its
+basket once in the Python stage and store it as a derived column, plus monthly
+aggregates per basket, in each SQLite bundle. The app and the model then read
+labels instead of computing them — deterministic, testable, and every figure
+still opens the transactions behind it.
+
 ## Proposed stack
 
 Rings are from the [SOK Tech Radar](https://s-group-dev.github.io/tech-radar/)
