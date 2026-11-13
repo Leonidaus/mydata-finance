@@ -9,7 +9,10 @@ export interface Transaction {
   bank_account_id: string;
   /** ISO date, e.g. "2024-10-03" */
   tx_date: string;
-  /** SAS-style timestamp in source data, e.g. "03OCT24:09:04:04" */
+  /**
+   * ISO 8601 in the SQLite bundle, e.g. "2024-10-03T09:04:04".
+   * The source CSV uses "03OCT24:09:04:04"; data/prep converts it.
+   */
   tx_timestamp: string;
   category: TransactionCategory;
   /** Negative = money out, positive = money in */
@@ -73,6 +76,7 @@ export type MortgageEventType =
 
 export interface MortgageEvent {
   mortgage_customer_id: string;
+  /** ISO 8601 in the SQLite bundle, converted from the source format like tx_timestamp. */
   timestamp: string;
   event_type: MortgageEventType;
   property_id: string | null;
