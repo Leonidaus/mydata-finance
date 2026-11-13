@@ -6,10 +6,10 @@
 import {
   type Block,
   type DashboardOp,
-  type EngineContext,
+  type EngineFn,
+  type EngineResult,
   type Period,
   PERIODS,
-  runEngine,
   SPENDING_CATEGORIES,
   type TemplateId,
 } from "@mydata/shared";
@@ -20,6 +20,9 @@ export interface AgentReply {
   text: string;
   ops: DashboardOp[];
 }
+
+/** Runs an engine function for the customer being answered, through the app's data source. */
+export type RunEngine = (fn: EngineFn, args?: Record<string, unknown>) => Promise<EngineResult>;
 
 const CATEGORY_WORDS: [RegExp, string][] = [
   [/restaurant|dining|eating out|eat out|takeaway|coffee|cafe/, "Restaurants"],
@@ -72,7 +75,7 @@ function place(blocks: Block[], block: Block): DashboardOp[] {
   return [{ op: "add_block", block, index: 0 }];
 }
 
-export function respond(question: string, blocks: Block[], ctx: EngineContext): AgentReply {
+export async function respond(question: string, blocks: Block[], run: RunEngine): Promise<AgentReply> {
   const q = question.toLowerCase();
   const category = findCategory(q);
   const period = findPeriod(q);
@@ -87,7 +90,7 @@ export function respond(question: string, blocks: Block[], ctx: EngineContext): 
 
   if (/taxi/.test(q)) {
     const p = period ?? "last_month";
-    const r = runEngine(ctx, "spendBy", { period: p, by: "merchant_type", category: "Transportation" });
+    const r = await run("spendBy", { period: p, by: "merchant_type", category: "Transportation" });
     const taxi = r.rows.find((row) => row.key === "4121");
     const block = catalog.categoryBars({ period: p, category: "Transportation", title: "Transportation by merchant type" });
     return {
@@ -100,7 +103,7 @@ export function respond(question: string, blocks: Block[], ctx: EngineContext): 
 
   if (/safe to spend|safe-to-spend|can i spend|afford this week|how much can i/.test(q)) {
     const horizon = /payday|month/.test(q) ? "until_payday" : "week";
-    const r = runEngine(ctx, "safeToSpend", { horizon });
+    const r = await run("safeToSpend", { horizon });
     return {
       text: `${formatEur(r.value ?? 0)} is safe to spend ${horizon === "week" ? "this week" : "until payday"}. ${r.caption}. The card shows how I got there.`,
       ops: place(blocks, catalog.safeToSpend(horizon)),
@@ -110,7 +113,7 @@ export function respond(question: string, blocks: Block[], ctx: EngineContext): 
   if (/\b(save|cut|reduce|less|fewer)\b/.test(q) && (findPercent(q) !== undefined || category)) {
     const cat = category ?? "Restaurants";
     const pct = findPercent(q) ?? 20;
-    const r = runEngine(ctx, "whatIf", { category: cat, cutPct: pct });
+    const r = await run("whatIf", { category: cat, cutPct: pct });
     return {
       text: `${r.caption}, which is ${formatEur(r.value ?? 0)} over a year. Drag the slider on the card to try other cuts.`,
       ops: place(blocks, catalog.whatIf(cat, pct)),
@@ -118,7 +121,7 @@ export function respond(question: string, blocks: Block[], ctx: EngineContext): 
   }
 
   if (/kind of spender|spender am i|where does my money go|basket/.test(q)) {
-    const r = runEngine(ctx, "baskets", { period: period ?? "last_3_months" });
+    const r = await run("baskets", { period: period ?? "last_3_months" });
     const total = r.value || 1;
     const share = (b: string) => Math.round(((r.rows.find((x) => x.basket === b)?.amount as number) / total) * 100);
     const everyday = share("everyday");
@@ -134,19 +137,19 @@ export function respond(question: string, blocks: Block[], ctx: EngineContext): 
   }
 
   if (/bill|subscription|recurring|regular payment|fixed cost/.test(q)) {
-    const r = runEngine(ctx, "recurring");
+    const r = await run("recurring");
     return { text: `I found ${r.rows.length} regular payments, about ${formatEur(r.value ?? 0)} a month in bills.`, ops: place(blocks, catalog.recurring()) };
   }
 
   if (/goal|mortgage|down payment|emergency fund|saving for/.test(q)) {
     const target = /€|eur|\d{3,}/.test(q) ? findEuros(q) : undefined;
     const label = /emergency/.test(q) ? "Emergency fund" : /mortgage|down payment|flat|home/.test(q) ? "Mortgage down payment" : target ? "Savings goal" : undefined;
-    const r = runEngine(ctx, "goalProgress", { ...(target ? { target } : {}), ...(label ? { label } : {}) });
+    const r = await run("goalProgress", { ...(target ? { target } : {}), ...(label ? { label } : {}) });
     return { text: `${r.rows[0].label}: ${Math.round(r.value ?? 0)}% there. ${r.caption}.`, ops: place(blocks, catalog.goal(target, label)) };
   }
 
   if (/forecast|payday|balance|end of (the )?month|run out/.test(q)) {
-    const r = runEngine(ctx, "balanceForecast");
+    const r = await run("balanceForecast");
     return { text: `${r.caption}: about ${formatEur(r.value ?? 0)}.`, ops: place(blocks, catalog.forecast()) };
   }
 
@@ -161,7 +164,7 @@ export function respond(question: string, blocks: Block[], ctx: EngineContext): 
 
   if (category || /spend|spent|cost/.test(q)) {
     const p = period ?? "last_month";
-    const r = runEngine(ctx, "spendBy", { period: p, category: category ?? "" });
+    const r = await run("spendBy", { period: p, category: category ?? "" });
     return {
       text: `You spent ${formatEur(r.value ?? 0)}${category ? ` on ${category}` : " in total"} (${PERIODS[p].toLowerCase()}).`,
       ops: place(blocks, catalog.categoryBars({ period: p, category })),
