@@ -142,6 +142,28 @@ Questions for the S-Pankki mentors:
 - Is S-mobiili React Native or native, and can it host an embedded web view?
 - Is there any constraint on which model provider or cloud a real version could use?
 
+## Branches
+
+- `main` is always demo-ready. It only receives merges from `develop`.
+- `develop` is the integration branch. Start new work from it and open pull
+  requests into it.
+- Work happens on short-lived branches named `feature/<short-name>`, for example
+  `feature/safe-to-spend`.
+
+```bash
+git switch develop && git pull          # start from the latest develop
+git switch -c feature/<short-name>      # do the work, commit
+git fetch origin && git rebase origin/develop
+git push -u origin feature/<short-name>
+gh pr create --base develop             # or open the pull request on GitHub
+```
+
+Keep pull requests small and merge them quickly; a teammate's quick look is enough.
+We merge `develop` into `main` whenever a demoable milestone works.
+
+Until the repository's default branch is changed to `develop`, GitHub proposes
+`main` as the target of a new pull request. Pick `develop` as the base.
+
 ## Repo layout
 
 Current layout from the first skeleton. If we go with Next.js, `packages/app`
