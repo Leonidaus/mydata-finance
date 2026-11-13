@@ -312,9 +312,11 @@ Both scripts need Python 3.10 or newer and no extra packages. In a bundle:
 - Transactions keep the source file order, which is also chronological; the
   running balance follows it.
 
-The web app currently runs without a backend on demo fixtures (3 personas plus 12 random
-customers, cut at the demo "today" 2026-09-15, plus peer averages by age band). They are
-committed under `packages/app/public/fixtures/`; rebuild them with:
+The web app also ships demo fixtures (3 personas plus 12 random customers, cut at
+the demo "today" 2026-09-15, plus peer averages by age band). They fill the customer
+picker, and in fixture mode (`VITE_DATA_SOURCE=fixtures`) the app runs on them
+without a backend. They are committed under `packages/app/public/fixtures/`;
+rebuild them with:
 
 ```bash
 python3 data/prep/build_fixtures.py --raw data/raw --out packages/app/public/fixtures
