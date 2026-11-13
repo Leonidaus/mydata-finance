@@ -184,6 +184,14 @@ so one customer takes about two seconds. In the bundle:
 - Transactions keep the source file order, which is also chronological; the
   running balance follows it.
 
+The web app currently runs without a backend on demo fixtures (3 personas plus 12 random
+customers, cut at the demo "today" 2026-09-15, plus peer averages by age band). They are
+committed under `packages/app/public/fixtures/`; rebuild them with:
+
+```bash
+python3 data/prep/build_fixtures.py --raw data/raw --out packages/app/public/fixtures
+```
+
 If you read the CSVs yourself: they start with a UTF-8 BOM, so use `utf-8-sig`.
 
 The meaning of each merchant category code is in `packages/shared/src/mcc.json`
@@ -213,4 +221,5 @@ npm install
 npm run dev          # web app on http://localhost:5173 (add `-- --host` to test on a phone, trusted networks only)
 npm run typecheck    # type-checks packages/shared and packages/app
 npm run build        # production build of the app
+npm test             # finance engine tests (vitest)
 ```
