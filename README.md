@@ -205,14 +205,14 @@ becomes the Next.js app and `packages/backend` the finance engine and AI layer.
 
 ```
 packages/
-  app/       # Vite + React web app, mobile-first (prototype: landing page + chat box)
-  backend/   # Backend (empty for now)
+  app/       # Vite + React web app, mobile-first
+  backend/   # Finance API: Node + TypeScript server over the SQLite database
   infra/     # Infrastructure code (empty for now)
   shared/    # Dataset schema + shared types (the single source of truth)
 data/
   raw/       # Local source CSVs (gitignored; see "Data" below)
-  out/       # Generated per-customer SQLite bundles (gitignored)
-  prep/      # Python: CSV → per-customer SQLite bundle
+  out/       # Generated databases (gitignored)
+  prep/      # Python: CSV → application database, or a per-customer bundle
 ```
 
 ## Data
@@ -221,15 +221,27 @@ The source dataset lives in a separate repo:
 `git@github.com:hackjunction/Junction-2026-S-pankki.git` (Git LFS required).
 
 Download the four CSVs from there and place them in `data/raw/`. Both `data/raw/`
-and the generated bundles in `data/out/` are gitignored. Build a per-customer
-bundle with:
+and everything generated in `data/out/` are gitignored.
+
+Build the application database, which the backend reads:
+
+```bash
+python3 data/prep/build_database.py --raw data/raw --out data/out/finance.sqlite
+```
+
+This takes about 20 seconds and writes a 665 MB file with all 5,100 customers. On
+top of the four source tables it adds a basket label on every transaction, a
+monthly summary per customer, per-customer averages, and percentiles per cohort
+(age band and postal area). `--today` sets the demo's fixed current date (default
+`2026-09-15`); the summaries ignore later transactions.
+
+To extract a single customer into a small bundle instead:
 
 ```bash
 python3 data/prep/csv_to_sqlite.py --raw data/raw --out data/out/CUST00001.sqlite --customer CUST00001
 ```
 
-The script needs Python 3.10 or newer and no extra packages. It streams the CSVs,
-so one customer takes about two seconds. In the bundle:
+Both scripts need Python 3.10 or newer and no extra packages. In a bundle:
 
 - Tables are `transactions`, `customer`, `mortgage_outcomes` and `mortgage_events`
   (the last two are empty unless the customer has a mortgage application).
@@ -258,6 +270,92 @@ The enums in `packages/shared/src/schema.ts` (categories, transaction types,
 mortgage event types, rejection reasons) have been checked against the data and
 match exactly.
 
+## Basket rules (version 1)
+
+Assigned in one place, `classify` in `data/prep/build_database.py`, and stored on
+each transaction as `flow`, `basket` and `basket_rule`. They are a first version,
+to adjust when S-Pankki tells us how they define the baskets.
+
+| Transaction | Flow | Basket |
+|---|---|---|
+| Salary, other income | income | — |
+| Investment deposit, salary sweep | saving | — |
+| Investment withdrawal | saving withdrawal | — |
+| Housing, utilities | spending | essential |
+| Groceries | spending | essential |
+| Transportation, except taxis | spending | essential |
+| Taxis (MCC 4121) | spending | everyday |
+| Health under €100 | spending | essential |
+| Health of €100 or more | spending | unexpected |
+| Home & Tech of €500 or more | spending | unexpected |
+| Home & Tech under €500 | spending | everyday |
+| Restaurants, Entertainment, Lifestyle, Travel | spending | everyday |
+
+With these rules the average customer spends €1,905 a month on essentials, €170 on
+unexpected necessities and €844 on everyday spending, and saves €298.
+
+Recurring payments cannot be detected per merchant in this dataset: no customer
+pays the same merchant a steady amount month after month. What recurs is visible
+from the transaction type alone (housing, utilities, salary, investment deposits).
+
+## Backend
+
+`packages/backend` is a small read-only API over `data/out/finance.sqlite`. Build
+the database first (see Data), then:
+
+```bash
+npm install
+npm run dev -w @mydata/backend     # http://localhost:8787, restarts on changes
+npm test                           # engine and backend tests; the backend ones use a small built-in fixture
+```
+
+It uses Node's built-in SQLite driver, which prints an "experimental" warning on
+Node 22. `PORT` and `FINANCE_DB` override the port and the database path. All
+answers are cut off at the demo's "today", so later transactions never appear.
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/health` | Row counts and the demo's today |
+| `GET /api/customers?limit=20&mortgage=true` | Customer profiles, for a customer picker |
+| `GET /api/customers/:id` | Profile, current balance, monthly averages per basket |
+| `GET /api/customers/:id/summary?months=12` | Month-by-month income, baskets, saving and balance |
+| `GET /api/customers/:id/spending` | Total spent, with the transactions behind it |
+| `GET /api/customers/:id/engine/:fn` | One finance engine function, arguments in the query string |
+| `POST /api/data` | A dashboard block's data request: `{ customerId, data: { kind: "engine", fn, args } }` |
+| `POST /api/transactions` | The transactions behind an engine result: `{ customerId, filter, limit }` |
+
+The spending endpoint takes `period` (`this_month`, `last_month`, `last_30_days`,
+`last_3_months`, `last_12_months`, `this_year`, `all`) or `from` and `to`, and the
+optional filters `category`, `mcc` and `basket`. `groupBy` (`category`, `mcc`,
+`basket`, `month`) adds a breakdown, and `limit` caps the transactions returned.
+"How much did I spend on taxis last month?" is:
+
+```bash
+curl 'http://localhost:8787/api/customers/CUST04488/spending?mcc=4121&period=last_month'
+```
+
+The engine endpoints run the finance engine from `packages/shared/src/engine` for
+any of the 5,100 customers: `spendBy`, `monthlyTrend`, `baskets`, `safeToSpend`,
+`balanceForecast`, `whatIf`, `peerCompare`, `dailySpend`, `recurring` and
+`goalProgress`. The app runs the same engine on its 15 fixture customers; for those
+customers the backend gives identical results for every function.
+
+```bash
+curl 'http://localhost:8787/api/customers/CUST03004/engine/safeToSpend'
+curl 'http://localhost:8787/api/customers/CUST03004/engine/whatIf?category=Restaurants&cutPct=20'
+```
+
+SQL data requests (`kind: "sql"`) are not supported yet and answer 501.
+
+Two basket definitions exist for now and still need to be unified. The engine
+(`basketOf` in `packages/shared/src/engine/streams.ts`) uses regular / irregular /
+everyday, with groceries and transport as everyday and a per-customer threshold for
+irregular purchases. The database labels and the `spending` and `summary` endpoints
+use the rules in the section above.
+
+The functions behind the endpoints take plain objects and return plain JSON, so
+they can be given to the model as tools unchanged.
+
 ## Getting started
 
 Node version is pinned in `.nvmrc` (Node 26 LTS), and `.npmrc` sets `engine-strict` so installs fail fast on an old Node.
@@ -275,7 +373,8 @@ Then:
 ```bash
 npm install
 npm run dev          # web app on http://localhost:5173 (add `-- --host` to test on a phone, trusted networks only)
-npm run typecheck    # type-checks packages/shared and packages/app
+npm run dev -w @mydata/backend   # finance API on http://localhost:8787 (build the database first)
+npm run typecheck    # type-checks shared, app and backend
 npm run build        # production build of the app
-npm test             # finance engine tests (vitest)
+npm test             # finance engine and backend tests (vitest)
 ```
