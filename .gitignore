@@ -33,3 +33,6 @@ data/raw/
 data/out/
 data/Junction-2026-S-pankki/
 __pycache__/
+
+# local deployment databases
+/deploy/

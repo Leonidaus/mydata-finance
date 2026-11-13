@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it } from "vitest";
 import { createApp } from "./app";
+import { resolveFromInvocationDir } from "./db";
 import { resolvePeriod } from "./finance/period";
 import type { SpendingResult } from "./finance/spending";
 import { createFixtureDb } from "./testing/fixture";
@@ -239,5 +243,40 @@ describe("summary definitions", () => {
     assert.equal(august.net, 1427.5); // 2500 income - 1072.50 spending
     assert.equal(august.balanceChange, 1227.5); // net minus the 200 moved to savings
     assert.equal(august.regular, 780);
+  });
+});
+
+describe("serving the built app", () => {
+  const dir = mkdtempSync(join(tmpdir(), "mydata-static-"));
+  writeFileSync(join(dir, "index.html"), "<!doctype html><title>app</title>");
+  writeFileSync(join(dir, "app.js"), "console.log(1)");
+  const withApp = createApp(createFixtureDb(), { staticDir: dir });
+
+  it("serves files and falls back to the index page for app routes", async () => {
+    assert.match(await (await withApp.request("/")).text(), /<title>app<\/title>/);
+    assert.equal(await (await withApp.request("/app.js")).text(), "console.log(1)");
+    const deepLink = await withApp.request("/some/app/route");
+    assert.equal(deepLink.status, 200);
+    assert.match(await deepLink.text(), /<title>app<\/title>/);
+  });
+
+  it("keeps API routes and API 404s as JSON", async () => {
+    const health = await withApp.request("/api/health");
+    assert.equal(((await health.json()) as { ok: boolean }).ok, true);
+    const missing = await withApp.request("/api/nope");
+    assert.equal(missing.status, 404);
+    assert.deepEqual(await missing.json(), { error: "Not found" });
+  });
+
+  it("does not serve the app unless asked to", async () => {
+    assert.equal((await app.request("/")).status, 404);
+  });
+});
+
+describe("paths from environment variables", () => {
+  it("resolves relative paths against the directory the command was typed in", () => {
+    // npm sets INIT_CWD to that directory and runs workspace scripts from the package.
+    assert.equal(resolveFromInvocationDir("packages/app/dist", { INIT_CWD: "/repo" }), "/repo/packages/app/dist");
+    assert.equal(resolveFromInvocationDir("/data/finance.sqlite", { INIT_CWD: "/repo" }), "/data/finance.sqlite");
   });
 });

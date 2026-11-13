@@ -5,6 +5,7 @@ import {
   type TransactionCategory,
   type TxFilter,
 } from "@mydata/shared";
+import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
@@ -79,7 +80,15 @@ function engineArgsFromQuery(query: Record<string, string>): Record<string, unkn
   );
 }
 
-export function createApp(db: FinanceDb): Hono {
+export interface AppOptions {
+  /**
+   * Directory of the built web app (packages/app/dist). When given, the server also serves
+   * the app, so one process and one origin cover both the interface and the API.
+   */
+  staticDir?: string;
+}
+
+export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
   const app = new Hono();
 
   // The data is synthetic and the API read-only, so any origin may call it during the demo.
@@ -214,6 +223,15 @@ export function createApp(db: FinanceDb): Hono {
     if (!result) throw new HTTPException(404, { message: "Customer not found" });
     return c.json(result);
   });
+
+  if (options.staticDir) {
+    // Everything that is not an API route is the web app; unknown paths fall back to its
+    // index page so client-side navigation works after a reload.
+    app.use("*", async (c, next) => (c.req.path.startsWith("/api/") ? next() : serveStatic({ root: options.staticDir })(c, next)));
+    app.get("*", async (c, next) =>
+      c.req.path.startsWith("/api/") ? next() : serveStatic({ root: options.staticDir, path: "index.html" })(c, next),
+    );
+  }
 
   return app;
 }

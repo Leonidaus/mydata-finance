@@ -27,6 +27,7 @@ the same window the engine uses for a customer's own monthly averages.
 """
 
 import argparse
+import json
 import os
 import sqlite3
 import sys
@@ -321,7 +322,32 @@ def build_cohort_stats(conn: sqlite3.Connection) -> int:
     return len(rows)
 
 
-def build(raw: Path, out: Path, today: str) -> None:
+def keep_only(conn: sqlite3.Connection, customer_ids: list[str]) -> int:
+    """Drop the transactions and per-customer rows of everyone not in `customer_ids`.
+
+    Cohort statistics stay as computed from all customers, so peer comparisons are
+    unchanged. Returns the number of customers kept.
+    """
+    conn.execute("CREATE TEMP TABLE keep (customer_id TEXT PRIMARY KEY)")
+    conn.executemany("INSERT OR IGNORE INTO keep VALUES (?)", [(c,) for c in customer_ids])
+    (kept,) = conn.execute(
+        "SELECT count(*) FROM customers WHERE customer_id IN (SELECT customer_id FROM keep)"
+    ).fetchone()
+    if kept != len(set(customer_ids)):
+        raise SystemExit("--keep-customers names customers that are not in the data")
+    conn.execute(
+        """DELETE FROM mortgage_events WHERE mortgage_customer_id IN (
+               SELECT mortgage_customer_id FROM mortgage_outcomes
+               WHERE customer_id NOT IN (SELECT customer_id FROM keep))"""
+    )
+    for table in ("transactions", "customers", "mortgage_outcomes", "monthly_summary",
+                  "customer_profile", "customer_category_avg"):
+        conn.execute(f"DELETE FROM {table} WHERE customer_id NOT IN (SELECT customer_id FROM keep)")
+    conn.execute("DROP TABLE keep")
+    return kept
+
+
+def build(raw: Path, out: Path, today: str, keep_customers: list[str] | None = None) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     partial = out.with_name(out.name + ".partial")
     partial.unlink(missing_ok=True)
@@ -346,6 +372,13 @@ def build(raw: Path, out: Path, today: str) -> None:
         cohort_rows = build_cohort_stats(conn)
         print(f"  built summaries and cohorts ({time.monotonic() - started:.0f}s)", flush=True)
 
+        source_customers = counts["customers"]
+        if keep_customers:
+            counts["customers"] = keep_only(conn, keep_customers)
+            (counts["transactions"],) = conn.execute("SELECT count(*) FROM transactions").fetchone()
+            for table in ("mortgage_outcomes", "mortgage_events"):
+                (counts[table],) = conn.execute(f"SELECT count(*) FROM {table}").fetchone()
+
         conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
         meta = {
             "demo_today": today,
@@ -358,10 +391,13 @@ def build(raw: Path, out: Path, today: str) -> None:
             "average_window_months": window_months,
             "average_window_first_month": window_first,
             "average_window_last_month": window_last,
+            "cohort_customers": source_customers,
             **{f"rows_{table}": count for table, count in counts.items()},
         }
         conn.executemany("INSERT INTO meta VALUES (?, ?)", [(k, str(v)) for k, v in meta.items()])
         conn.commit()
+        if keep_customers:
+            conn.execute("VACUUM")
         conn.execute("ANALYZE")
         conn.commit()
     except BaseException:
@@ -373,7 +409,8 @@ def build(raw: Path, out: Path, today: str) -> None:
 
     print(
         f"Wrote {out} ({out.stat().st_size / 1e6:.0f} MB) in {time.monotonic() - started:.0f}s: "
-        f"{counts['transactions']:,} transactions, {counts['customers']:,} customers, "
+        f"{counts['transactions']:,} transactions, {counts['customers']:,} customers "
+        f"(cohorts from {source_customers:,}), "
         f"averages over {window_first} to {window_last}, {cohort_rows} cohort rows"
     )
 
@@ -386,7 +423,21 @@ def main() -> None:
         "--today", default=DEFAULT_TODAY,
         help=f"The demo's fixed current date, YYYY-MM-DD (default {DEFAULT_TODAY})",
     )
+    parser.add_argument(
+        "--keep-customers", metavar="IDS",
+        help="Comma-separated customer ids, or a path to the app's fixtures index.json. "
+             "Keeps only their transactions, for a small database to deploy; cohort "
+             "statistics are still computed from all customers.",
+    )
     args = parser.parse_args()
+
+    keep = None
+    if args.keep_customers:
+        if Path(args.keep_customers).is_file():
+            index = json.loads(Path(args.keep_customers).read_text())
+            keep = [p["customer_id"] for p in index["presets"]] + list(index["pool"])
+        else:
+            keep = [c.strip() for c in args.keep_customers.split(",") if c.strip()]
 
     try:
         date.fromisoformat(args.today)
@@ -396,7 +447,7 @@ def main() -> None:
     if missing:
         sys.exit(f"Missing in {args.raw}: {', '.join(missing)}")
 
-    build(args.raw, args.out, args.today)
+    build(args.raw, args.out, args.today, keep)
 
 
 if __name__ == "__main__":
