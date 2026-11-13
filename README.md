@@ -205,7 +205,7 @@ becomes the Next.js app and `packages/backend` the finance engine and AI layer.
 
 ```
 packages/
-  app/       # App (empty for now)
+  app/       # Vite + React web app, mobile-first
   backend/   # Finance API: Node + TypeScript server over the SQLite database
   infra/     # Infrastructure code (empty for now)
   shared/    # Dataset schema + shared types (the single source of truth)
@@ -251,6 +251,14 @@ Both scripts need Python 3.10 or newer and no extra packages. In a bundle:
   (`03OCT24:09:04:04`), so they sort correctly.
 - Transactions keep the source file order, which is also chronological; the
   running balance follows it.
+
+The web app currently runs without a backend on demo fixtures (3 personas plus 12 random
+customers, cut at the demo "today" 2026-09-15, plus peer averages by age band). They are
+committed under `packages/app/public/fixtures/`; rebuild them with:
+
+```bash
+python3 data/prep/build_fixtures.py --raw data/raw --out packages/app/public/fixtures
+```
 
 If you read the CSVs yourself: they start with a UTF-8 BOM, so use `utf-8-sig`.
 
@@ -329,8 +337,23 @@ unchanged.
 
 ## Getting started
 
+Node version is pinned in `.nvmrc` (Node 26 LTS), and `.npmrc` sets `engine-strict` so installs fail fast on an old Node.
+Use any version manager that reads `.nvmrc`; [fnm](https://github.com/Schniz/fnm) is recommended (Linux, macOS, Windows):
+
 ```bash
-npm install                              # installs all workspace packages
-npm run typecheck                        # type-checks packages/shared
-npm run typecheck -w @mydata/backend     # type-checks the backend
+curl -fsSL https://fnm.vercel.app/install | bash
+# in ~/.bashrc, so fnm switches Node automatically when you cd into the repo:
+eval "$(fnm env --use-on-cd --shell bash)"
+fnm install            # installs the version from .nvmrc
+```
+
+Then:
+
+```bash
+npm install
+npm run dev          # web app on http://localhost:5173 (add `-- --host` to test on a phone, trusted networks only)
+npm run dev -w @mydata/backend   # finance API on http://localhost:8787 (build the database first)
+npm run typecheck    # type-checks shared, app and backend
+npm run build        # production build of the app
+npm test             # finance engine and backend tests (vitest)
 ```
