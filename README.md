@@ -525,5 +525,23 @@ npm run dev          # web app on http://localhost:5173 (add `-- --host` to test
 npm run dev -w @mydata/backend   # finance API on http://localhost:8787 (build the database first)
 npm run typecheck    # type-checks shared, app and backend
 npm run build        # production build of the app
-npm test             # finance engine and backend tests (vitest)
+npm test             # finance engine, backend and app data-layer tests (vitest)
 ```
+
+### Data source modes
+
+The web app reads everything through one data contract (`packages/app/src/sources/types.ts`)
+with two implementations, chosen with `VITE_DATA_SOURCE` when Vite starts or builds:
+
+- `api` (default): the backend's `/api`, so all 5,100 customers work and the engine runs on
+  the server. It is the default because it is the integrated path the demo uses. Start the
+  backend as well; without it the app shows an error with a retry button.
+- `fixtures`: the 15 static demo customers with the engine in the browser. No backend or
+  database needed: `VITE_DATA_SOURCE=fixtures npm run dev`.
+
+In API mode the app calls `/api` on its own origin, and the Vite dev and preview servers
+forward that to `http://localhost:8787` (`API_PROXY_TARGET=http://localhost:9000 npm run dev`
+forwards elsewhere). To call a backend directly instead, set `VITE_API_BASE`, for example
+`VITE_API_BASE=http://localhost:8787`. Both variables can also go in
+`packages/app/.env.local`; see `packages/app/.env.example`. The customer picker lists the
+fixture personas and pool in both modes.
