@@ -13,6 +13,7 @@ import {
   SPENDING_CATEGORIES,
   type TemplateId,
 } from "@mydata/shared";
+import { custom } from "../blocks/custom";
 import { catalog } from "../catalog";
 import { formatEur } from "../format";
 
@@ -75,6 +76,36 @@ function place(blocks: Block[], block: Block): DashboardOp[] {
   return [{ op: "add_block", block, index: 0 }];
 }
 
+/** Example prompts for the chat chips and the dev gallery, grouped by the kind of block they create. */
+export const DEMO_PROMPTS: { group: string; note: string; prompts: string[] }[] = [
+  {
+    group: "Templates",
+    note: "Ready-made views; the AI only picks the template and its arguments.",
+    prompts: [
+      "How much did I spend on taxis last month?",
+      "What is safe for me to spend this week?",
+      "What kind of spender am I?",
+      "What if I cut eating out by 20%?",
+      "Show my bills",
+      "How am I doing on my savings goal?",
+      "Will I run out before payday?",
+      "Show my income per month",
+      "Show my spending per day",
+      "How does my grocery spending compare with people my age?",
+    ],
+  },
+  {
+    group: "Custom chart (Vega-Lite spec)",
+    note: "No template fits, so the AI writes a Vega-Lite spec; the app injects the engine rows.",
+    prompts: ["Show my spending as a donut chart", "Which day of the week do I spend the most?", "Am I spending faster than in previous months?"],
+  },
+  {
+    group: "Custom widget (sandboxed iframe)",
+    note: "The AI writes HTML/JS that runs in a sandboxed iframe with no network access and gets the rows by postMessage.",
+    prompts: ["Where does each €100 I spend go?", "Print last month as a receipt"],
+  },
+];
+
 export async function respond(question: string, blocks: Block[], run: RunEngine): Promise<AgentReply> {
   const q = question.toLowerCase();
   const category = findCategory(q);
@@ -101,7 +132,63 @@ export async function respond(question: string, blocks: Block[], run: RunEngine)
     };
   }
 
-  if (/safe to spend|safe-to-spend|can i spend|afford this week|how much can i/.test(q)) {
+  // ---- free-form views: Vega-Lite specs ----
+  if (/donut|pie\b|pie chart/.test(q)) {
+    const p = period ?? "last_month";
+    const r = await run("spendBy", { period: p, by: "category", category: "" });
+    const top = r.rows[0];
+    const share = top && r.value ? Math.round(((top.amount as number) / r.value) * 100) : 0;
+    return {
+      text: top
+        ? `${top.label} is your biggest slice: ${share}% of ${formatEur(r.value ?? 0)} (${PERIODS[p].toLowerCase()}). There's no donut template, so I drew a custom Vega-Lite chart.`
+        : "No spending in that period, so the donut is empty.",
+      ops: [{ op: "add_block", block: custom.donut(p), index: 0 }],
+    };
+  }
+
+  if (/weekday|day of (the )?week/.test(q)) {
+    const p = period ?? "last_3_months";
+    const r = await run("dailySpend", { period: p });
+    const names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const totals = new Array<number>(7).fill(0);
+    for (const row of r.rows) totals[new Date(`${String(row.date)}T00:00:00`).getDay()] += row.amount as number;
+    const top = totals.indexOf(Math.max(...totals));
+    return {
+      text: `${names[top]} is your biggest spending day: ${formatEur(totals[top])} in total (${PERIODS[p].toLowerCase()}). I built a custom Vega-Lite chart from your daily spending.`,
+      ops: [{ op: "add_block", block: custom.weekday(p), index: 0 }],
+    };
+  }
+
+  if (/faster|pace|running total|cumulative/.test(q)) {
+    return {
+      text: "Here is your spending added up day by day, one line per month. A steeper line means a faster month. This one is a custom Vega-Lite chart.",
+      ops: [{ op: "add_block", block: custom.pace(), index: 0 }],
+    };
+  }
+
+  // ---- free-form views: sandboxed iframe widgets ----
+  if (/waffle|(each|every|per) €?\s?100|widget|iframe/.test(q)) {
+    const p = period ?? "last_month";
+    const r = await run("spendBy", { period: p, by: "category", category: "" });
+    const top = r.rows[0];
+    return {
+      text: top
+        ? `Of every €100 you spent, about €${Math.round(((top.amount as number) / (r.value || 1)) * 100)} went on ${top.label}. I made a small custom widget for this; it runs sandboxed and only sees your spending totals.`
+        : "No spending in that period.",
+      ops: [{ op: "add_block", block: custom.waffle(p), index: 0 }],
+    };
+  }
+
+  if (/receipt/.test(q)) {
+    const p = period ?? "last_month";
+    const r = await run("spendBy", { period: p, by: "category", category: "" });
+    return {
+      text: `${formatEur(r.value ?? 0)} across ${r.rows.reduce((n, row) => n + (row.count as number), 0)} payments. Here it is as a receipt (a custom widget in a sandbox). Tap a line to see the payments.`,
+      ops: [{ op: "add_block", block: custom.receipt(p), index: 0 }],
+    };
+  }
+
+  if (/safe\b.*\bspend|safe-to-spend|can i spend|afford this week|how much can i/.test(q)) {
     const horizon = /payday|month/.test(q) ? "until_payday" : "week";
     const r = await run("safeToSpend", { horizon });
     return {
@@ -172,7 +259,7 @@ export async function respond(question: string, blocks: Block[], run: RunEngine)
   }
 
   return {
-    text: `I'm the demo coach and I only understand some phrasings for now. Try asking what's safe to spend, about taxis or a category like ${SPENDING_CATEGORIES[2]}, what kind of spender you are, your bills, a savings goal, or "what if I cut eating out by 20%".`,
+    text: `I'm the demo coach and I only understand some phrasings for now. Try asking what's safe to spend, about taxis or a category like ${SPENDING_CATEGORIES[2]}, what kind of spender you are, your bills, a savings goal, "what if I cut eating out by 20%", "show my spending as a donut chart" or "print last month as a receipt".`,
     ops: [],
   };
 }
