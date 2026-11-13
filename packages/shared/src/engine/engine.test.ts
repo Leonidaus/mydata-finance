@@ -125,6 +125,12 @@ describe.each(contexts)("financial definitions on $label", ({ ctx }) => {
     expect(r.assumptions!.some((a) => a.includes("Payday is taken to be"))).toBe(true);
   });
 
+  it("never adds to the allowance through the late-salary margin", () => {
+    const r = runEngine(ctx, "safeToSpend", { horizon: "until_payday" });
+    const margin = r.rows.find((x) => x.term === "Margin in case your salary arrives late")!;
+    expect(margin.amount as number).toBeLessThanOrEqual(0);
+  });
+
   it("utilities count with their monthly total, not a single payment", () => {
     const utilities = runEngine(ctx, "recurring").rows.find((x) => x.category === "Utilities");
     if (!utilities) return; // this customer pays no utilities
