@@ -34,7 +34,7 @@ function themeConfig() {
   };
 }
 
-function useColorScheme() {
+export function useColorScheme() {
   const [dark, setDark] = useState(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false);
   useEffect(() => {
     const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
