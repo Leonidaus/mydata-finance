@@ -11,8 +11,8 @@ user can inspect — every answer shows its work.
 
 | Layer | Choice | Radar |
 |---|---|---|
-| App | React Native + TypeScript (Expo) | ADOPT |
-| On-device data | SQLite | not on radar (mobile-embedded) |
+| App | React + TypeScript web app (Vite), mobile-first and embeddable in a mobile app | ADOPT (React) |
+| On-device data | SQLite in the browser (sql.js, planned) | not on radar |
 | Backend | Node.js + TypeScript on AWS Lambda (Middy) | ADOPT |
 | API | GraphQL (Apollo), OpenAPI | ADOPT / TRIAL |
 | Cohort data | AWS RDS Aurora | ADOPT |
@@ -25,7 +25,7 @@ user can inspect — every answer shows its work.
 
 ```
 packages/
-  app/       # React Native app — scaffold with: npx create-expo-app packages/app --template
+  app/       # Vite + React web app (mobile-first)
   backend/   # Lambda handlers (Node.js + TypeScript)
   infra/     # AWS CDK stacks — scaffold with: npx cdk init app --language typescript
   shared/    # Dataset schema + shared types (the single source of truth)
@@ -51,9 +51,23 @@ Note: the CSVs start with a UTF-8 BOM — read them as `utf-8-sig`.
 
 ## Getting started
 
+Node version is pinned in `.nvmrc` (Node 26 LTS), and `.npmrc` sets `engine-strict` so installs fail fast on an old Node.
+Use any version manager that reads `.nvmrc`; [fnm](https://github.com/Schniz/fnm) is recommended (Linux, macOS, Windows):
+
 ```bash
-npm install          # installs workspace tooling (typescript)
-npm run typecheck    # type-checks packages/shared
+curl -fsSL https://fnm.vercel.app/install | bash
+# in ~/.bashrc, so fnm switches Node automatically when you cd into the repo:
+eval "$(fnm env --use-on-cd --shell bash)"
+fnm install            # installs the version from .nvmrc
 ```
 
-Scaffold the app and infra packages when ready (commands in the layout table above).
+Then:
+
+```bash
+npm install
+npm run dev          # web app on http://localhost:5173 (add `-- --host` to test on a phone, trusted networks only)
+npm run typecheck    # type-checks packages/shared and packages/app
+npm run build        # production build of the app
+```
+
+Scaffold the infra package when ready (command in the layout table above).

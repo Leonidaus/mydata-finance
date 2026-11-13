@@ -1,0 +1,239 @@
+/* Colour tokens — S Group-style greens (approximate; swap in official brand hex values if available). */
+:root {
+  --green-900: #003d22;
+  --green-700: #00693c;
+  --green-500: #00a04b;
+  --green-100: #e3f3e8;
+  --green-50: #f2f9f4;
+
+  --bg: var(--green-50);
+  --surface: #ffffff;
+  --text: #13261b;
+  --muted: #5b6e62;
+  --border: #d4e4d9;
+  --bubble-user: var(--green-700);
+  --bubble-user-text: #ffffff;
+  --bubble-bot: var(--green-100);
+  --bubble-bot-text: var(--text);
+
+  --radius: 16px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1a12;
+    --surface: #15261b;
+    --text: #e6f2ea;
+    --muted: #9db3a5;
+    --border: #24402e;
+    --bubble-bot: #1e3627;
+    --bubble-bot-text: var(--text);
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  min-height: 100dvh;
+}
+
+.page {
+  max-width: 560px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.hero {
+  background: linear-gradient(160deg, var(--green-700), var(--green-900));
+  color: #fff;
+  padding: 24px 16px 56px;
+  border-radius: 0 0 28px 28px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  opacity: 0.95;
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--green-500);
+  font-weight: 700;
+}
+
+.hero h1 {
+  font-size: 1.9rem;
+  line-height: 1.15;
+  margin: 28px 0 8px;
+}
+
+.lede {
+  margin: 0;
+  opacity: 0.88;
+  line-height: 1.5;
+}
+
+.content {
+  flex: 1;
+  padding: 0 16px;
+  margin-top: -36px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Chat */
+.chat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgb(0 61 34 / 0.12);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  max-height: 50dvh;
+  min-height: 160px;
+  overflow-y: auto;
+}
+
+.bubble {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 18px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.bubble-assistant {
+  align-self: flex-start;
+  background: var(--bubble-bot);
+  color: var(--bubble-bot-text);
+  border-bottom-left-radius: 4px;
+}
+
+.bubble-user {
+  align-self: flex-end;
+  background: var(--bubble-user);
+  color: var(--bubble-user-text);
+  border-bottom-right-radius: 4px;
+}
+
+.suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 16px 12px;
+}
+
+.chip {
+  font: inherit;
+  font-size: 0.875rem;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--green-500);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.chip:hover { background: var(--bubble-bot); }
+
+.chat-input {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.chat-input input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 1rem; /* ≥16px prevents iOS zoom on focus */
+  padding: 12px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.chat-input input:focus {
+  outline: 2px solid var(--green-500);
+  outline-offset: 1px;
+}
+
+.chat-input button {
+  font: inherit;
+  font-weight: 600;
+  padding: 0 20px;
+  border: none;
+  border-radius: 999px;
+  background: var(--green-700);
+  color: #fff;
+  cursor: pointer;
+}
+
+.chat-input button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Baskets */
+.baskets h2 {
+  font-size: 1.15rem;
+  margin: 0 0 4px;
+}
+
+.baskets ul {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: grid;
+  gap: 8px;
+}
+
+.basket {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--green-700);
+  border-radius: 12px;
+}
+
+.basket span { color: var(--muted); font-size: 0.9rem; }
+.basket-2 { border-left-color: var(--green-500); }
+.basket-3 { border-left-color: #8fd19e; }
+
+.muted { color: var(--muted); }
+
+.footer {
+  text-align: center;
+  font-size: 0.8rem;
+  padding: 24px 16px;
+}
