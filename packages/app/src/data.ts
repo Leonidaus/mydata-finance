@@ -1,47 +1,40 @@
 /**
- * Loads demo fixtures (built by data/prep/build_fixtures.py) and runs block data requests.
- * Phase 2 replaces this with calls to the backend's /api/data.
+ * Picks where the app's data comes from. Set at build time in packages/app/.env (see .env.example):
+ *
+ *   VITE_DATA_SOURCE=api       (default) the backend's /api: every customer, engine runs server-side
+ *   VITE_DATA_SOURCE=fixtures  the static demo fixtures and the shared engine in the browser, no backend
+ *   VITE_API_BASE=<origin>     API mode only. Default is the app's own origin, where the Vite dev
+ *                              server (or the host in production) forwards /api to the backend.
+ *
+ * Both modes implement the same DataSource contract (sources/types.ts).
  */
-import {
-  type Block,
-  type Cohorts,
-  contextFromFixture,
-  type EngineContext,
-  type EngineResult,
-  type FixtureBundle,
-  type FixtureIndex,
-  runEngine,
-} from "@mydata/shared";
+import { createApiSource } from "./sources/api";
+import { createFixtureSource } from "./sources/fixtures";
+import type { DataMode, DataSource } from "./sources/types";
 
-const base = `${import.meta.env.BASE_URL}fixtures/`;
+export type { CustomerInfo, DataMode, DataSource, TransactionPage } from "./sources/types";
 
-async function getJson<T>(name: string): Promise<T> {
-  const res = await fetch(base + name);
-  if (!res.ok) throw new Error(`Could not load ${name} (${res.status})`);
-  return (await res.json()) as T;
+export interface DataConfig {
+  mode: DataMode;
+  /** API origin without a trailing slash; empty means same origin. */
+  apiBase: string;
 }
 
-let indexPromise: Promise<FixtureIndex> | null = null;
-let cohortsPromise: Promise<Cohorts> | null = null;
-const contexts = new Map<string, Promise<EngineContext>>();
-
-export const loadIndex = () => (indexPromise ??= getJson<FixtureIndex>("index.json"));
-
-export function loadContext(customerId: string): Promise<EngineContext> {
-  let p = contexts.get(customerId);
-  if (!p) {
-    cohortsPromise ??= getJson<Cohorts>("cohorts.json");
-    p = Promise.all([loadIndex(), cohortsPromise, getJson<FixtureBundle>(`${customerId}.json`)]).then(
-      ([index, cohorts, bundle]) => contextFromFixture(bundle, cohorts, index.today),
-    );
-    contexts.set(customerId, p);
+export function resolveDataConfig(env: { VITE_DATA_SOURCE?: string; VITE_API_BASE?: string }): DataConfig {
+  const mode = env.VITE_DATA_SOURCE?.trim() || "api";
+  if (mode !== "api" && mode !== "fixtures") {
+    throw new Error(`VITE_DATA_SOURCE must be "api" or "fixtures", not "${mode}".`);
   }
-  return p;
+  return { mode, apiBase: (env.VITE_API_BASE ?? "").trim().replace(/\/+$/, "") };
 }
 
-export function runBlock(ctx: EngineContext, block: Block): EngineResult {
-  if (block.data.kind === "sql") {
-    throw new Error("SQL blocks need the backend (phase 2).");
-  }
-  return runEngine(ctx, block.data.fn, block.data.args);
-}
+const config = resolveDataConfig(import.meta.env);
+const fixtures = createFixtureSource(`${import.meta.env.BASE_URL}fixtures/`);
+
+export const dataSource: DataSource = config.mode === "api" ? createApiSource(config.apiBase) : fixtures;
+
+/**
+ * The personas and customer ids offered in the picker. In API mode too: these customers are in
+ * the database as well, and nothing else from the fixtures is used there.
+ */
+export const loadIndex = fixtures.loadIndex;

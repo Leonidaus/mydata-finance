@@ -1,9 +1,11 @@
-import type { Block, Control, EngineContext, EngineResult, TxFilter } from "@mydata/shared";
+import type { Block, Control, EngineResult, TxFilter } from "@mydata/shared";
 import { useMemo } from "react";
 import { type Datum, VEGA_TEMPLATES } from "./blocks/templates";
 import { PERIOD_OPTIONS } from "./catalog";
-import { runBlock } from "./data";
+import { dataSource } from "./data";
 import { formatEur } from "./format";
+import { useLatest } from "./latest";
+import LoadError from "./LoadError";
 import VegaBlock from "./renderers/VegaBlock";
 
 const SOURCE_LABELS: Record<Block["source"], string> = {
@@ -14,20 +16,24 @@ const SOURCE_LABELS: Record<Block["source"], string> = {
 
 interface Props {
   block: Block;
-  ctx: EngineContext;
+  customerId: string;
+  /** The demo's fixed "today", ISO date. */
+  today: string;
   onChange: (patch: Partial<Block>) => void;
   onRemove: () => void;
   onDrill: (title: string, filter: TxFilter) => void;
 }
 
-export default function BlockCard({ block, ctx, onChange, onRemove, onDrill }: Props) {
-  const outcome = useMemo((): { result: EngineResult } | { error: string } => {
-    try {
-      return { result: runBlock(ctx, block) };
-    } catch (e) {
-      return { error: e instanceof Error ? e.message : String(e) };
-    }
-  }, [ctx, block]);
+export default function BlockCard({ block, customerId, today, onChange, onRemove, onDrill }: Props) {
+  // The answer is kept together with the block it was computed for, so that the two always match.
+  const outcome = useLatest(
+    JSON.stringify([customerId, block.data]),
+    async (signal) => ({ block, result: await dataSource.runData(customerId, block.data, signal) }),
+    customerId,
+  );
+  // While new figures load after a control change, the previous ones stay visible but marked as updating.
+  const updating = outcome.status === "loading" && outcome.previous !== undefined;
+  const shown = outcome.status === "ready" ? { block, result: outcome.data.result } : outcome.status === "loading" ? outcome.previous : undefined;
 
   const args = block.data.kind === "engine" ? block.data.args : {};
   const setArg = (arg: string, value: unknown) => {
@@ -55,17 +61,23 @@ export default function BlockCard({ block, ctx, onChange, onRemove, onDrill }: P
         </div>
       )}
 
-      {"error" in outcome ? (
-        <p className="block-error">{outcome.error}</p>
+      {outcome.status === "error" ? (
+        <LoadError error={outcome.error} retry={outcome.retry} />
+      ) : shown ? (
+        <div className={updating ? "block-body updating" : "block-body"} aria-busy={updating}>
+          <BlockBody block={shown.block} result={shown.result} onDrill={onDrill} />
+        </div>
       ) : (
-        <BlockBody block={block} result={outcome.result} onDrill={onDrill} />
+        <p className="muted" role="status">
+          Loading…
+        </p>
       )}
 
       <details className="how">
         <summary>How was this made?</summary>
         <p>{block.explanation}</p>
         <p className="muted small">
-          Computed from your transactions up to {ctx.today}. The AI chose what to show; the numbers come from the
+          Computed from your transactions up to {today}. The AI chose what to show; the numbers come from the
           calculation below, not from the AI.
         </p>
         <pre>{JSON.stringify({ data: block.data, view: block.view }, null, 2)}</pre>

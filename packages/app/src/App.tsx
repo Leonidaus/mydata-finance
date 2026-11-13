@@ -1,10 +1,12 @@
-import { applyOps, type Block, type EngineContext, type FixtureIndex, type TxFilter } from "@mydata/shared";
-import { useCallback, useEffect, useState } from "react";
+import { applyOps, type Block, type Dashboard, type TxFilter } from "@mydata/shared";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { respond } from "./agent/mockAgent";
 import BlockCard from "./BlockCard";
 import { defaultDashboard } from "./catalog";
 import Chat from "./Chat";
-import { loadContext, loadIndex } from "./data";
+import { dataSource, loadIndex } from "./data";
+import { useLatest } from "./latest";
+import LoadError from "./LoadError";
 import TxDrawer from "./TxDrawer";
 
 const store = {
@@ -38,60 +40,59 @@ function loadBlocks(cid: string): Block[] {
 }
 
 export default function App() {
-  const [index, setIndex] = useState<FixtureIndex | null>(null);
-  const [customerId, setCustomerId] = useState<string | null>(null);
-  const [ctx, setCtx] = useState<EngineContext | null>(null);
-  const [blocks, setBlocks] = useState<Block[]>([]);
-  const [drill, setDrill] = useState<{ title: string; filter: TxFilter } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const index = useLatest("index", loadIndex);
+  const indexData = index.status === "ready" ? index.data : null;
+  // The selected customer and their blocks are one value, so the blocks always belong to that customer.
+  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [drill, setDrill] = useState<{ customerId: string; title: string; filter: TxFilter } | null>(null);
+  const customerId = dashboard?.customerId ?? null;
+  // Keyed by customer: an answer for a customer who is no longer selected is never shown.
+  const customer = useLatest(customerId, (signal) => dataSource.customer(customerId ?? "", signal));
+  const info = customer.status === "ready" ? customer.data : null;
+  const shownCustomer = useRef(customerId);
+  shownCustomer.current = customerId;
 
-  useEffect(() => {
-    loadIndex()
-      .then((idx) => {
-        setIndex(idx);
-        const saved = store.get("mydata.customer");
-        const known = saved && (idx.pool.includes(saved) || idx.presets.some((p) => p.customer_id === saved));
-        setCustomerId(known ? saved : idx.presets[0].customer_id);
-      })
-      .catch((e: unknown) => setError(String(e)));
+  const selectCustomer = useCallback((id: string) => {
+    store.set("mydata.customer", id);
+    setDrill(null);
+    setDashboard({ customerId: id, blocks: loadBlocks(id) });
   }, []);
 
   useEffect(() => {
-    if (!customerId) return;
-    store.set("mydata.customer", customerId);
-    setCtx(null);
-    setBlocks(loadBlocks(customerId));
-    loadContext(customerId)
-      .then(setCtx)
-      .catch((e: unknown) => setError(String(e)));
-  }, [customerId]);
+    if (!indexData) return;
+    const saved = store.get("mydata.customer");
+    const known = saved && (indexData.pool.includes(saved) || indexData.presets.some((p) => p.customer_id === saved));
+    selectCustomer(known ? saved : indexData.presets[0].customer_id);
+  }, [indexData, selectCustomer]);
 
-  const updateBlocks = useCallback(
-    (next: (prev: Block[]) => Block[]) => {
-      setBlocks((prev) => {
-        const result = next(prev);
-        if (customerId) store.set(dashboardKey(customerId), JSON.stringify(result));
-        return result;
-      });
-    },
-    [customerId],
-  );
+  /** Edits the dashboard of `forCustomer`. Does nothing if another customer has been selected since. */
+  const updateBlocks = useCallback((forCustomer: string, next: (prev: Block[]) => Block[]) => {
+    setDashboard((prev) => {
+      if (prev?.customerId !== forCustomer) return prev;
+      const blocks = next(prev.blocks);
+      store.set(dashboardKey(forCustomer), JSON.stringify(blocks));
+      return { customerId: forCustomer, blocks };
+    });
+  }, []);
 
-  const ask = (question: string) => {
-    if (!ctx || !customerId) return "Still loading your data…";
-    const reply = respond(question, blocks, ctx);
-    if (reply.ops.length) updateBlocks((prev) => applyOps({ customerId, blocks: prev }, reply.ops).blocks);
-    if (reply.ops.length) document.querySelector(".dashboard")?.scrollTo({ top: 0, behavior: "smooth" });
+  const ask = async (question: string) => {
+    if (customer.status === "error") return "I couldn't load your data. Use “Try again” above first.";
+    if (!dashboard || !info) return "Still loading your data…";
+    // The whole answer is for the customer who asked, also if another one is selected before it is ready.
+    const { customerId: askedFor, blocks } = dashboard;
+    const reply = await respond(question, blocks, (fn, args = {}) => dataSource.runData(askedFor, { kind: "engine", fn, args }));
+    if (reply.ops.length) updateBlocks(askedFor, (prev) => applyOps({ customerId: askedFor, blocks: prev }, reply.ops).blocks);
+    if (reply.ops.length && shownCustomer.current === askedFor) document.querySelector(".dashboard")?.scrollTo({ top: 0, behavior: "smooth" });
     return reply.text;
   };
 
   const pickRandom = () => {
-    if (!index) return;
-    const others = index.pool.filter((c) => c !== customerId);
-    setCustomerId(others[Math.floor(Math.random() * others.length)]);
+    if (!indexData) return;
+    const others = indexData.pool.filter((c) => c !== customerId);
+    selectCustomer(others[Math.floor(Math.random() * others.length)]);
   };
 
-  const preset = index?.presets.find((p) => p.customer_id === customerId);
+  const preset = indexData?.presets.find((p) => p.customer_id === customerId);
 
   return (
     <div className="app">
@@ -100,18 +101,18 @@ export default function App() {
           <span className="brand-mark" aria-hidden="true">€</span>
           <span className="brand-name">MyData Finance</span>
         </div>
-        {index && (
+        {indexData && (
           <div className="persona">
-            <select value={customerId ?? ""} onChange={(e) => setCustomerId(e.target.value)} aria-label="Whose data to show">
+            <select value={customerId ?? ""} onChange={(e) => selectCustomer(e.target.value)} aria-label="Whose data to show">
               <optgroup label="Personas">
-                {index.presets.map((p) => (
+                {indexData.presets.map((p) => (
                   <option key={p.customer_id} value={p.customer_id}>
                     {p.label}
                   </option>
                 ))}
               </optgroup>
               <optgroup label="Other customers">
-                {index.pool.map((c) => (
+                {indexData.pool.map((c) => (
                   <option key={c} value={c}>
                     {c}
                   </option>
@@ -126,27 +127,33 @@ export default function App() {
       </header>
 
       <main className="dashboard" aria-label="Your dashboard">
-        {error && <p className="block-error">{error}</p>}
-        {ctx && (
+        {index.status === "error" && <LoadError error={index.error} retry={index.retry} />}
+        {customer.status === "error" && <LoadError error={customer.error} retry={customer.retry} />}
+        {info && (
           <p className="intro muted small">
-            {preset ? `${preset.label} · ${preset.blurb}` : `Customer ${ctx.customer.customer_id}, age ${ctx.customer.customer_age}`} · data
-            up to {ctx.today}
+            {preset ? `${preset.label} · ${preset.blurb}` : `Customer ${info.customerId}, age ${info.age}`} · data up to {info.today}
           </p>
         )}
-        {!ctx && !error && <p className="muted">Loading your data…</p>}
-        {ctx &&
-          blocks.map((b) => (
+        {index.status !== "error" && customer.status === "loading" && (
+          <p className="muted" role="status">
+            Loading your data…
+          </p>
+        )}
+        {info &&
+          dashboard &&
+          dashboard.blocks.map((b) => (
             <BlockCard
               key={b.id}
               block={b}
-              ctx={ctx}
-              onChange={(patch) => updateBlocks((prev) => prev.map((x) => (x.id === b.id ? { ...x, ...patch } : x)))}
-              onRemove={() => updateBlocks((prev) => prev.filter((x) => x.id !== b.id))}
-              onDrill={(title, filter) => setDrill({ title, filter })}
+              customerId={dashboard.customerId}
+              today={info.today}
+              onChange={(patch) => updateBlocks(dashboard.customerId, (prev) => prev.map((x) => (x.id === b.id ? { ...x, ...patch } : x)))}
+              onRemove={() => updateBlocks(dashboard.customerId, (prev) => prev.filter((x) => x.id !== b.id))}
+              onDrill={(title, filter) => setDrill({ customerId: dashboard.customerId, title, filter })}
             />
           ))}
-        {ctx && (
-          <button type="button" className="ghost-btn reset" onClick={() => updateBlocks(() => defaultDashboard())}>
+        {info && dashboard && (
+          <button type="button" className="ghost-btn reset" onClick={() => updateBlocks(dashboard.customerId, () => defaultDashboard())}>
             Reset dashboard
           </button>
         )}
@@ -154,7 +161,9 @@ export default function App() {
 
       <Chat onAsk={ask} resetKey={customerId ?? ""} />
 
-      {drill && ctx && <TxDrawer ctx={ctx} title={drill.title} filter={drill.filter} onClose={() => setDrill(null)} />}
+      {drill && drill.customerId === customerId && (
+        <TxDrawer customerId={drill.customerId} title={drill.title} filter={drill.filter} onClose={() => setDrill(null)} />
+      )}
     </div>
   );
 }
