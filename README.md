@@ -74,7 +74,41 @@ What should set us apart from a chat box on top of a pie chart:
    and show percentiles against the same age band and postal area.
 6. **Finnish first, in plain language**, with an English toggle.
 
-Out of scope for now: the multi-bank (PSD2) view, beyond a slide.
+## Stretch goal: multi-bank view
+
+The challenge lists this as an optional bonus: under PSD2, customers can let their
+bank fetch account data from other banks, so how could an AI coach use the full
+financial picture? It asks for the idea, not for a live bank connection. We build it
+only after the core demo works.
+
+**What we would show.** A "link another bank" consent screen and a second account
+at a simulated bank, clearly labelled as simulated. Our data has a natural hook:
+every customer has one account, and 1,500 customers make investment deposits and
+264 make salary sweeps to somewhere we cannot see. The simulated bank is where that
+money lands. With it, the coach can show:
+
+- a true savings rate, because those outflows turn out to be saving, not spending
+- a safe-to-spend number that uses balances and upcoming bills across all accounts
+- a buffer measured in months of essentials across everything the user owns
+- things hidden elsewhere, such as a loan or duplicate subscriptions
+- a stronger mortgage-readiness answer, since equity saved elsewhere counts
+
+**What we would build.**
+
+- A connector interface that turns any bank's accounts and transactions into our
+  schema, with a field for which bank each row came from. Worth defining early,
+  even if only the S-Pankki data sits behind it at first.
+- A categoriser for transactions from other banks, which will not carry S-Pankki's
+  categories: the MCC table in `packages/shared` first, the model for free text.
+- Matching of transfers between the user's own accounts, so they do not count as
+  spending.
+
+**What we would not build.** Real PSD2 access needs a licensed account information
+provider, consent and strong authentication at each bank, and real accounts on
+stage. In production S-Pankki would be the licensed party. If we want a real API
+behind the demo, the Finnish aggregator Enable Banking has a sandbox that covers
+Finnish banks including S-Pankki; that is about half a day of work. GoCardless
+Bank Account Data (formerly Nordigen) is reported closed to new sign-ups.
 
 ## Proposed stack
 
