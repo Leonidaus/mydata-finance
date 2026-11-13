@@ -169,20 +169,22 @@ and the generated bundles in `data/out/` are gitignored. Build a per-customer
 bundle with:
 
 ```bash
-pip install pandas
 python3 data/prep/csv_to_sqlite.py --raw data/raw --out data/out/CUST00001.sqlite --customer CUST00001
 ```
 
-The CSVs start with a UTF-8 BOM, so read them as `utf-8-sig`.
+The script needs Python 3.10 or newer and no extra packages. It streams the CSVs,
+so one customer takes about two seconds. In the bundle:
 
-Known issues in `csv_to_sqlite.py`, to fix first:
+- Tables are `transactions`, `customer`, `mortgage_outcomes` and `mortgage_events`
+  (the last two are empty unless the customer has a mortgage application).
+- Identifiers, postal codes and MCC codes are text, so `00990` and `5411` keep
+  their form. Amounts are numbers. Blank source values are `NULL`.
+- Timestamps are ISO 8601 (`2024-10-03T09:04:04`) instead of the source format
+  (`03OCT24:09:04:04`), so they sort correctly.
+- Transactions keep the source file order, which is also chronological; the
+  running balance follows it.
 
-- It reads the CSVs with default types, so postal code `00990` becomes `990` and
-  `mcc_code` becomes a float such as `5411.0`. Both must be read as text.
-- It loads the whole 346 MB transaction file to extract one customer.
-- `tx_timestamp` stays in the source format (`03OCT24:09:04:04`), which does not
-  sort as text. Convert it to ISO 8601.
-- It creates no indexes.
+If you read the CSVs yourself: they start with a UTF-8 BOM, so use `utf-8-sig`.
 
 The meaning of each merchant category code is in `packages/shared/src/mcc.json`
 (typed access through `lookupMcc` in `@mydata/shared`; Python can read the JSON
