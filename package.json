@@ -1,0 +1,17 @@
+{
+  "name": "mydata-finance",
+  "private": true,
+  "description": "MyData-style personal finance explorer — Junction 2026, S-Pankki challenge",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc -b packages/shared"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}
