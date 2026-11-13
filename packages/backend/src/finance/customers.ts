@@ -10,16 +10,17 @@ export interface CustomerProfile {
   hasMortgageApplication: boolean;
   /** Account balance after the latest transaction up to today. */
   balance: number | null;
-  /** Averages per month over the complete months before today, in euros. */
+  /** Averages per month over the last 12 complete months before today, in euros. */
   monthlyAverages: {
     income: number;
-    essential: number;
-    unexpected: number;
+    regular: number;
+    irregular: number;
     everyday: number;
     saving: number;
+    /** Income minus spending, before any transfer to or from savings. */
     net: number;
   };
-  /** In how many complete months the balance went below zero. */
+  /** In how many of those months the balance went below zero. */
   monthsBelowZero: number;
 }
 
@@ -27,12 +28,15 @@ export interface MonthlySummaryRow {
   /** YYYY-MM */
   month: string;
   income: number;
-  essential: number;
-  unexpected: number;
+  regular: number;
+  irregular: number;
   everyday: number;
   saving: number;
   savingWithdrawal: number;
+  /** Income minus spending, before any transfer to or from savings. */
   net: number;
+  /** Everything that moved the account balance in the month, saving transfers included. */
+  balanceChange: number;
   minBalance: number;
   endBalance: number;
   /** True for the current month, which only runs up to today. */
@@ -47,8 +51,8 @@ interface ProfileRow {
   postal_area: string;
   has_mortgage_application: number;
   avg_income: number;
-  avg_essential: number;
-  avg_unexpected: number;
+  avg_regular: number;
+  avg_irregular: number;
   avg_everyday: number;
   avg_saving: number;
   avg_net: number;
@@ -66,8 +70,8 @@ function toProfile(row: ProfileRow, balance: number | null): CustomerProfile {
     balance,
     monthlyAverages: {
       income: row.avg_income,
-      essential: row.avg_essential,
-      unexpected: row.avg_unexpected,
+      regular: row.avg_regular,
+      irregular: row.avg_irregular,
       everyday: row.avg_everyday,
       saving: row.avg_saving,
       net: row.avg_net,
@@ -125,19 +129,20 @@ export function monthlySummary(
     .all<{
       month: string;
       income: number;
-      essential: number;
-      unexpected: number;
+      regular: number;
+      irregular: number;
       everyday: number;
       saving: number;
       saving_withdrawal: number;
       net: number;
+      balance_change: number;
       min_balance: number;
       end_balance: number;
       is_partial: number;
     }>(
       `SELECT * FROM (
-         SELECT month, income, essential, unexpected, everyday, saving, saving_withdrawal,
-                net, min_balance, end_balance, is_partial
+         SELECT month, income, regular, irregular, everyday, saving, saving_withdrawal,
+                net, balance_change, min_balance, end_balance, is_partial
          FROM monthly_summary WHERE customer_id = :customerId
          ORDER BY month DESC LIMIT :limit
        ) ORDER BY month`,
@@ -146,12 +151,13 @@ export function monthlySummary(
     .map((row) => ({
       month: row.month,
       income: row.income,
-      essential: row.essential,
-      unexpected: row.unexpected,
+      regular: row.regular,
+      irregular: row.irregular,
       everyday: row.everyday,
       saving: row.saving,
       savingWithdrawal: row.saving_withdrawal,
       net: row.net,
+      balanceChange: row.balance_change,
       minBalance: row.min_balance,
       endBalance: row.end_balance,
       isPartial: row.is_partial === 1,

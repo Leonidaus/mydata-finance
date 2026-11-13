@@ -2,7 +2,7 @@ import { lookupMcc, type TransactionCategory } from "@mydata/shared";
 import type { FinanceDb, SqlParams } from "../db";
 import type { Period } from "./period";
 
-export const BASKETS = ["essential", "unexpected", "everyday"] as const;
+export const BASKETS = ["regular", "irregular", "everyday"] as const;
 export type Basket = (typeof BASKETS)[number];
 
 export const GROUP_BY = ["category", "mcc", "basket", "month"] as const;

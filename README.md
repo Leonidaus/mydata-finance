@@ -270,33 +270,50 @@ The enums in `packages/shared/src/schema.ts` (categories, transaction types,
 mortgage event types, rejection reasons) have been checked against the data and
 match exactly.
 
-## Basket rules (version 1)
+## Basket rules
 
-Assigned in one place, `classify` in `data/prep/build_database.py`, and stored on
-each transaction as `flow`, `basket` and `basket_rule`. They are a first version,
-to adjust when S-Pankki tells us how they define the baskets.
+One rule set decides which of the three baskets a spending transaction falls in. It
+is applied in data prep (`classify` in `data/prep/build_database.py`), which stores
+`flow`, `basket` and `basket_rule` on each transaction in the database and in the
+app's fixtures. The finance engine reads that label; for a transaction without one it
+applies the same rules in TypeScript (`packages/shared/src/engine/baskets.ts`). A
+test checks on every fixture transaction that the two agree. Change both together.
 
 | Transaction | Flow | Basket |
 |---|---|---|
 | Salary, other income | income | — |
 | Investment deposit, salary sweep | saving | — |
 | Investment withdrawal | saving withdrawal | — |
-| Housing, utilities | spending | essential |
-| Groceries | spending | essential |
-| Transportation, except taxis | spending | essential |
+| Housing, utilities | spending | regular |
+| Groceries | spending | regular |
+| Transportation, except taxis | spending | regular |
 | Taxis (MCC 4121) | spending | everyday |
-| Health under €100 | spending | essential |
-| Health of €100 or more | spending | unexpected |
-| Home & Tech of €500 or more | spending | unexpected |
+| Health under €100 | spending | regular |
+| Health of €100 or more | spending | irregular |
+| Home & Tech of €500 or more | spending | irregular |
 | Home & Tech under €500 | spending | everyday |
 | Restaurants, Entertainment, Lifestyle, Travel | spending | everyday |
 
-With these rules the average customer spends €1,905 a month on essentials, €170 on
-unexpected necessities and €844 on everyday spending, and saves €298.
+In the interface the baskets are called regular essentials, unexpected necessities
+and everyday spending. Over the last 12 complete months the average customer spends
+€1,902 a month on regular essentials, €170 on unexpected necessities and
+€844 on everyday spending, and saves €298.
 
 Recurring payments cannot be detected per merchant in this dataset: no customer
 pays the same merchant a steady amount month after month. What recurs is visible
 from the transaction type alone (housing, utilities, salary, investment deposits).
+
+Related definitions, used the same way everywhere:
+
+- **Net** is income minus spending, before any transfer to or from savings. The
+  monthly summary also has `balanceChange`, which includes those transfers.
+- **Monthly averages and peer benchmarks** cover the last 12 complete months before
+  the demo's today. Peers are the synthetic customers in the dataset, by age band.
+- **Safe to spend** is the balance minus bills still due before payday, groceries
+  and other regular essentials at the recent daily rate, the usual saving transfer,
+  and a buffer for unexpected necessities. What is left is for everyday spending.
+- **Safe to save** is what would remain at payday at the usual pace of everyday
+  spending, minus a cushion of one month of regular essentials.
 
 ## Backend
 
@@ -318,7 +335,7 @@ answers are cut off at the demo's "today", so later transactions never appear.
 | `GET /api/health` | Row counts and the demo's today |
 | `GET /api/customers?limit=20&mortgage=true` | Customer profiles, for a customer picker |
 | `GET /api/customers/:id` | Profile, current balance, monthly averages per basket |
-| `GET /api/customers/:id/summary?months=12` | Month-by-month income, baskets, saving and balance |
+| `GET /api/customers/:id/summary?months=12` | Month-by-month income, baskets, saving, net and balance |
 | `GET /api/customers/:id/spending` | Total spent, with the transactions behind it |
 | `GET /api/customers/:id/engine/:fn` | One finance engine function, arguments in the query string |
 | `POST /api/data` | A dashboard block's data request: `{ customerId, data: { kind: "engine", fn, args } }` |
@@ -336,9 +353,13 @@ curl 'http://localhost:8787/api/customers/CUST04488/spending?mcc=4121&period=las
 
 The engine endpoints run the finance engine from `packages/shared/src/engine` for
 any of the 5,100 customers: `spendBy`, `monthlyTrend`, `baskets`, `safeToSpend`,
-`balanceForecast`, `whatIf`, `peerCompare`, `dailySpend`, `recurring` and
-`goalProgress`. The app runs the same engine on its 15 fixture customers; for those
-customers the backend gives identical results for every function.
+`safeToSave`, `balanceForecast`, `whatIf`, `peerCompare`, `dailySpend`, `recurring`
+and `goalProgress`. The app runs the same engine on its 15 fixture customers; for
+those customers the backend gives identical results for every function.
+
+Arguments are checked: an unknown argument, a value outside its range or an unknown
+period or category answers 400 with the reason, instead of silently falling back to
+a default. Estimates carry an `assumptions` list in plain language.
 
 ```bash
 curl 'http://localhost:8787/api/customers/CUST03004/engine/safeToSpend'
@@ -346,12 +367,6 @@ curl 'http://localhost:8787/api/customers/CUST03004/engine/whatIf?category=Resta
 ```
 
 SQL data requests (`kind: "sql"`) are not supported yet and answer 501.
-
-Two basket definitions exist for now and still need to be unified. The engine
-(`basketOf` in `packages/shared/src/engine/streams.ts`) uses regular / irregular /
-everyday, with groceries and transport as everyday and a per-customer threshold for
-irregular purchases. The database labels and the `spending` and `summary` endpoints
-use the rules in the section above.
 
 The functions behind the endpoints take plain objects and return plain JSON, so
 they can be given to the model as tools unchanged.

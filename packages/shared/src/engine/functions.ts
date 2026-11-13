@@ -4,7 +4,9 @@
  */
 import { lookupMcc } from "../mcc";
 import type { Transaction } from "../schema";
-import { BASKET_LABELS, basketOf, detectStreams, type Stream } from "./streams";
+import { type TREND_METRICS, validateEngineArgs } from "./args";
+import { BASKET_LABELS, basketOf } from "./baskets";
+import { detectStreams, SINGLE_PAYMENT_MAX_PER_MONTH, type Stream, streamKey } from "./streams";
 import type { Basket, EngineContext, EngineFn, EngineResult, Row, TxFilter } from "./types";
 import {
   addDays,
@@ -27,10 +29,23 @@ import {
 } from "./util";
 
 const out = (t: Transaction) => -t.tx_amount_eur;
-const period = (args: Record<string, unknown>, fallback: Period): Period =>
-  typeof args.period === "string" && args.period in PERIODS ? (args.period as Period) : fallback;
+// Arguments are checked in runEngine (see args.ts); these helpers only apply defaults.
+const period = (args: Record<string, unknown>, fallback: Period): Period => (args.period as Period | undefined) ?? fallback;
 const str = (v: unknown) => (typeof v === "string" && v !== "" ? v : undefined);
 const num = (v: unknown, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
+
+/**
+ * How many of the last 12 full months the customer has data for (at least 1), so monthly
+ * averages are not diluted for someone with a short history.
+ */
+function monthsOfHistory(ctx: EngineContext): number {
+  const first = ctx.tx[0]?.tx_date;
+  if (!first) return 12;
+  const [from] = resolvePeriod("last_12_months", ctx.today);
+  let months = 0;
+  for (let i = 0; i < 12; i++) if (endOfMonth(addMonths(from, i)) >= first) months++;
+  return Math.max(1, months);
+}
 
 export function ageBand(age: number): string {
   const bands: [number, number][] = [[18, 24], [25, 34], [35, 44], [45, 54], [55, 64]];
@@ -69,8 +84,8 @@ function spendBy(ctx: EngineContext, args: Record<string, unknown>): EngineResul
 }
 
 function monthlyTrend(ctx: EngineContext, args: Record<string, unknown>): EngineResult {
-  const months = Math.max(2, Math.min(24, num(args.months, 12)));
-  const metric = (["spending", "income", "net", "saving"] as const).find((m) => m === args.metric) ?? "spending";
+  const months = num(args.months, 12);
+  const metric = (args.metric as (typeof TREND_METRICS)[number] | undefined) ?? "spending";
   const category = str(args.category);
   const thisMonth = startOfMonth(ctx.today);
   const from = addMonths(thisMonth, -months);
@@ -84,7 +99,7 @@ function monthlyTrend(ctx: EngineContext, args: Record<string, unknown>): Engine
     if (metric === "spending" && isSpending(t)) v = out(t);
     else if (metric === "income" && isIncome(t)) v = t.tx_amount_eur;
     else if (metric === "saving" && isSaving(t)) v = out(t);
-    else if (metric === "net" && !isSaving(t)) v = t.tx_amount_eur;
+    else if (metric === "net" && (isIncome(t) || isSpending(t))) v = t.tx_amount_eur;
     totals.set(m, (totals.get(m) ?? 0) + v);
   }
   const rows = [...totals.entries()].map(([month, amount]) => ({ month, amount: round2(amount) }));
@@ -92,8 +107,11 @@ function monthlyTrend(ctx: EngineContext, args: Record<string, unknown>): Engine
     rows,
     value: round2(sum(rows.map((r) => r.amount)) / rows.length),
     unit: "€/month",
-    caption: `Average ${metric}${category ? ` on ${category}` : ""} per month, last ${months} full months`,
-    filter: { from, to, kind: metric === "net" ? "all" : metric, category },
+    caption:
+      metric === "net"
+        ? `Average left over per month (income minus spending, before saving), last ${months} full months`
+        : `Average ${metric}${category ? ` on ${category}` : ""} per month, last ${months} full months`,
+    filter: { from, to, kind: metric, category },
   };
 }
 
@@ -107,7 +125,7 @@ function baskets(ctx: EngineContext, args: Record<string, unknown>): EngineResul
   };
   for (const t of ctx.tx) {
     if (!inRange(t, from, to)) continue;
-    const b = basketOf(ctx, t);
+    const b = basketOf(t);
     if (!b) continue;
     totals[b].amount += out(t);
     totals[b].count += 1;
@@ -171,19 +189,45 @@ function currentBalance(ctx: EngineContext): number {
   return 0;
 }
 
-function monthlyIrregular(ctx: EngineContext): number {
+/** Average monthly total of one basket over the last 12 full months (fewer for a short history). */
+function monthlyBasket(ctx: EngineContext, basket: Basket): number {
   const [from, to] = resolvePeriod("last_12_months", ctx.today);
-  return sum(ctx.tx.filter((t) => inRange(t, from, to) && basketOf(ctx, t) === "irregular").map(out)) / 12;
+  return sum(ctx.tx.filter((t) => inRange(t, from, to) && basketOf(t) === basket).map(out)) / monthsOfHistory(ctx);
+}
+
+/** Average spend per day over the last 3 full months for the transactions `pick` selects. */
+function dailyRate(ctx: EngineContext, pick: (t: Transaction) => boolean): number {
+  const [from, to] = resolvePeriod("last_3_months", ctx.today);
+  return sum(ctx.tx.filter((t) => inRange(t, from, to) && pick(t)).map(out)) / Math.max(1, daysBetween(from, to) + 1);
+}
+
+/** The amount of the customer's typical salary payment (median of the last three), or 0. */
+function typicalSalary(ctx: EngineContext): number {
+  return median(ctx.tx.filter((t) => t.category === "Salary").slice(-3).map((t) => t.tx_amount_eur));
+}
+
+interface DueItem {
+  stream: Stream;
+  /** When it is expected; for `spread` items this is payday and the amount falls evenly over the days left. */
+  date: string;
+  amount: number;
+  spread: boolean;
 }
 
 interface Plan {
   balance: number;
   payday: string;
   daysLeft: number;
-  due: { stream: Stream; date: string }[];
-  regularDue: number;
+  due: DueItem[];
+  /** Housing, utilities and other bills still expected before payday. */
+  billsDue: number;
   savingDue: number;
+  /** Regular essentials that are not bills (groceries, transport, routine health), per day. */
+  essentialsPerDay: number;
+  essentialsDue: number;
+  everydayPerDay: number;
   buffer: number;
+  /** What is left for everyday spending until payday. */
   available: number;
 }
 
@@ -191,13 +235,60 @@ function plan(ctx: EngineContext): Plan {
   const balance = currentBalance(ctx);
   const payday = nextPayday(ctx);
   const daysLeft = Math.max(1, daysBetween(ctx.today, payday));
-  const due = detectStreams(ctx)
-    .map((stream) => ({ stream, date: dueDate(ctx, stream, payday) }))
-    .filter((d): d is { stream: Stream; date: string } => d.date !== null);
-  const regularDue = sum(due.filter((d) => !d.stream.saving).map((d) => d.stream.amount));
-  const savingDue = sum(due.filter((d) => d.stream.saving).map((d) => d.stream.amount));
-  const buffer = (monthlyIrregular(ctx) * daysLeft) / 30;
-  return { balance, payday, daysLeft, due, regularDue, savingDue, buffer, available: balance - regularDue - savingDue - buffer };
+  const cycleStart = addMonths(payday, -1);
+  const streams = detectStreams(ctx);
+  const due: DueItem[] = [];
+  for (const stream of streams) {
+    if (stream.paymentsPerMonth <= SINGLE_PAYMENT_MAX_PER_MONTH) {
+      const date = dueDate(ctx, stream, payday);
+      if (date) due.push({ stream, date, amount: stream.amount, spread: false });
+      continue;
+    }
+    // Paid several times a month (utilities): what is left of a typical month's total.
+    let paid = 0;
+    stream.dates.forEach((d, i) => {
+      if (d >= cycleStart && d <= ctx.today) paid += stream.amounts[i];
+    });
+    const remaining = round2(stream.monthlyAmount - paid);
+    if (remaining > 0) due.push({ stream, date: payday, amount: remaining, spread: true });
+  }
+  const streamKeys = new Set(streams.map((s) => s.key));
+  const billsDue = sum(due.filter((d) => !d.stream.saving).map((d) => d.amount));
+  const savingDue = sum(due.filter((d) => d.stream.saving).map((d) => d.amount));
+  const essentialsPerDay = dailyRate(ctx, (t) => basketOf(t) === "regular" && !streamKeys.has(streamKey(t)));
+  const essentialsDue = essentialsPerDay * daysLeft;
+  const everydayPerDay = dailyRate(ctx, (t) => basketOf(t) === "everyday");
+  const buffer = (monthlyBasket(ctx, "irregular") * daysLeft) / 30;
+  return {
+    balance,
+    payday,
+    daysLeft,
+    due,
+    billsDue,
+    savingDue,
+    essentialsPerDay,
+    essentialsDue,
+    everydayPerDay,
+    buffer,
+    available: balance - billsDue - essentialsDue - savingDue - buffer,
+  };
+}
+
+/** The assumptions behind a plan, in plain language. */
+function planAssumptions(ctx: EngineContext, p: Plan): string[] {
+  const bills = p.due.filter((d) => !d.stream.saving).map((d) => `${d.stream.label} about €${Math.round(d.amount)}`);
+  return [
+    `Payday is taken to be ${p.payday}, from the day of the month your salary usually arrives.`,
+    bills.length
+      ? `Bills still expected before then: ${bills.join(", ")}.`
+      : "No bills are expected before then: this pay cycle's housing and utilities are already paid.",
+    `Groceries, transport and routine health costs are set aside at your average of the last 3 full months, about €${Math.round(p.essentialsPerDay)} a day.`,
+    `The buffer is your average for unexpected necessities over the last 12 months, about €${Math.round(monthlyBasket(ctx, "irregular"))} a month, for the days left.`,
+    p.savingDue > 0
+      ? `Your usual saving transfer of about €${Math.round(p.savingDue)} is treated as already committed.`
+      : "No regular saving transfer is expected before payday.",
+    "This is an estimate from past patterns, not a guarantee. An unusually large bill would change it.",
+  ];
 }
 
 function safeToSpend(ctx: EngineContext, args: Record<string, unknown>): EngineResult {
@@ -207,7 +298,8 @@ function safeToSpend(ctx: EngineContext, args: Record<string, unknown>): EngineR
   const value = horizon === "week" ? Math.min(p.available, perDay * Math.min(7, p.daysLeft)) : p.available;
   const rows: Row[] = [
     { term: "Balance today", amount: round2(p.balance) },
-    { term: "Regular essentials due before payday", amount: round2(-p.regularDue) },
+    { term: "Bills due before payday", amount: round2(-p.billsDue) },
+    { term: "Groceries and other essentials until payday", amount: round2(-p.essentialsDue) },
     { term: "Planned saving before payday", amount: round2(-p.savingDue) },
     { term: "Buffer for unexpected necessities", amount: round2(-p.buffer) },
     { term: `Safe to spend until payday (${p.payday})`, amount: round2(p.available) },
@@ -219,8 +311,53 @@ function safeToSpend(ctx: EngineContext, args: Record<string, unknown>): EngineR
     caption:
       p.available <= 0
         ? `Nothing is safe to spend before payday on ${p.payday}: commitments exceed your balance.`
-        : `${horizon === "week" ? "This week" : `Until payday ${p.payday}`} · about €${Math.round(perDay)} a day`,
+        : `${horizon === "week" ? "This week" : `Until payday ${p.payday}`} · about €${Math.round(perDay)} a day for everyday spending`,
+    assumptions: planAssumptions(ctx, p),
     filter: { from: addDays(ctx.today, -29), to: ctx.today, kind: "all" },
+  };
+}
+
+function safeToSave(ctx: EngineContext): EngineResult {
+  const p = plan(ctx);
+  const everydayUntilPayday = p.everydayPerDay * p.daysLeft;
+  const cushion = monthlyBasket(ctx, "regular");
+  const left = p.available - everydayUntilPayday - cushion;
+
+  const [from, to] = resolvePeriod("last_12_months", ctx.today);
+  const months = monthsOfHistory(ctx);
+  const inWindow = ctx.tx.filter((t) => inRange(t, from, to));
+  const income = sum(inWindow.filter(isIncome).map((t) => t.tx_amount_eur)) / months;
+  const spending = sum(inWindow.filter(isSpending).map(out)) / months;
+  const saving = sum(inWindow.filter(isSaving).map(out)) / months;
+  const surplus = income - spending - saving;
+  const surplusText =
+    surplus >= 0
+      ? `Over the last ${months} months about €${Math.round(surplus)} a month was left after spending and your existing saving.`
+      : `Over the last ${months} months you spent about €${Math.round(-surplus)} a month more than came in.`;
+
+  const rows: Row[] = [
+    { term: `Safe to spend until payday (${p.payday})`, amount: round2(p.available) },
+    { term: "Everyday spending at your usual pace", amount: round2(-everydayUntilPayday) },
+    { term: "Cushion kept: one month of regular essentials", amount: round2(-cushion) },
+    { term: left > 0 ? "Safe to move to savings now" : "Short of the cushion", amount: round2(left) },
+  ];
+  return {
+    rows,
+    value: round2(Math.max(0, left)),
+    unit: "€",
+    caption:
+      left > 0
+        ? `You could move about €${Math.round(left)} to savings now and still keep a cushion. ${surplusText}`
+        : `Nothing is safe to move right now: after your usual spending you would be below a one-month cushion. ${surplusText}`,
+    assumptions: [
+      ...planAssumptions(ctx, p),
+      `Everyday spending is assumed to continue at your average of the last 3 full months, about €${Math.round(p.everydayPerDay)} a day.`,
+      `The cushion is one month of your regular essentials, about €${Math.round(cushion)}, kept in the account.`,
+      saving > 0
+        ? `Your existing saving, about €${Math.round(saving)} a month, is counted as already committed.`
+        : "You have no regular saving transfer yet.",
+    ],
+    filter: { from, to, kind: "net" },
   };
 }
 
@@ -236,22 +373,26 @@ function balanceForecast(ctx: EngineContext): EngineResult {
     for (; i < ctx.tx.length && ctx.tx[i].tx_date === d; i++) bal = ctx.tx[i].balance_after_eur;
     rows.push({ date: d, balance: round2(bal), kind: "Actual" });
   }
-  // Forecast: everyday spending at the recent daily rate, streams on their due dates, buffer spread evenly.
-  const [from3, to3] = resolvePeriod("last_3_months", ctx.today);
-  const everydayPerDay =
-    sum(ctx.tx.filter((t) => inRange(t, from3, to3) && basketOf(ctx, t) === "everyday").map(out)) /
-    Math.max(1, daysBetween(from3, to3) + 1);
-  const bufferPerDay = p.buffer / p.daysLeft;
+  // Forecast: everyday spending and non-bill essentials at the recent daily rate, single bills
+  // on their due dates, and the buffer and several-times-a-month bills spread evenly.
+  const spreadPerDay = sum(p.due.filter((x) => x.spread).map((x) => x.amount)) / p.daysLeft;
+  const perDay = p.everydayPerDay + p.essentialsPerDay + p.buffer / p.daysLeft + spreadPerDay;
   let projected = p.balance;
   for (let d = addDays(ctx.today, 1); d <= p.payday; d = addDays(d, 1)) {
-    projected -= everydayPerDay + bufferPerDay + sum(p.due.filter((x) => x.date === d).map((x) => x.stream.amount));
+    projected -= perDay + sum(p.due.filter((x) => !x.spread && x.date === d).map((x) => x.amount));
     rows.push({ date: d, balance: round2(projected), kind: "Forecast" });
   }
+  const salary = typicalSalary(ctx);
   return {
     rows,
     value: round2(projected),
     unit: "€",
-    caption: `Projected balance on payday ${p.payday}`,
+    caption: `Projected balance on payday ${p.payday}, before your salary${salary > 0 ? ` of about €${Math.round(salary)}` : ""} arrives`,
+    assumptions: [
+      ...planAssumptions(ctx, p),
+      `Everyday spending is assumed to continue at your average of the last 3 full months, about €${Math.round(p.everydayPerDay)} a day.`,
+      "The forecast stops just before payday and does not include the incoming salary.",
+    ],
     filter: { from: start, to: ctx.today, kind: "all" },
   };
 }
@@ -260,9 +401,10 @@ function balanceForecast(ctx: EngineContext): EngineResult {
 
 function whatIf(ctx: EngineContext, args: Record<string, unknown>): EngineResult {
   const category = str(args.category) ?? "Restaurants";
-  const cutPct = Math.max(0, Math.min(100, num(args.cutPct, 20)));
+  const cutPct = num(args.cutPct, 20);
   const [from, to] = resolvePeriod("last_12_months", ctx.today);
-  const monthly = sum(ctx.tx.filter((t) => isSpending(t) && t.category === category && inRange(t, from, to)).map(out)) / 12;
+  const months = monthsOfHistory(ctx);
+  const monthly = sum(ctx.tx.filter((t) => isSpending(t) && t.category === category && inRange(t, from, to)).map(out)) / months;
   const perMonth = (monthly * cutPct) / 100;
   const rows: Row[] = Array.from({ length: 12 }, (_, k) => ({ month: k + 1, saved: round2(perMonth * (k + 1)) }));
   return {
@@ -270,6 +412,7 @@ function whatIf(ctx: EngineContext, args: Record<string, unknown>): EngineResult
     value: round2(perMonth * 12),
     unit: "€ / year",
     caption: `Cutting ${category} by ${cutPct}% (now about €${Math.round(monthly)}/month) saves about €${Math.round(perMonth)} a month`,
+    assumptions: [`Based on your average ${category} spending over the last ${months} full months continuing unchanged.`],
     filter: { from, to, kind: "spending", category },
   };
 }
@@ -278,18 +421,25 @@ function peerCompare(ctx: EngineContext, args: Record<string, unknown>): EngineR
   const band = ageBand(ctx.customer.customer_age);
   const peers = ctx.cohorts?.bands[band] ?? {};
   const [from, to] = resolvePeriod("last_12_months", ctx.today);
+  const months = monthsOfHistory(ctx);
   const own = new Map<string, number>();
-  for (const t of ctx.tx) if (isSpending(t) && inRange(t, from, to)) own.set(t.category, (own.get(t.category) ?? 0) + out(t) / 12);
+  for (const t of ctx.tx) if (isSpending(t) && inRange(t, from, to)) own.set(t.category, (own.get(t.category) ?? 0) + out(t) / months);
   const only = str(args.category);
   const categories = [...new Set([...own.keys(), ...Object.keys(peers)])].filter((c) => !only || c === only).sort();
   const rows: Row[] = categories.flatMap((category) => [
     { category, who: "You", amount: round2(own.get(category) ?? 0) },
     { category, who: `Peers ${band}`, amount: round2(peers[category] ?? 0) },
   ]);
+  const window = ctx.cohorts ? `${ctx.cohorts.window[0]} to ${ctx.cohorts.window[1]}` : null;
   return {
     rows,
     unit: "€/month",
-    caption: `Your monthly average (last 12 months) vs customers aged ${band}`,
+    caption: `Your monthly average vs customers aged ${band} in the synthetic dataset, ${window ?? `${from} to ${to}`}`,
+    assumptions: [
+      "Peers are the synthetic customers in this dataset, not a representative sample of people in Finland.",
+      "A peer with no spending in a category counts as zero in the average.",
+      ...(window && window !== `${from} to ${to}` ? [`Your own average covers ${from} to ${to}; the peer average covers ${window}.`] : []),
+    ],
     filter: { from, to, kind: "spending" },
   };
 }
@@ -299,7 +449,8 @@ function recurring(ctx: EngineContext): EngineResult {
   const rows: Row[] = streams.map((s) => ({
     label: s.label,
     category: s.category,
-    amount: s.amount,
+    amount: s.monthlyAmount,
+    payments: Math.round(s.paymentsPerMonth),
     day: s.day,
     months: s.months,
     lastDate: s.lastDate,
@@ -307,16 +458,16 @@ function recurring(ctx: EngineContext): EngineResult {
   }));
   return {
     rows,
-    value: round2(sum(streams.filter((s) => !s.saving).map((s) => s.amount))),
+    value: round2(sum(streams.filter((s) => !s.saving).map((s) => s.monthlyAmount))),
     unit: "€/month",
-    caption: "Payments that repeat roughly monthly at a similar amount (last 12 months)",
+    caption: "Bills and saving transfers that repeat every month, with the typical monthly total (last 12 months)",
     filter: { from: addMonths(startOfMonth(ctx.today), -12), to: ctx.today, kind: "all" },
   };
 }
 
 function goalProgress(ctx: EngineContext, args: Record<string, unknown>): EngineResult {
   const [from12, to12] = resolvePeriod("last_12_months", ctx.today);
-  const monthlySpend = sum(ctx.tx.filter((t) => isSpending(t) && inRange(t, from12, to12)).map(out)) / 12;
+  const monthlySpend = sum(ctx.tx.filter((t) => isSpending(t) && inRange(t, from12, to12)).map(out)) / monthsOfHistory(ctx);
   let target = num(args.target, NaN);
   let label = str(args.label);
   if (!Number.isFinite(target)) {
@@ -324,7 +475,8 @@ function goalProgress(ctx: EngineContext, args: Record<string, unknown>): Engine
       target = ctx.mortgage.final_equity_amount_eur;
       label ??= "Mortgage down payment";
     } else {
-      target = Math.round(monthlySpend * 3);
+      // At least €1 so a customer with no spending history still gets a finite percentage.
+      target = Math.max(1, Math.round(monthlySpend * 3));
       label ??= "Emergency fund (3 months of spending)";
     }
   }
@@ -345,6 +497,10 @@ function goalProgress(ctx: EngineContext, args: Record<string, unknown>): Engine
         : monthsLeft === null
           ? "No regular saving yet: start with a small monthly transfer"
           : `About ${monthsLeft} months to go at €${Math.round(rate)}/month`,
+    assumptions: [
+      "Every transfer to savings or investments in this account's history counts toward the goal, starting from zero, minus withdrawals.",
+      "Money saved before the data starts, or held elsewhere, is not visible here.",
+    ],
     filter: { kind: "saving" },
   };
 }
@@ -356,6 +512,7 @@ const FNS: Record<EngineFn, (ctx: EngineContext, args: Record<string, unknown>) 
   monthlyTrend,
   baskets,
   safeToSpend,
+  safeToSave,
   balanceForecast,
   whatIf,
   peerCompare,
@@ -367,7 +524,7 @@ const FNS: Record<EngineFn, (ctx: EngineContext, args: Record<string, unknown>) 
 export function runEngine(ctx: EngineContext, fn: EngineFn, args: Record<string, unknown> = {}): EngineResult {
   const f = FNS[fn];
   if (!f) throw new Error(`Unknown engine function: ${fn}`);
-  return f(ctx, args);
+  return f(ctx, validateEngineArgs(fn, args));
 }
 
 export function filterTransactions(ctx: EngineContext, f: TxFilter): Transaction[] {
@@ -382,7 +539,8 @@ export function filterTransactions(ctx: EngineContext, f: TxFilter): Transaction
     if (f.kind === "spending" && !isSpending(t)) return false;
     if (f.kind === "income" && !isIncome(t)) return false;
     if (f.kind === "saving" && !isSaving(t)) return false;
-    if (f.basket && basketOf(ctx, t) !== f.basket) return false;
+    if (f.kind === "net" && !(isIncome(t) || isSpending(t))) return false;
+    if (f.basket && basketOf(t) !== f.basket) return false;
     return true;
   });
 }
