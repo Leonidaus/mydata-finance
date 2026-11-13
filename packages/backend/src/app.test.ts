@@ -83,7 +83,7 @@ describe("GET /api/customers/:id/spending", () => {
 
   it("filters by basket and groups by category", async () => {
     const { body } = await get<SpendingResult>(
-      "/api/customers/CUST00001/spending?period=last_month&basket=essential&groupBy=category",
+      "/api/customers/CUST00001/spending?period=last_month&basket=regular&groupBy=category",
     );
     assert.equal(body.total, 780);
     assert.deepEqual(body.groups, [
@@ -155,12 +155,12 @@ describe("finance engine routes", () => {
   });
 
   it("runs a what-if with arguments from the query string", async () => {
-    // Transportation in the last 12 full months: 42.50 in total, so 20% of the monthly
-    // average is 42.50 / 12 * 0.2 a month, or 8.50 a year.
+    // The fixture customer has one month of history (August): 42.50 on Transportation,
+    // so a 20% cut saves 8.50 a month, or 102 a year. The average is not diluted over 12 months.
     const { body } = await get<EngineBody>(
       "/api/customers/CUST00001/engine/whatIf?category=Transportation&cutPct=20",
     );
-    assert.equal(body.value, 8.5);
+    assert.equal(body.value, 102);
     assert.equal(body.rows.length, 12);
   });
 
@@ -170,7 +170,7 @@ describe("finance engine routes", () => {
       data: { kind: "engine", fn: "whatIf", args: { category: "Transportation", cutPct: 20 } },
     });
     assert.equal(status, 200);
-    assert.equal(body.value, 8.5);
+    assert.equal(body.value, 102);
   });
 
   it("compares with the age band's averages across all areas", async () => {
@@ -179,7 +179,7 @@ describe("finance engine routes", () => {
       data: { kind: "engine", fn: "peerCompare", args: { category: "Groceries" } },
     });
     assert.deepEqual(body.rows, [
-      { category: "Groceries", who: "You", amount: 6.67 },
+      { category: "Groceries", who: "You", amount: 80 },
       { category: "Groceries", who: "Peers 25-34", amount: 400 },
     ]);
   });
@@ -203,5 +203,41 @@ describe("finance engine routes", () => {
     assert.equal((await post("/api/data", { customerId: "CUST00001", data: { kind: "sql", sql: "select 1" } })).status, 501);
     assert.equal((await post("/api/transactions", { customerId: "CUST00001", filter: { month: 8 } })).status, 400);
     assert.equal((await post("/api/transactions", { customerId: "CUST99999" })).status, 404);
+  });
+
+  it("answers 400 with a reason for wrong engine arguments instead of guessing", async () => {
+    const wrongPeriod = await get<{ error: string }>("/api/customers/CUST00001/engine/baskets?period=last_year");
+    assert.equal(wrongPeriod.status, 400);
+    assert.match(wrongPeriod.body.error, /period must be one of/);
+    assert.equal((await get("/api/customers/CUST00001/engine/whatIf?cut_pct=20")).status, 400);
+    assert.equal((await get("/api/customers/CUST00001/engine/whatIf?cutPct=150")).status, 400);
+    assert.equal((await get("/api/customers/CUST00001/engine/whatIf?category=Salary")).status, 400);
+    assert.equal((await get("/api/customers/CUST00001/engine/goalProgress?target=0")).status, 400);
+    const data = { kind: "engine", fn: "monthlyTrend", args: { months: "twelve" } };
+    assert.equal((await post("/api/data", { customerId: "CUST00001", data })).status, 400);
+  });
+
+  it("offers safe to save, with rows that add up", async () => {
+    const { status, body } = await get<EngineBody & { assumptions: string[] }>(
+      "/api/customers/CUST00001/engine/safeToSave",
+    );
+    assert.equal(status, 200);
+    const amounts = body.rows.map((row) => row.amount as number);
+    const last = amounts.pop() as number;
+    assert.ok(Math.abs(amounts.reduce((a, b) => a + b, 0) - last) < 0.05);
+    assert.equal(body.value, Math.max(0, last));
+    assert.ok(body.assumptions.length > 0);
+  });
+});
+
+describe("summary definitions", () => {
+  it("reports net as income minus spending and the balance change separately", async () => {
+    const { body } = await get<{ months: { month: string; net: number; balanceChange: number; regular: number }[] }>(
+      "/api/customers/CUST00001/summary",
+    );
+    const august = body.months.find((m) => m.month === "2026-08")!;
+    assert.equal(august.net, 1427.5); // 2500 income - 1072.50 spending
+    assert.equal(august.balanceChange, 1227.5); // net minus the 200 moved to savings
+    assert.equal(august.regular, 780);
   });
 });
