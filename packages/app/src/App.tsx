@@ -1,9 +1,10 @@
 import { applyOps, type Block, type Dashboard, type TxFilter } from "@mydata/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { respond } from "./agent/mockAgent";
+import { askAgent, cannedReply } from "./agent";
 import BlockCard from "./BlockCard";
 import { defaultDashboard } from "./catalog";
 import Chat from "./Chat";
+import DevGallery from "./DevGallery";
 import { dataSource, loadIndex } from "./data";
 import { useLatest } from "./latest";
 import LoadError from "./LoadError";
@@ -25,7 +26,19 @@ const store = {
     }
   },
 };
-const dashboardKey = (cid: string) => `mydata.dashboard.${cid}`;
+// v2: blocks carry `pinned`; older saved dashboards (no pins) are dropped for the new one-card default.
+const dashboardKey = (cid: string) => `mydata.dashboard.v2.${cid}`;
+
+const devInUrl = () => new URLSearchParams(window.location.search).has("dev");
+/** The Dev button shows in `npm run dev`, or in a build opened with ?dev in the URL. */
+const devAvailable = import.meta.env.DEV || devInUrl();
+
+function setDevInUrl(on: boolean) {
+  const url = new URL(window.location.href);
+  if (on) url.searchParams.set("dev", "");
+  else url.searchParams.delete("dev");
+  window.history.replaceState(null, "", url.toString().replace(/\?dev=(&|$)/, "?dev$1"));
+}
 
 function loadBlocks(cid: string): Block[] {
   const raw = store.get(dashboardKey(cid));
@@ -51,6 +64,13 @@ export default function App() {
   const info = customer.status === "ready" ? customer.data : null;
   const shownCustomer = useRef(customerId);
   shownCustomer.current = customerId;
+  const [dev, setDev] = useState(devInUrl);
+  const [chatRequest, setChatRequest] = useState<{ text: string; n: number } | null>(null);
+
+  const toggleDev = (on: boolean) => {
+    setDev(on);
+    setDevInUrl(on);
+  };
 
   const selectCustomer = useCallback((id: string) => {
     store.set("mydata.customer", id);
@@ -75,15 +95,35 @@ export default function App() {
     });
   }, []);
 
-  const ask = async (question: string) => {
+  /** Suggested prompts are canned (answered locally, no API call); typed questions go to the agent. */
+  const ask = async (question: string, canned = false) => {
     if (customer.status === "error") return "I couldn't load your data. Use “Try again” above first.";
     if (!dashboard || !info) return "Still loading your data…";
     // The whole answer is for the customer who asked, also if another one is selected before it is ready.
     const { customerId: askedFor, blocks } = dashboard;
-    const reply = await respond(question, blocks, (fn, args = {}) => dataSource.runData(askedFor, { kind: "engine", fn, args }));
-    if (reply.ops.length) updateBlocks(askedFor, (prev) => applyOps({ customerId: askedFor, blocks: prev }, reply.ops).blocks);
-    if (reply.ops.length && shownCustomer.current === askedFor) document.querySelector(".dashboard")?.scrollTo({ top: 0, behavior: "smooth" });
+    const reply = await (canned ? cannedReply : askAgent)(question, blocks, (fn, args = {}) =>
+      dataSource.runData(askedFor, { kind: "engine", fn, args }),
+    );
+    if (reply.ops.length) {
+      // The new answer replaces the previous unpinned one; pinned blocks and blocks this reply touched stay.
+      const touched = new Set(reply.ops.map((o) => (o.op === "add_block" ? o.block.id : o.id)));
+      updateBlocks(askedFor, (prev) =>
+        applyOps({ customerId: askedFor, blocks: prev }, reply.ops).blocks.filter((b) => b.pinned || touched.has(b.id)),
+      );
+      if (shownCustomer.current === askedFor) document.querySelector(".dashboard")?.scrollTo({ top: 0, behavior: "smooth" });
+    }
     return reply.text;
+  };
+
+  const addBlock = (block: Block) => {
+    if (!customerId) return;
+    updateBlocks(customerId, (prev) => applyOps({ customerId, blocks: prev }, [{ op: "add_block", block: { ...block, pinned: true }, index: 0 }]).blocks);
+    toggleDev(false);
+  };
+
+  const askFromGallery = (prompt: string) => {
+    toggleDev(false);
+    setChatRequest((prev) => ({ text: prompt, n: (prev?.n ?? 0) + 1 }));
   };
 
   const pickRandom = () => {
@@ -122,11 +162,16 @@ export default function App() {
             <button type="button" className="ghost-btn" onClick={pickRandom} title="Random customer">
               Random
             </button>
+            {devAvailable && (
+              <button type="button" className={`ghost-btn${dev ? " on" : ""}`} onClick={() => toggleDev(!dev)} aria-pressed={dev} title="Show every component">
+                Dev
+              </button>
+            )}
           </div>
         )}
       </header>
 
-      <main className="dashboard" aria-label="Your dashboard">
+      <main className="dashboard" aria-label={dev ? "Component gallery" : "Your dashboard"}>
         {index.status === "error" && <LoadError error={index.error} retry={index.retry} />}
         {customer.status === "error" && <LoadError error={customer.error} retry={customer.retry} />}
         {info && (
@@ -139,8 +184,18 @@ export default function App() {
             Loading your data…
           </p>
         )}
+        {info && dashboard && dev && (
+          <DevGallery
+            customerId={dashboard.customerId}
+            today={info.today}
+            onAdd={addBlock}
+            onAsk={askFromGallery}
+            onDrill={(title, filter) => setDrill({ customerId: dashboard.customerId, title, filter })}
+          />
+        )}
         {info &&
           dashboard &&
+          !dev &&
           dashboard.blocks.map((b) => (
             <BlockCard
               key={b.id}
@@ -149,17 +204,18 @@ export default function App() {
               today={info.today}
               onChange={(patch) => updateBlocks(dashboard.customerId, (prev) => prev.map((x) => (x.id === b.id ? { ...x, ...patch } : x)))}
               onRemove={() => updateBlocks(dashboard.customerId, (prev) => prev.filter((x) => x.id !== b.id))}
+              onPin={() => updateBlocks(dashboard.customerId, (prev) => prev.map((x) => (x.id === b.id ? { ...x, pinned: !x.pinned } : x)))}
               onDrill={(title, filter) => setDrill({ customerId: dashboard.customerId, title, filter })}
             />
           ))}
-        {info && dashboard && (
+        {info && dashboard && !dev && (
           <button type="button" className="ghost-btn reset" onClick={() => updateBlocks(dashboard.customerId, () => defaultDashboard())}>
             Reset dashboard
           </button>
         )}
       </main>
 
-      <Chat onAsk={ask} resetKey={customerId ?? ""} />
+      <Chat onAsk={ask} resetKey={customerId ?? ""} request={chatRequest} />
 
       {drill && drill.customerId === customerId && (
         <TxDrawer customerId={drill.customerId} title={drill.title} filter={drill.filter} onClose={() => setDrill(null)} />

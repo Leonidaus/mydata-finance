@@ -1,25 +1,27 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import { DEMO_PROMPTS } from "./agent/mockAgent";
 import { errorMessage } from "./latest";
 
 type Message = { id: number; role: "user" | "assistant"; text: string };
 
+/** A few of each kind, so the chips show templates, custom charts and widgets. */
 const SUGGESTIONS = [
-  "How much did I spend on taxis last month?",
-  "What is safe for me to spend this week?",
-  "What kind of spender am I?",
-  "What if I cut eating out by 20%?",
-  "Show my bills",
-  "How am I doing on my savings goal?",
+  ...DEMO_PROMPTS[0].prompts.slice(0, 4),
+  ...DEMO_PROMPTS[1].prompts.slice(0, 2),
+  ...DEMO_PROMPTS[2].prompts,
+  ...DEMO_PROMPTS[0].prompts.slice(4, 6),
 ];
 
 interface Props {
   /** Resolves to the assistant's reply text; dashboard edits happen as a side effect. */
-  onAsk: (question: string) => Promise<string>;
+  onAsk: (question: string, canned?: boolean) => Promise<string>;
   /** Changing this resets the conversation (e.g. when switching customer). */
   resetKey: string;
+  /** Send a question from outside the chat (e.g. the dev gallery). A new `n` sends again. */
+  request?: { text: string; n: number } | null;
 }
 
-export default function Chat({ onAsk, resetKey }: Props) {
+export default function Chat({ onAsk, resetKey, request }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
@@ -37,7 +39,7 @@ export default function Chat({ onAsk, resetKey }: Props) {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, pending]);
 
-  function send(text: string) {
+  function send(text: string, canned = false) {
     const trimmed = text.trim();
     if (!trimmed || pending) return;
     const add = (role: Message["role"], text: string) => {
@@ -50,13 +52,18 @@ export default function Chat({ onAsk, resetKey }: Props) {
     add("user", trimmed);
     setInput("");
     setPending(true);
-    onAsk(trimmed)
+    onAsk(trimmed, canned)
       .then(
         (reply) => current() && add("assistant", reply),
         (e: unknown) => current() && add("assistant", `I couldn't answer that: ${errorMessage(e)} Please ask again.`),
       )
       .finally(() => current() && setPending(false));
   }
+
+  useEffect(() => {
+    if (request) send(request.text, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request?.n]);
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -65,7 +72,7 @@ export default function Chat({ onAsk, resetKey }: Props) {
 
   return (
     <section className="chat" aria-label="Chat with your money coach">
-      {messages.length > 0 ? (
+      {messages.length > 0 && (
         <div className="chat-log" ref={logRef} role="log" aria-live="polite">
           {messages.map((m) => (
             <div key={m.id} className={`bubble bubble-${m.role}`}>
@@ -78,15 +85,14 @@ export default function Chat({ onAsk, resetKey }: Props) {
             </div>
           )}
         </div>
-      ) : (
-        <div className="suggestions" aria-label="Suggested questions">
-          {SUGGESTIONS.map((s) => (
-            <button key={s} type="button" className="chip" onClick={() => send(s)}>
-              {s}
-            </button>
-          ))}
-        </div>
       )}
+      <div className="suggestions" aria-label="Suggested questions (answered instantly)">
+        {SUGGESTIONS.map((s) => (
+          <button key={s} type="button" className="chip" onClick={() => send(s, true)} disabled={pending}>
+            {s}
+          </button>
+        ))}
+      </div>
 
       <form className="chat-input" onSubmit={onSubmit}>
         <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask about your money…" aria-label="Your question" />

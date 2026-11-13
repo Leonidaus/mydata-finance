@@ -154,7 +154,7 @@ export const catalog = {
 };
 
 export function defaultDashboard(): Block[] {
-  return [catalog.safeToSpend(), catalog.baskets(), catalog.categoryBars(), catalog.forecast()];
+  return [{ ...catalog.safeToSpend(), pinned: true }];
 }
 
 function capitalise(s: string) {

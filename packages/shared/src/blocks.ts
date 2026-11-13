@@ -51,6 +51,8 @@ export interface Block {
   data: DataRequest;
   view: BlockView;
   controls?: Control[];
+  /** Pinned blocks stay on the dashboard. An unpinned block is the latest answer and is replaced by the next one. */
+  pinned?: boolean;
 }
 
 export interface Dashboard {
