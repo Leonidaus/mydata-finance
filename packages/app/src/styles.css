@@ -235,6 +235,10 @@ body {
 
 .block-figure { margin: 8px 0 0; font-size: 1.4rem; }
 .block-error { color: var(--danger); }
+.load-error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.load-error .ghost-btn { color: var(--text); border-color: var(--border); }
+/* Previous figures while new ones load; the delay keeps quick answers from flickering. */
+.block-body.updating { opacity: 0.5; pointer-events: none; transition: opacity 0.2s 0.15s; }
 .vega { width: 100%; margin-top: 6px; }
 .vega svg { max-width: 100%; }
 .small { font-size: 0.8rem; }
@@ -437,6 +441,7 @@ body {
 
 .sheet-head h2 { margin: 0; font-size: 1.05rem; }
 .sheet-head p { margin: 4px 0 0; }
+.sheet-status { margin: 0; padding: 12px 16px 16px; }
 
 .tx-list {
   list-style: none;

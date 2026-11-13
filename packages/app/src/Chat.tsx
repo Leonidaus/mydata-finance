@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import { errorMessage } from "./latest";
 
 type Message = { id: number; role: "user" | "assistant"; text: string };
 
@@ -12,8 +13,8 @@ const SUGGESTIONS = [
 ];
 
 interface Props {
-  /** Returns the assistant's reply text; dashboard edits happen as a side effect. */
-  onAsk: (question: string) => string;
+  /** Resolves to the assistant's reply text; dashboard edits happen as a side effect. */
+  onAsk: (question: string) => Promise<string>;
   /** Changing this resets the conversation (e.g. when switching customer). */
   resetKey: string;
 }
@@ -21,24 +22,40 @@ interface Props {
 export default function Chat({ onAsk, resetKey }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
+  const [pending, setPending] = useState(false);
   const nextId = useRef(1);
   const logRef = useRef<HTMLDivElement>(null);
+  /** Counts conversation resets, so that a reply can tell whether its conversation is still open. */
+  const conversation = useRef(0);
 
-  useEffect(() => setMessages([]), [resetKey]);
+  useEffect(() => {
+    conversation.current++;
+    setMessages([]);
+    setPending(false);
+  }, [resetKey]);
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages]);
+  }, [messages, pending]);
 
   function send(text: string) {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    const reply = onAsk(trimmed);
-    setMessages((prev) => [
-      ...prev,
-      { id: nextId.current++, role: "user", text: trimmed },
-      { id: nextId.current++, role: "assistant", text: reply },
-    ]);
+    if (!trimmed || pending) return;
+    const add = (role: Message["role"], text: string) => {
+      const id = nextId.current++;
+      setMessages((prev) => [...prev, { id, role, text }]);
+    };
+    // A reply that arrives after the conversation was reset belongs to the previous customer: drop it.
+    const askedIn = conversation.current;
+    const current = () => conversation.current === askedIn;
+    add("user", trimmed);
     setInput("");
+    setPending(true);
+    onAsk(trimmed)
+      .then(
+        (reply) => current() && add("assistant", reply),
+        (e: unknown) => current() && add("assistant", `I couldn't answer that: ${errorMessage(e)} Please ask again.`),
+      )
+      .finally(() => current() && setPending(false));
   }
 
   function onSubmit(e: FormEvent) {
@@ -55,6 +72,11 @@ export default function Chat({ onAsk, resetKey }: Props) {
               {m.text}
             </div>
           ))}
+          {pending && (
+            <div className="bubble bubble-assistant" role="status">
+              Thinking…
+            </div>
+          )}
         </div>
       ) : (
         <div className="suggestions" aria-label="Suggested questions">
@@ -68,7 +90,7 @@ export default function Chat({ onAsk, resetKey }: Props) {
 
       <form className="chat-input" onSubmit={onSubmit}>
         <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask about your money…" aria-label="Your question" />
-        <button type="submit" disabled={!input.trim()}>
+        <button type="submit" disabled={!input.trim() || pending}>
           Ask
         </button>
       </form>
