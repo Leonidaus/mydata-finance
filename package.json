@@ -9,11 +9,14 @@
     "node": ">=22.12"
   },
   "scripts": {
-    "dev": "npm run dev -w @mydata/app",
-    "build": "npm run build -w @mydata/app",
-    "typecheck": "tsc -b packages/shared && npm run typecheck -w @mydata/app"
+    "dev": "npm run dev -w @mydata/app --",
+    "build": "npm run build -w @mydata/app --",
+    "typecheck": "tsc -p packages/shared/tsconfig.json --noEmit && npm run typecheck -w @mydata/app",
+    "test": "vitest run"
   },
   "devDependencies": {
-    "typescript": "^5.6.0"
+    "@types/node": "26.6.5",
+    "typescript": "^5.6.0",
+    "vitest": "5.0.5"
   }
 }
