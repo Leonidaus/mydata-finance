@@ -18,7 +18,7 @@ jobs:
   branch-base:
     name: Pull request base
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: craci
     timeout-minutes: 1
     steps:
       - name: Require develop as base
