@@ -32,7 +32,8 @@ export async function handleTts(request: Request): Promise<Response> {
   }
   let body: { text?: unknown; languageCode?: unknown };
   try {
-    body = await request.json();
+    // json() is typed `any` with DOM types and `unknown` with newer Node types; the cast suits both.
+    body = (await request.json()) as { text?: unknown; languageCode?: unknown };
   } catch {
     return error(400, "Expected a JSON body like { \"text\": \"...\" }");
   }
