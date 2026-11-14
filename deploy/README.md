@@ -80,6 +80,12 @@ Actions, or `gh secret set NAME`):
 | `ELEVENLABS_API_KEY` | Key for the voice routes | Set on 14 November |
 | `GEMINI_API_KEY` | Key for the chat | To set |
 
+The voice model settings are non-secret GitHub Actions variables. The deployment
+uses `eleven_flash_v2_5` for TTS, the selected Finnish/English app locale is sent
+with each request, and `scribe_v3` is used for transcription. Override
+`ELEVENLABS_VOICE_ID`, `ELEVENLABS_TTS_MODEL_ID`, or `ELEVENLABS_STT_MODEL_ID`
+as repository variables only when a different provider setting is needed.
+
 On every deploy the workflow writes the service keys that are set to
 `/srv/mydata/keys.env` on the host (readable only by the deploy user), and the app
 container reads that file. A missing key just leaves that service off; `/api/health`

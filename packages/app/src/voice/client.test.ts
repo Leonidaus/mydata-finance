@@ -35,21 +35,21 @@ describe("voice client", () => {
       seen.push({ url: String(url), init });
       return new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "audio/mpeg" } });
     });
-    const audio = await client.speak("You spent €20.");
+    const audio = await client.speak("You spent €20.", "fi");
     expect(seen).toHaveLength(1);
     expect(seen[0].url).toBe("https://api.example/api/tts");
     expect(seen[0].init?.method).toBe("POST");
     expect(seen[0].init?.headers).toEqual({ "content-type": "application/json" });
-    expect(JSON.parse(String(seen[0].init?.body))).toEqual({ text: "You spent €20." });
+    expect(JSON.parse(String(seen[0].init?.body))).toEqual({ text: "You spent €20.", languageCode: "fi" });
     expect(audio.type).toBe("audio/mpeg");
     expect(new Uint8Array(await audio.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
   });
 
   it("surfaces TTS errors, including the voice rate limit", async () => {
     const busy = createVoiceClient("", async () => json({ error: "The voice service is busy. Try again in 30 seconds." }, 429));
-    await expect(busy.speak("hello")).rejects.toThrow("Try again in 30 seconds");
+    await expect(busy.speak("hello", "en")).rejects.toThrow("Try again in 30 seconds");
     const broken = createVoiceClient("", async () => new Response("Bad gateway", { status: 502 }));
-    await expect(broken.speak("hello")).rejects.toThrow("status 502");
+    await expect(broken.speak("hello", "en")).rejects.toThrow("status 502");
   });
 
   it("sends dictation as multipart audio and trims the transcript", async () => {

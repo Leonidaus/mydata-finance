@@ -6,7 +6,7 @@ describe("getVoiceConfig", () => {
     const config = getVoiceConfig({});
     expect(config.apiKey).toBeUndefined();
     expect(config.voiceId).toBe("4ZwDxrFaobUF5e1KlEM");
-    expect(config.ttsModelId).toBe("eleven_multilingual_v2");
+    expect(config.ttsModelId).toBe("eleven_flash_v2_5");
     expect(config.sttModelId).toBe("scribe_v3");
     expect(config.ttsLanguageCode).toBeUndefined();
     expect(config.sttLanguageCode).toBeUndefined();
