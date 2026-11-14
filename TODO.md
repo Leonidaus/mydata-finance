@@ -184,7 +184,7 @@ Counts towards: clarity of the mobile experience, potential to integrate into S-
 - [x] Light on every device, like S-mobiili; dark only on request (`?theme=dark`)
 - [x] One pinned card by default; answers replace the previous unpinned card
 - [x] The coach's face and next-step chips; voice mode with continuous listening
-- [x] Animated widgets (spending city, savings jar, gauge, money flow, coins)
+- [x] Animated widgets (savings jar, gauge, money flow, coins)
 - [ ] Real phone test (item 6 above)
 - [ ] Finnish-first interface with an English toggle. The coach already answers in
   Finnish; buttons, card titles, captions and assumptions are in English

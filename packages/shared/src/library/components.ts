@@ -184,14 +184,6 @@ export const COMPONENTS = {
     args: ["period"],
     build: (a) => custom.receipt(s(a.period)),
   },
-  spending_city: {
-    description:
-      "Showpiece: an interactive 3D city with one tower per spending category, as tall as the amount. Tap a tower for its figure; in full screen it can be rotated and zoomed. Pick this when the user asks for 3D, something impressive, or to explore their spending.",
-    examples: ["Show my spending in 3D", "Give me a cool view of where my money goes"],
-    fn: "spendBy",
-    args: ["period"],
-    build: (a) => widgets.city(s(a.period)),
-  },
   money_story: {
     description:
       "Showpiece: a step-by-step story from the balance today, through each bill and buffer, down to what is safe to spend, with Back and Next. Pick this when the user asks to be walked through it, for a story, or why the safe amount is what it is.",
