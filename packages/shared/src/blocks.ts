@@ -21,6 +21,10 @@ export const TEMPLATE_IDS = [
 ] as const;
 export type TemplateId = (typeof TEMPLATE_IDS)[number];
 
+/** Libraries a code widget can ask for. Globals in the frame: `gsap`, `Matter`, `THREE`. */
+export const WIDGET_LIBS = ["gsap", "matter", "three"] as const;
+export type WidgetLib = (typeof WIDGET_LIBS)[number];
+
 export type DataRequest =
   | { kind: "engine"; fn: EngineFn; args: Record<string, unknown> }
   /** Read-only, customer-scoped SQL. Executed server-side only (phase 2). */
@@ -30,8 +34,8 @@ export type BlockView =
   | { kind: "template"; template: TemplateId; params?: Record<string, unknown> }
   /** Vega-Lite spec; the app injects the rows as `data.values` (phase 3). */
   | { kind: "spec"; spec: Record<string, unknown> }
-  /** Sandboxed widget code; receives rows via postMessage (phase 3, experimental). */
-  | { kind: "code"; code: string };
+  /** Sandboxed widget code; receives rows via postMessage. `libs` are injected into the frame. */
+  | { kind: "code"; code: string; libs?: WidgetLib[] };
 
 /** Where a block's figures come from, shown as a badge. */
 export type BlockSource = "own" | "peer" | "public" | "estimate";
@@ -51,6 +55,8 @@ export interface Block {
   data: DataRequest;
   view: BlockView;
   controls?: Control[];
+  /** Set when the card came from the component library, so the model can be told which one it is. */
+  component?: string;
   /** Pinned blocks stay on the dashboard. An unpinned block is the latest answer and is replaced by the next one. */
   pinned?: boolean;
 }

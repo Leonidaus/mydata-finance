@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Block } from "../blocks";
 import { buildComponent, COMPONENT_IDS } from "../library/components";
+import type { EngineResult } from "../engine/types";
 import { type ChatModel, type ChatModelRequest, runChat } from "./chat";
+import type { Lookup } from "./snapshot";
 import { fillPlaceholders, placeholderBlockIds } from "./placeholders";
 import { buildSystemPrompt } from "./prompt";
 import type { ToolCall } from "./tools";
@@ -15,6 +17,9 @@ const existing: Block = {
   data: { kind: "engine", fn: "safeToSpend", args: { horizon: "week" } },
   view: { kind: "template", template: "stat" },
 };
+
+/** Every component builds without arguments, except a plan, which needs the user's target. */
+const exampleArgs = (component: string): Record<string, unknown> => (component === "goal_plan" ? { target: 25000 } : {});
 
 const add = (over: Record<string, unknown> = {}): ToolCall => ({
   name: "add_block",
@@ -93,19 +98,96 @@ describe("parseToolCalls", () => {
     expect(buildSystemPrompt([], "2026-09-15")).toMatch(/finland_compare/);
   });
 
+  it("builds a savings plan only from a target the user gave", () => {
+    const r = parseToolCalls(
+      [
+        { name: "use_component", args: { id: "home", component: "goal_plan", args: { saved: 10000 }, reply: "Here is a plan." } },
+        { name: "use_component", args: { id: "home", component: "goal_plan", args: { target: 25000, saved: 10000, extra: 100 }, reply: "Here is your plan." } },
+        { name: "use_component", args: { id: "cuts", component: "saving_options", args: { protect: ["Travel", "Groceries"], cutPct: 20 }, reply: "Here." } },
+        { name: "use_component", args: { id: "cuts2", component: "saving_options", args: { protect: ["Holidays"] }, reply: "Here." } },
+      ],
+      [],
+    );
+    expect(r.errors[0]).toMatch(/goal_plan needs target/);
+    expect(r.errors[1]).toMatch(/protect must be a list of categories/);
+    expect(r.ops.map((op) => (op.op === "add_block" ? op.block.data : null))).toEqual([
+      { kind: "engine", fn: "goalPlan", args: { target: 25000, saved: 10000, extra: 100 } },
+      { kind: "engine", fn: "savingsOptions", args: { protect: ["Travel", "Groceries"], cutPct: 20 } },
+    ]);
+  });
+
   it("rejects unknown components and arguments the component doesn't take", () => {
     const r = parseToolCalls(
       [
         { name: "use_component", args: { id: "a", component: "pie_of_doom" } },
-        { name: "use_component", args: { id: "b", component: "spending_donut", args: { category: "Groceries" } } },
+        { name: "use_component", args: { id: "b", component: "weekday_pattern", args: { category: "Groceries" } } },
         { name: "use_component", args: { id: "c", component: "what_if", args: { cutPct: 500 } } },
       ],
       [],
     );
     expect(r.ops).toEqual([]);
     expect(r.errors[0]).toMatch(/component must be one of: .*safe_to_spend/);
-    expect(r.errors[1]).toMatch(/spending_donut does not take "category". Allowed: period/);
+    expect(r.errors[1]).toMatch(/weekday_pattern does not take "category". Allowed: period/);
     expect(r.errors[2]).toMatch(/cutPct/);
+  });
+
+  it("accepts known widget libraries and rejects others", () => {
+    const code = "<script>mydata.onData(function () { gsap.to('#a', { x: 1 }); new THREE.Scene(); })</script>";
+    const widget = (libs: unknown) => add({ view_kind: "code", code, why_custom: "x", libs });
+    const r = parseToolCalls([widget(["gsap", "three", "gsap", "matter"]), widget(["jquery"]), widget(["gsap"])], []);
+    // A library the code never uses is dropped; one it uses without listing is an error.
+    expect(r.ops[0]).toMatchObject({ block: { view: { kind: "code", libs: ["gsap", "three"] } } });
+    expect(r.errors[0]).toMatch(/libs may only contain: gsap, matter, three/);
+    expect(r.errors[1]).toMatch(/code uses three but libs does not list "three"/);
+  });
+
+  it("rejects custom views that would come out broken", () => {
+    const spec = (value: unknown) => add({ view_kind: "spec", spec: JSON.stringify(value), template: undefined, why_custom: "x" });
+    const code = (text: string) => add({ view_kind: "code", code: text, template: undefined, why_custom: "x" });
+    const r = parseToolCalls(
+      [
+        spec({ encoding: { x: { field: "month" } } }),
+        spec({ mark: "bar", data: { values: [{ month: "2026-08", amount: 300 }] }, encoding: { x: { field: "month" } } }),
+        spec({ mark: "bar", encoding: { x: { field: "month" }, y: { field: "total" } } }),
+        code("<script>mydata.onData(function (rows) { draw(rows }</script>"),
+        code('<script src="https://cdn.example/chart.js"></script><script>mydata.onData(function () {})</script>'),
+        code("<div>mydata.onData</div>"),
+        // These are fine: a field made by a transform, and a composition without a top-level mark.
+        spec({ transform: [{ calculate: "datum.amount / 2", as: "half" }], mark: "bar", encoding: { x: { field: "month" }, y: { field: "half" } } }),
+        spec({ layer: [{ mark: "line", encoding: { x: { field: "month" }, y: { field: "amount" } } }] }),
+      ].map((call, n) => ({ ...call, args: { ...call.args, id: `view-${n}` } })),
+      [],
+    );
+    expect(r.errors[0]).toMatch(/no mark/);
+    expect(r.errors[1]).toMatch(/must not contain "data"/);
+    expect(r.errors[2]).toMatch(/reads "total", but rows of monthlyTrend only have: month, amount/);
+    expect(r.errors[3]).toMatch(/does not parse/);
+    expect(r.errors[4]).toMatch(/must not load anything/);
+    expect(r.errors[5]).toMatch(/needs an inline <script>/);
+    expect(r.errors).toHaveLength(6);
+    expect(r.ops.map((op) => (op.op === "add_block" ? op.block.id : ""))).toEqual(["view-6", "view-7"]);
+  });
+
+  it("reads the coach's mood and suggestions from any answering call", () => {
+    const r = parseToolCalls(
+      [{ name: "reply", args: { text: "Well done.", mood: "proud", suggestions: ["Show my savings", " ", "Show my savings", "x".repeat(200), "a", "b"] } }],
+      [],
+    );
+    expect(r.mood).toBe("proud");
+    expect(r.suggestions).toEqual(["Show my savings", "x".repeat(60), "a"]);
+    expect(parseToolCalls([{ name: "reply", args: { text: "Hi.", mood: "furious" } }], [])).toMatchObject({ mood: null, suggestions: [] });
+  });
+
+  it("ships library widgets whose scripts parse and only use libraries they declare", () => {
+    const globals = { gsap: /\bgsap\./, matter: /\bMatter\./, three: /\bTHREE\./ } as const;
+    for (const c of COMPONENT_IDS) {
+      const { view } = buildComponent(c, exampleArgs(c));
+      if (view.kind !== "code") continue;
+      const scripts = [...view.code.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+      expect(scripts.length, c).toBeGreaterThan(0);
+      for (const js of scripts) expect(() => new Function(js), c).not.toThrow();
+      for (const [lib, re] of Object.entries(globals)) expect(re.test(view.code), `${c} ${lib}`).toBe((view.libs ?? []).includes(lib as keyof typeof globals));
+    }
   });
 
   it("checks controls against the function's arguments", () => {
@@ -168,6 +250,30 @@ describe("runChat", () => {
     expect(out).toMatchObject({ text: "Fixed.", rejected: [] });
   });
 
+  it("takes the chat answer from the card call, so one request is a whole answer", async () => {
+    const model = scripted([{ name: "use_component", args: { id: "food", component: "category_bars", args: { category: "Groceries" }, reply: "You spent {{food.value}}." } }]);
+    const out = await runChat(model, input);
+    expect(model.requests).toHaveLength(1);
+    expect(out).toMatchObject({ text: "You spent {{food.value}}.", rejected: [] });
+    expect(out.ops).toHaveLength(1);
+  });
+
+  it("asks only for the sentence when a valid card came without one, and keeps the card", async () => {
+    const model = scripted([add()], [{ name: "reply", args: { text: "Here it is: {{food-trend.value}}." } }]);
+    const out = await runChat(model, input);
+    expect(model.requests).toHaveLength(2);
+    expect(model.requests[1].tools.map((t) => t.name)).toEqual(["reply"]);
+    expect(out.text).toBe("Here it is: {{food-trend.value}}.");
+    expect(out.ops).toMatchObject([{ op: "add_block", block: { id: "food-trend" } }]);
+  });
+
+  it("shows the model a custom view and names library cards, so follow-ups can edit them", () => {
+    const customCard: Block = { ...existing, id: "bars", view: { kind: "spec", spec: { mark: "bar" } } };
+    const prompt = buildSystemPrompt([customCard, { ...existing, pinned: true, component: "safe_to_spend" }], "2026-09-15");
+    expect(prompt).toContain('custom spec:\n    {"mark":"bar"}, the latest answer');
+    expect(prompt).toContain("view library component safe_to_spend, pinned");
+  });
+
   it("sends block definitions to the model, never results", () => {
     const prompt = buildSystemPrompt([existing], "2026-09-15");
     expect(prompt).toContain('id safe-week: "Safe to spend" = safeToSpend({"horizon":"week"})');
@@ -178,7 +284,7 @@ describe("runChat", () => {
     const prompt = buildSystemPrompt([], "2026-09-15");
     for (const c of COMPONENT_IDS) {
       expect(prompt).toContain(`- ${c}:`);
-      expect(buildComponent(c).data.kind).toBe("engine");
+      expect(buildComponent(c, exampleArgs(c)).data.kind).toBe("engine");
     }
   });
 });
@@ -207,14 +313,136 @@ describe("runChat when the model sends one tool call per turn", () => {
     expect(out.ops).toHaveLength(1);
     expect(seen).toHaveLength(2);
     expect(seen[1].tools.map((t) => t.name)).toEqual(["reply"]);
-    expect(seen[1].turns.at(-1)?.text).toContain("ids: safe-week");
+    expect(seen[1].turns.at(-1)?.text).toContain("Your answer had no reply. The cards are in place.");
+    expect(out.checked).toBe(true);
+  });
+});
+
+describe("runChat with the customer's figures", () => {
+  const results: Record<string, EngineResult> = {
+    safeToSpend: { rows: [{ term: "Balance", amount: 2500 }, { term: "Safe to spend", amount: 312.4 }], value: 312.4, unit: "€", caption: "Until Sunday" },
+    spendBy: { rows: [{ key: "Groceries", label: "Groceries", amount: 371.09, count: 18 }, { key: "Travel", label: "Travel", amount: 128.91, count: 2 }], value: 500, unit: "€" },
+    whatIf: { rows: [{ month: 12, saved: 444 }], value: 444, unit: "€ / year" },
+    safeToSave: { rows: [{ term: "Can be moved to savings", amount: 150 }], value: 150, unit: "€" },
+  };
+  function harness(...answers: ToolCall[][]) {
+    const requests: ChatModelRequest[] = [];
+    const looked: string[] = [];
+    const model: ChatModel = {
+      async generate(req) {
+        requests.push(structuredClone(req));
+        return { calls: answers[requests.length - 1] ?? [], raw: { n: requests.length } };
+      },
+    };
+    const lookup: Lookup = (fn, args) => {
+      looked.push(`${fn}(${JSON.stringify(args)})`);
+      const result = results[fn];
+      if (!result) throw new Error(`${fn} is not available here`);
+      return result;
+    };
+    const ask = (question = "How much on groceries?") => runChat(model, { question, history: [], blocks: [], today: "2026-09-15", lookup });
+    return { requests, looked, ask };
+  }
+  const say = (text: string, extra: Record<string, unknown> = {}): ToolCall => ({ name: "reply", args: { text, ...extra } });
+
+  it("gives the coach a snapshot, so a plain question is one model call with real figures", async () => {
+    const { requests, ask } = harness([say("You spent 371,09 € on groceries, 74 % of the total.", { mood: "neutral", suggestions: ["Cut it by 10%"] })]);
+    const out = await ask();
+    expect(requests).toHaveLength(1);
+    expect(requests[0].system).toMatch(/SNAPSHOT[\s\S]*Spending by category, last full month = spendBy\({"period":"last_month"}\)[\s\S]*label=Groceries; amount=371.09; count=18; share of this total=74%/);
+    expect(requests[0].system).toContain("ONE-OFF amount that could be moved to savings today");
+    expect(requests[0].tools.map((t) => t.name)).toContain("lookup");
+    expect(out).toMatchObject({ text: "You spent 371,09 € on groceries, 74 % of the total.", ops: [], checked: true, mood: "neutral", suggestions: ["Cut it by 10%"], rejected: [] });
   });
 
-  it("does not ask when the caller writes the reply itself", async () => {
-    const { model, seen } = oneCallPerTurn();
-    const out = await runChat(model, { ...input, replyFollowUp: false });
-    expect(seen).toHaveLength(1);
+  it("looks up what the snapshot lacks, then answers with it", async () => {
+    const { requests, looked, ask } = harness(
+      [{ name: "lookup", args: { fn: "whatIf", args: { category: "Restaurants", cutPct: 20 } } }, { name: "lookup", args: { fn: "dropTables" } }],
+      [say("Cutting eating out by a fifth would save about 444 € a year.")],
+    );
+    const out = await ask("What if I cut eating out by 20%?");
+    expect(looked).toContain('whatIf({"category":"Restaurants","cutPct":20})');
+    expect(requests).toHaveLength(2);
+    expect(requests[1].turns.at(-2)).toMatchObject({ role: "model", raw: { n: 1 } });
+    expect(requests[1].turns.at(-1)?.text).toMatch(/^LOOKED UP\nwhatIf\({"category":"Restaurants","cutPct":20}\)\n  value: 444 € \/ year[\s\S]*lookup: fn must be one of/);
+    expect(out).toMatchObject({ text: "Cutting eating out by a fifth would save about 444 € a year.", checked: true });
+  });
+
+  it("stops offering lookups after two rounds, and reports a lookup that cannot be computed", async () => {
+    const look: ToolCall = { name: "lookup", args: { fn: "recurring" } };
+    const { requests, ask } = harness([look], [look], [look, say("I can't see that.")]);
+    const out = await ask();
+    expect(requests).toHaveLength(3);
+    expect(requests[1].turns.at(-1)?.text).toContain("could not be computed: recurring is not available here");
+    expect(requests[2].tools.map((t) => t.name)).not.toContain("lookup");
+    expect(out).toMatchObject({ text: "I can't see that.", checked: true });
+  });
+
+  it("sends back a reply with a number from nowhere, with the figures of the card it built", async () => {
+    const card: ToolCall = { name: "use_component", args: { id: "cut", component: "what_if", args: { category: "Restaurants", cutPct: 20 }, reply: "You would save 600 € a year." } };
+    const { requests, ask } = harness([card], [say("You would save 444 € a year.", { mood: "happy" })]);
+    const out = await ask("What if I cut eating out by 20%?");
+    expect(requests).toHaveLength(2);
+    expect(requests[1].tools.map((t) => t.name)).toEqual(["reply"]);
+    expect(requests[1].turns.at(-1)?.text).toMatch(/numbers that are not in your figures: 600\.[\s\S]*CARD FIGURES\nCard cut: [\s\S]*value: 444/);
+    expect(out).toMatchObject({ text: "You would save 444 € a year.", checked: true, mood: "happy", rejected: [] });
     expect(out.ops).toHaveLength(1);
-    expect(out.text).toBe("Here is a card for that.");
+  });
+
+  it("replaces a reply that fails twice with the card's own figure, and says so", async () => {
+    const card: ToolCall = { name: "use_component", args: { id: "cut", component: "what_if", args: { cutPct: 20 }, reply: "You would save 600 € a year.", mood: "happy" } };
+    const { ask } = harness([card], [say("About 50 € a month, so 600 €.")]);
+    const out = await ask();
+    expect(out.checked).toBe(false);
+    expect(out.text).toMatch(/: \{\{cut\.value\}\}\.$/);
+    expect(out.mood).toBeNull();
+    expect(out.rejected).toEqual(["reply: numbers not in the figures: 50, 600"]);
+    expect(out.ops).toHaveLength(1);
+  });
+
+  it("answers without figures in the user's language when nothing checked can be said", async () => {
+    const { ask } = harness([say("Käytit 999 € ruokaan.")], [say("Käytit 998 € ruokaan.")]);
+    const out = await ask("Paljonko käytin ruokaan?");
+    expect(out).toMatchObject({ checked: false, ops: [] });
+    expect(out.text).toMatch(/^En saanut/);
+  });
+
+  it("accepts numbers the user gave and placeholders for cards it has not seen", async () => {
+    const goal = (reply: string): ToolCall => ({ name: "use_component", args: { id: "goal", component: "what_if", args: { cutPct: 20 }, reply } });
+    const { ask } = harness([goal("With 25 000 € as the target, see {{goal.value}}. That is 1 500 € more than before.")]);
+    const out = await ask("My target is 25000 euros");
+    expect(out.checked).toBe(false); // 1 500 is from nowhere
+    const fine = harness([goal("With 25 000 € as the target, see {{goal.value}}.")]);
+    expect(await fine.ask("My target is 25000 euros")).toMatchObject({ checked: true });
+  });
+
+  it("sends back a placeholder the app could not fill", async () => {
+    // spendBy by category has a total; the card called "ghost" does not exist, and a caption is missing here.
+    const card = (reply: string): ToolCall => ({ name: "use_component", args: { id: "food", component: "category_bars", args: {}, reply } });
+    const { requests, ask } = harness([card("You spent {{ghost.value}}, see {{food.caption}}.")], [say("You spent 500 € in total.")]);
+    const out = await ask();
+    expect(requests).toHaveLength(2);
+    expect(requests[1].turns.at(-1)?.text).toMatch(/used \{\{ghost\.value\}\}, \{\{food\.caption\}\}, which the app cannot fill in/);
+    expect(out).toMatchObject({ text: "You spent 500 € in total.", checked: true, rejected: [] });
+
+    const stubborn = harness([card("You spent {{ghost.value}}.")], [say("You spent {{ghost.value}}.")]);
+    const failed = await stubborn.ask();
+    expect(failed.checked).toBe(false);
+    expect(failed.text).toMatch(/: \{\{food\.value\}\}\.$/);
+    expect(failed.rejected).toEqual(["reply: placeholders that cannot be filled: {{ghost.value}}"]);
+  });
+
+  it("works without figures: no snapshot, no lookups, placeholders only", async () => {
+    const requests: ChatModelRequest[] = [];
+    const model: ChatModel = {
+      async generate(req) {
+        requests.push(req);
+        return { calls: [{ name: "use_component", args: { id: "food", component: "category_bars", args: { category: "Groceries" }, reply: "You spent {{food.value}}." } }] };
+      },
+    };
+    const out = await runChat(model, { question: "Groceries?", history: [], blocks: [], today: "2026-09-15" });
+    expect(requests[0].system).toContain("(not available: look up what you need)");
+    expect(requests[0].tools.map((t) => t.name)).not.toContain("lookup");
+    expect(out).toMatchObject({ text: "You spent {{food.value}}.", checked: true });
   });
 });

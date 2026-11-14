@@ -7,7 +7,8 @@ import { contextFromFixture, type FixtureBundle, type FixtureIndex } from "./fix
 import { EngineArgumentError } from "./args";
 import { basketOf, classifyBasket } from "./baskets";
 import { filterTransactions, runEngine } from "./functions";
-import type { Cohorts } from "./types";
+import { ENGINE_COLUMNS } from "../agent/catalog";
+import { type Cohorts, ENGINE_FNS } from "./types";
 import { resolvePeriod, sum } from "./util";
 
 const dir = fileURLToPath(new URL("../../../app/public/fixtures/", import.meta.url));
@@ -200,6 +201,77 @@ describe.each(contexts)("financial definitions on $label", ({ ctx }) => {
     // A category without a national counterpart is an error, not an empty chart.
     expect(() => runEngine(ctx, "nationalCompare", { category: "Travel" })).toThrow(EngineArgumentError);
     expect(() => runEngine(ctx, "nationalCompare", { basis: "family" })).toThrow(/one_adult, household/);
+  });
+
+  it("returns the columns the coach is told each function has", () => {
+    // Custom views may only read ENGINE_COLUMNS, so a column listed there must really be in the rows.
+    for (const fn of ENGINE_FNS) {
+      const { rows } = runEngine(ctx, fn, fn === "goalPlan" ? { target: 20000 } : {});
+      if (rows.length === 0) continue;
+      const present = new Set(rows.flatMap((row) => Object.keys(row)));
+      for (const column of ENGINE_COLUMNS[fn]) expect(present.has(column), `${fn}.${column}`).toBe(true);
+    }
+    expect(Object.keys(ENGINE_COLUMNS).sort()).toEqual([...ENGINE_FNS].sort());
+  });
+
+  it("plans towards a goal from the user's own figures, without counting anything as saved by itself", () => {
+    expect(() => runEngine(ctx, "goalPlan")).toThrow(/needs target/);
+    const plan = runEngine(ctx, "goalPlan", { target: 25000, saved: 10000, monthly: 400, extra: 100, byMonths: 24 });
+    expect(plan.value).toBe(15000);
+    expect(plan.rows.map((row) => [row.scenario, row.monthly, row.months, row.sooner])).toEqual([
+      ["Your plan", 400, 38, 0],
+      ["With 100 € more a month", 500, 30, 8],
+      ["To get there in 24 months", 625, 24, 14],
+    ]);
+    // 38 months after September 2026.
+    expect(plan.rows[0].reached).toBe("11/2029");
+    expect(plan.caption).toMatch(/^15\s000 € to go: about 38 months at 400 € a month, reached around 11\/2029\./);
+    // What is left over is the same pot in every scenario, less the scenario's own saving.
+    close((plan.rows[0].leftOver as number) - (plan.rows[1].leftOver as number), 100);
+    for (const row of plan.rows) expect(row.fits).toBe((row.leftOver as number) >= 0 ? "yes" : "no");
+    expect(plan.assumptions!.join(" ")).toMatch(/No interest[\s\S]*10\s000 € already set aside is what the user said[\s\S]*the one the user chose/);
+
+    // Without figures from the user: nothing saved, and the pace is the account's own saving.
+    const bare = runEngine(ctx, "goalPlan", { target: 25000 });
+    expect(bare.value).toBe(25000);
+    expect(bare.rows).toHaveLength(1);
+    expect(bare.rows[0].scenario).toBe("Current pace");
+    expect(bare.assumptions!.join(" ")).toMatch(/Nothing is counted as already saved/);
+    if (bare.rows[0].monthly === 0) expect(bare.rows[0].months).toBeNull();
+    else expect(bare.rows[0].months).toBe(Math.ceil(25000 / (bare.rows[0].monthly as number)));
+
+    // An amount no account could carry is called unrealistic, not just given a date.
+    const steep = runEngine(ctx, "goalPlan", { target: 500000, byMonths: 6 });
+    expect(steep.rows.at(-1)!.fits).toBe("no");
+    expect(steep.assumptions!.join(" ")).toMatch(/Not realistic at today's income and spending: .*To get there in 6 months/);
+    // Already covered.
+    expect(runEngine(ctx, "goalPlan", { target: 5000, saved: 9000 })).toMatchObject({ value: 0, rows: [{ months: 0 }] });
+  });
+
+  it("offers savings only from everyday spending, leaving out what the user wants to keep", () => {
+    const all = runEngine(ctx, "savingsOptions");
+    const categories = all.rows.map((row) => row.category as string);
+    expect(categories).not.toContain("Housing");
+    expect(categories).not.toContain("Utilities");
+    expect(categories).not.toContain("Groceries");
+    for (const row of all.rows) {
+      close(row.saving as number, (row.monthly as number) * 0.2);
+      close(row.perYear as number, (row.saving as number) * 12);
+      // The monthly figure is the everyday-basket spending in that category, as the drill-down shows it.
+      const behind = filterTransactions(ctx, { ...all.filter!, category: row.category as string });
+      expect(Math.abs(sum(behind.map((t) => -t.tx_amount_eur)) / 12 - (row.monthly as number))).toBeLessThan(0.02);
+    }
+    close(all.value!, sum(all.rows.map((row) => row.saving as number)));
+    expect([...all.rows].sort((a, b) => (b.monthly as number) - (a.monthly as number))).toEqual(all.rows);
+
+    if (categories.length) {
+      const kept = runEngine(ctx, "savingsOptions", { protect: [categories[0]], cutPct: 10 });
+      expect(kept.rows.map((row) => row.category)).not.toContain(categories[0]);
+      expect(kept.assumptions!.join(" ")).toContain(`Left out because the user wants to keep them: ${categories[0]}`);
+      // A query string gives the list as one text.
+      expect(runEngine(ctx, "savingsOptions", { protect: `${categories[0]}, Groceries`, cutPct: 10 }).rows).toEqual(kept.rows);
+    }
+    expect(() => runEngine(ctx, "savingsOptions", { protect: ["Holidays"] })).toThrow(/list of categories/);
   });
 
   it("peer comparison covers the same 12 months on both sides", () => {

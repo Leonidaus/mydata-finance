@@ -3,12 +3,13 @@
  * draw. Error messages go back to the model for one retry, so they name the problem plainly
  * and never contain customer data (validation only looks at the call itself).
  */
-import { type Block, type BlockView, type Control, type DashboardOp, TEMPLATE_IDS, type TemplateId } from "../blocks";
+import { type Block, type BlockView, type Control, type DashboardOp, TEMPLATE_IDS, type TemplateId, WIDGET_LIBS, type WidgetLib } from "../blocks";
 import { ENGINE_ARG_SPECS, validateEngineArgs } from "../engine/args";
 import { ENGINE_FNS, type EngineFn } from "../engine/types";
 import { buildComponent, COMPONENT_IDS, type ComponentId, isComponentId } from "../library/components";
 import { TEMPLATE_FNS } from "./catalog";
-import type { ToolCall } from "./tools";
+import { MAX_SUGGESTION_CHARS, MAX_SUGGESTIONS, MOODS, type Mood, type ToolCall } from "./tools";
+import { checkCode, checkSpec } from "./viewChecks";
 
 export const MAX_VIEW_CHARS = 30_000;
 const isSource = (v: unknown): v is Block["source"] => v === "own" || v === "peer" || v === "public" || v === "estimate";
@@ -23,6 +24,10 @@ export interface ParsedReply {
   text: string | null;
   errors: string[];
   picks: CardPick[];
+  /** The coach's face for this answer, when it chose one. */
+  mood: Mood | null;
+  /** Next steps the coach offers, as the user would say them. */
+  suggestions: string[];
 }
 
 class CallError extends Error {}
@@ -75,12 +80,17 @@ function view(a: Record<string, unknown>, fn: EngineFn): BlockView {
         }
       }
       if (!isRecord(spec)) fail("spec must be a Vega-Lite spec object (as a JSON string).");
+      const problem = checkSpec(spec as Record<string, unknown>, fn);
+      if (problem) fail(problem);
       return { kind: "spec", spec: spec as Record<string, unknown> };
     }
     case "code": {
       const code = str(a.code, "code", MAX_VIEW_CHARS);
-      if (!code.includes("mydata.onData")) fail("code must read its rows with mydata.onData(function (rows, result) { ... }).");
-      return { kind: "code", code };
+      const asked = a.libs === undefined ? [] : Array.isArray(a.libs) ? [...new Set(a.libs as unknown[])] : fail("libs must be a list.");
+      for (const l of asked) if (!(WIDGET_LIBS as readonly unknown[]).includes(l)) fail(`libs may only contain: ${WIDGET_LIBS.join(", ")}.`);
+      const checked = checkCode(code, asked as WidgetLib[]);
+      if ("error" in checked) return fail(checked.error);
+      return checked.libs.length ? { kind: "code", code, libs: checked.libs } : { kind: "code", code };
     }
     default:
       return fail('view_kind must be "template", "spec" or "code".');
@@ -161,7 +171,8 @@ function updateBlock(a: Record<string, unknown>, existing: Block): DashboardOp {
   const prevFn = existing.data.kind === "engine" ? existing.data.fn : undefined;
   const fn = a.fn !== undefined ? engineFn(a.fn) : prevFn;
   if (!fn) fail(`card ${existing.id} has no engine request to update.`);
-  const prevArgs = existing.data.kind === "engine" && a.fn === undefined ? existing.data.args : {};
+  // Args carry over unless the function changes. Models often resend the same fn with a view edit.
+  const prevArgs = existing.data.kind === "engine" && fn === prevFn ? existing.data.args : {};
   const patch: Partial<Omit<Block, "id">> = {};
   if (a.title !== undefined) patch.title = str(a.title, "title", 80);
   if (a.explanation !== undefined) patch.explanation = str(a.explanation, "explanation", 600);
@@ -173,7 +184,11 @@ function updateBlock(a: Record<string, unknown>, existing: Block): DashboardOp {
     const merged = { ...prevArgs, ...(isRecord(a.args) ? a.args : {}) };
     patch.data = { kind: "engine", fn: fn as EngineFn, args: engineArgs(fn as EngineFn, merged) };
   }
-  if (a.view_kind !== undefined) patch.view = view(a, fn as EngineFn);
+  if (a.view_kind !== undefined) {
+    patch.view = view(a, fn as EngineFn);
+    // With its own view the card is no longer the library component it started as.
+    patch.component = undefined;
+  }
   else if (a.fn !== undefined && existing.view.kind === "template" && !TEMPLATE_FNS[existing.view.template].includes(fn as EngineFn)) {
     fail(`template ${existing.view.template} cannot draw ${fn}; give a new view_kind too.`);
   }
@@ -187,11 +202,27 @@ export function parseToolCalls(calls: ToolCall[], current: Block[]): ParsedReply
   const errors: string[] = [];
   const picks: CardPick[] = [];
   let text: string | null = null;
+  let explicitReply = false;
   // Ids known so far: the dashboard plus cards added earlier in this answer.
   const known = new Map(current.map((b) => [b.id, b]));
 
+  let mood: Mood | null = null;
+  let suggestions: string[] = [];
+
   for (const call of calls) {
     const a = isRecord(call.args) ? call.args : {};
+    // Any answering call may say how the coach looks and what it offers next; the last one wins.
+    if ((MOODS as readonly unknown[]).includes(a.mood)) mood = a.mood as Mood;
+    if (Array.isArray(a.suggestions)) {
+      const offered = a.suggestions.filter((s): s is string => typeof s === "string" && s.trim() !== "").map((s) => s.trim().slice(0, MAX_SUGGESTION_CHARS));
+      if (offered.length) suggestions = [...new Set(offered)].slice(0, MAX_SUGGESTIONS);
+    }
+    // A card call carries its own chat answer; a separate reply call, if any, wins (see below).
+    const cardReply = () => {
+      if (typeof a.reply !== "string" || !a.reply.trim()) return;
+      const said = a.reply.trim().slice(0, 2000);
+      if (!explicitReply) text = text ? `${text} ${said}` : said;
+    };
     try {
       switch (call.name) {
         case "use_component": {
@@ -199,6 +230,7 @@ export function parseToolCalls(calls: ToolCall[], current: Block[]): ParsedReply
           known.set(block.id, block);
           ops.push({ op: "add_block", block, index: 0 });
           picks.push({ blockId: block.id, via: "library", component });
+          cardReply();
           break;
         }
         case "add_block": {
@@ -206,6 +238,7 @@ export function parseToolCalls(calls: ToolCall[], current: Block[]): ParsedReply
           known.set(block.id, block);
           ops.push({ op: "add_block", block, index: 0 });
           picks.push({ blockId: block.id, via: "custom", view: block.view.kind, ...(typeof a.why_custom === "string" ? { why: a.why_custom } : {}) });
+          cardReply();
           break;
         }
         case "update_block": {
@@ -214,6 +247,7 @@ export function parseToolCalls(calls: ToolCall[], current: Block[]): ParsedReply
           const op = updateBlock(a, existing as Block);
           if (op.op === "update_block") known.set(op.id, { ...(existing as Block), ...op.patch });
           ops.push(op);
+          cardReply();
           break;
         }
         case "remove_block":
@@ -231,6 +265,7 @@ export function parseToolCalls(calls: ToolCall[], current: Block[]): ParsedReply
         }
         case "reply":
           text = str(a.text, "text", 2000);
+          explicitReply = true;
           break;
         default:
           fail(`unknown tool ${call.name}.`);
@@ -240,5 +275,5 @@ export function parseToolCalls(calls: ToolCall[], current: Block[]): ParsedReply
       errors.push(`${call.name}${typeof a.id === "string" ? ` (${a.id})` : ""}: ${e.message}`);
     }
   }
-  return { ops, text, errors, picks };
+  return { ops, text, errors, picks, mood, suggestions };
 }
