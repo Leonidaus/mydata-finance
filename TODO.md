@@ -144,7 +144,12 @@ Counts towards: financial literacy, feasibility.
 - [ ] The month view is by calendar month; for someone paid at the end of the month
   it shows money out and nothing in for most of the month. A view by pay period
   would suit them better
+- [x] The buffer and the late-salary allowance are shown as money kept available,
+  not as costs: after a subtotal, under "How this suggestion was calculated", and a
+  low figure is explained by its cause (`docs/BUFFER_MARGIN_PRESENTATION_SUGGESTION.md`)
 - [ ] A next step on the card when nothing is safe to spend
+- [ ] The engine's row labels and captions are English only; the card's own texts
+  around them are in both languages
 
 ## What-if and savings goals
 
