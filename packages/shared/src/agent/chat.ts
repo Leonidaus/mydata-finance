@@ -22,6 +22,8 @@ import { describeResult, numbersIn, questionLanguage, requestLabel, resultNumber
 import { catalog } from "../library/catalog";
 import { type ChatImage, type PhotoRead, photoQuestion, readPhoto } from "./photo";
 import { placeholders } from "./placeholders";
+import { readReceipt, receiptQuestion, type SaveReceipt } from "./receipt";
+import type { ReceiptView } from "../receipts/types";
 import { type PreferenceAccess, PREFERENCES_DECLARATION, PREFERENCES_TOOL, updatePreferences } from "./preferences";
 import { buildSystemPrompt } from "./prompt";
 import { buildSnapshot, type Figures, type Headline, type Lookup, runLookup, statedReserve, usedMerchantTypes } from "./snapshot";
@@ -92,6 +94,11 @@ export interface ChatInput {
    * it; with no words at all (an empty `question`), "can I afford this?" is meant.
    */
   image?: ChatImage;
+  /**
+   * Saves a receipt photo and matches it to a payment. Without it (the app's dev mode), a receipt
+   * is taken as any other photo of something already paid.
+   */
+  saveReceipt?: SaveReceipt;
   /** The language chosen in the app. The reply is written in it, whatever language the question mixes in. */
   language?: "en" | "fi";
 }
@@ -121,6 +128,11 @@ export interface ChatOutput {
   proposedUnprotect: ProtectedCategory[];
   /** What was read from the photo sent with the question, for the app to show and to keep in the conversation. */
   photo?: PhotoRead;
+  /**
+   * The receipt the photo was, as saved. When it came without words, `text` is empty: the app
+   * writes the reply itself, in the user's language, from this.
+   */
+  receipt?: ReceiptView;
 }
 
 /** The reply used when the model built a card but said nothing, and the card's figures are not known here. */
@@ -309,13 +321,19 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
     // The merchant types this customer has paid at, named to the coach next to the ones the data is known to contain.
     lookup ? usedMerchantTypes(lookup) : [],
   ]);
-  const question = photo ? photoQuestion(asked, photo) : asked;
+  // A receipt is read line by line and saved. Sent without words, saving it is the whole answer.
+  const receipt =
+    photo?.kind === "receipt" && input.image && input.saveReceipt ? await input.saveReceipt(await readReceipt(fast, input.image, signal)) : undefined;
+  if (receipt && asked === "") {
+    return { text: "", ops: [], rejected: [], picks: [], mood: null, suggestions: [], checked: true, answeredBy: "fast", proposedUnprotect: [], photo, receipt };
+  }
+  const question = receipt ? receiptQuestion(asked, receipt) : photo ? photoQuestion(asked, photo) : asked;
   // A photo with no words asks "can I afford this?". With words, the user asks what they like about it.
   const photoOnly = photo !== undefined && asked === "";
   // A one-off price is checked by the engine straight away, so an answer about affording it needs no extra round.
   let affordCard: Block | null = null;
   let affordFigures: Figures | null = null;
-  if (photo && photo.amount !== null && !photo.monthly && photo.kind !== "home" && lookup) {
+  if (photo && photo.amount !== null && !photo.monthly && photo.kind !== "home" && photo.kind !== "receipt" && lookup) {
     const reserve = statedReserve(input.blocks);
     const block = catalog.afford({ amount: photo.amount, label: photo.item || undefined, kind: photo.kind === "bill" ? "necessity" : undefined, reserve, price: photo.estimated ? "estimate" : undefined });
     if (block.data.kind === "engine") {
@@ -526,5 +544,6 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
     ...(savedProfile && { profile: savedProfile }),
     proposedUnprotect,
     ...(photo && { photo }),
+    ...(receipt && { receipt }),
   };
 }

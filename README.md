@@ -203,7 +203,7 @@ Settled:
 | Decision | Outcome |
 |---|---|
 | App shell | Web app (Vite + React), not React Native. S-Pankki said where the feature would live in S-mobiili is not our concern. |
-| Where data lives | On the server, in SQLite. S-Pankki said data location and what the model may read are out of scope for the hackathon. The app can also run on 15 bundled fixture customers. |
+| Where data lives | On the server, in SQLite. S-Pankki said data location and what the model may read are out of scope for the hackathon. The app can also run on 15 bundled fixture customers. What users add themselves (coaching preferences, receipts) goes into writable SQLite files of its own; the finance database stays read-only. |
 | Basket rules | One rule set, with groceries as a regular essential. See [Basket rules](#basket-rules). |
 | API style | Plain JSON routes, no GraphQL. |
 | Branches | Feature branches into `develop`; `main` only from `develop`. |
@@ -241,7 +241,7 @@ Done:
 
 - Database build with basket labels, monthly summaries and peer cohorts for all
   5,100 customers.
-- Finance engine with sixteen functions, including safe to spend, safe to save,
+- Finance engine with eighteen functions, including safe to spend, safe to save,
   the month so far, what-if, forecast, peer comparison, a comparison with Statistics
   Finland's figures, and a savings plan towards a goal with a review of how it is
   going. Every result carries a
@@ -256,6 +256,11 @@ Done:
   drill-down to the transactions behind every figure, the coach's face and
   suggested next steps, and a voice mode. See
   [The conversation and the overview](#the-conversation-and-the-overview).
+- Receipts: a photo of a receipt in the chat is read line by line, each line gets an
+  item sub-category, and the receipt is matched to the card payment it belongs to
+  (a strong match is linked at once, a possible one waits for the user). The coach
+  can then say what is inside the shopping, always with how much of the spending
+  the receipts cover. See [docs/RECEIPTS_PLAN.md](docs/RECEIPTS_PLAN.md).
 - A backtest of the forecast and safe to spend on all customers, and an evaluation
   of the coach's answers against the engine with the real model.
 - CI on every pull request, and deployment to a host with HTTPS on every push to
