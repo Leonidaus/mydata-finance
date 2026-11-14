@@ -38,7 +38,8 @@ Five criteria, 20% each. What we have for each, and where the gap is:
 5. [ ] Replace the personal free-tier Gemini key with the Junction key
    (`gh secret set GEMINI_API_KEY`, re-run Deploy), then rotate the personal key.
 6. [ ] Test on a real phone: chat, voice on, the animated widgets (WebGL), the
-   transaction drawer, dark mode.
+   transaction drawer. The app is light on every device now; the dark palette is
+   only shown with `?theme=dark`.
 7. [ ] Coaching styles and protected categories (see [Coaching profile](#coaching-profile)).
 8. [ ] Demo script and pitch (see [Demo and pitch](#demo-and-pitch)).
 9. [ ] Finnish voice: set `ELEVENLABS_TTS_MODEL_ID=eleven_flash_v2_5` and
@@ -165,6 +166,7 @@ Counts towards: financial literacy. Encouraged by the brief, not mandatory.
 Counts towards: clarity of the mobile experience, potential to integrate into S-mobiili.
 
 - [x] S-mobiili look: S Group colours, amounts as `7 320 €`, dates as `15.10.2026`
+- [x] Light on every device, like S-mobiili; dark only on request (`?theme=dark`)
 - [x] One pinned card by default; answers replace the previous unpinned card
 - [x] The coach's face and next-step chips; voice mode with continuous listening
 - [x] Animated widgets (spending city, savings jar, gauge, money flow, coins)

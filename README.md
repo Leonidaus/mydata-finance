@@ -714,6 +714,8 @@ npm test             # finance engine, backend and app data-layer tests (vitest)
   without the backend: the Vite dev server forwards the model calls and adds the key.
 - `?dev` in the address opens the component gallery with every card and widget on
   static data.
+- The app is light on every device, like S-mobiili, whatever the device is set to.
+  `?theme=dark` in the address shows the dark palette.
 
 ### Data source modes
 
