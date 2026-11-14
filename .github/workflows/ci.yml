@@ -15,6 +15,21 @@ permissions:
   contents: read
 
 jobs:
+  feature-base:
+    name: Feature branch base
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'feature/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Require develop as base
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [[ "$BASE_REF" != "develop" ]]; then
+            echo "::error::Feature branches must target develop, not $BASE_REF."
+            exit 1
+          fi
+
   check:
     runs-on: craci
     timeout-minutes: 15
