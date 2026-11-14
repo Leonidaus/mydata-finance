@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useI18n } from "../i18n";
 import { errorMessage } from "../latest";
 import type { VoiceClient } from "./client";
 
@@ -8,6 +9,7 @@ interface PlayingAudio {
 }
 
 export function useVoice(client: VoiceClient, onQuestion: (text: string) => void) {
+  const { locale, t } = useI18n();
   const [available, setAvailable] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -132,7 +134,7 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
       setError(null);
       let element: HTMLAudioElement | null = null;
       try {
-        const blob = await client.speak(text);
+        const blob = await client.speak(text, locale);
         if (!enabledRef.current || version !== speechVersion.current) return;
         const url = URL.createObjectURL(blob);
         element = new Audio(url);
@@ -142,7 +144,7 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
         });
         element.onended = clearAudio;
         element.onerror = () => {
-          if (enabledRef.current && version === speechVersion.current) setError("The reply audio could not be played.");
+          if (enabledRef.current && version === speechVersion.current) setError(t("chat.voicePlaybackError"));
           clearAudio();
         };
         await element.play();
@@ -154,13 +156,13 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
         if (enabledRef.current && version === speechVersion.current) resume();
       }
     },
-    [client, pause, stopSpeaking, clearAudio, resume],
+    [client, locale, pause, stopSpeaking, clearAudio, resume, t],
   );
 
   const beginCapture = useCallback(async () => {
     if (!enabledRef.current || paused.current || starting.current || stream.current) return;
     if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      setError("Voice recording is not supported in this browser.");
+      setError(t("chat.voiceUnsupported"));
       return;
     }
 
@@ -185,7 +187,7 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
       };
       current.onerror = () => {
         failed = true;
-        if (version === captureVersion.current) setError("The recording failed. Please try again.");
+        if (version === captureVersion.current) setError(t("chat.voiceRecordingError"));
       };
       current.onstop = () => {
         const shouldTranscribe = transcribeOnStop.current === version;
@@ -202,7 +204,7 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
         const audio = new Blob(chunks, { type: current.mimeType || chunks[0]?.type });
         if (!audio.size) {
           setProcessing(false);
-          setError("No audio was recorded. Please try again.");
+          setError(t("chat.voiceNoAudio"));
           return;
         }
         client.transcribe(audio).then(
@@ -210,7 +212,7 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
             if (version !== captureVersion.current) return;
             setProcessing(false);
             if (!text) {
-              setError("I didn't catch that. Please try again.");
+              setError(t("chat.voiceNoTranscript"));
               return;
             }
             setError(null);
@@ -237,7 +239,7 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
       starting.current = false;
       if (version !== captureVersion.current && enabledRef.current && !paused.current && !stream.current) startCapture.current();
     }
-  }, [client, releaseMedia]);
+  }, [client, releaseMedia, t]);
 
   useEffect(() => {
     startCapture.current = () => void beginCapture();
