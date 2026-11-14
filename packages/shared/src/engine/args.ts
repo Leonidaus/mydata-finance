@@ -7,6 +7,7 @@
  */
 import { BENCHMARK_BASES, BENCHMARK_CATEGORY_NAMES } from "../benchmark/statfin";
 import { isKnownMcc, lookupMcc } from "../mcc";
+import { ITEM_SUBCATEGORIES } from "../receipts/types";
 import type { EngineFn } from "./types";
 import { PERIODS, SPENDING_CATEGORIES } from "./util";
 
@@ -95,6 +96,7 @@ export const ENGINE_ARG_SPECS: Record<EngineFn, Record<string, ArgSpec>> = {
     /** As for safeToSpend: how much of the account the customer says is savings. */
     reserve: { type: "number", min: 0, max: 100_000_000 },
   },
+  itemSpend: { period, subcategory: { type: "enum", values: ITEM_SUBCATEGORIES }, category },
   savingsOptions: {
     protect: { type: "categories" },
     cutPct: { type: "number", min: 0, max: 100, exclusiveMin: true },

@@ -19,6 +19,7 @@ import { apiBase } from "./data";
 import { formatEurCents } from "./format";
 import { errorMessage } from "./latest";
 import { preparePhoto } from "./photo";
+import ReceiptCard from "./receipts";
 import { createVoiceClient } from "./voice/client";
 import { useVoice } from "./voice/useVoice";
 import { useI18n } from "./i18n";
@@ -282,6 +283,7 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
             proposedUnprotect: reply.proposedUnprotect,
             overrideUsed: Boolean(allowProtected?.length),
             cards: reply.cards,
+            receipt: reply.receipt,
             mood: reply.mood,
             suggestions: reply.suggestions,
           });
@@ -392,6 +394,15 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
                     </div>
                   ) : (
                     <div className="bubble bubble-assistant">{m.text}</div>
+                  )}
+                  {/* A receipt the answer saved: what was read, and which payment it belongs to. */}
+                  {m.receipt && (
+                    <ReceiptCard
+                      receipt={m.receipt}
+                      customerId={customerId}
+                      today={today}
+                      onChange={(next) => setMessages(customerId, (prev) => prev.map((x) => (x.id === m.id ? (next ? { ...x, receipt: next } : { ...x, receipt: undefined }) : x)))}
+                    />
                   )}
                   {/* What the answer is about, right under it: the card is this answer's own copy. */}
                   {m.cards?.map((card) => (

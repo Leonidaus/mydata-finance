@@ -7,7 +7,8 @@ import type { Lookup } from "./snapshot";
 import { createGeminiModel, DEFAULT_GEMINI_MODELS, parseGeminiModels } from "./gemini";
 import { fillPlaceholders, placeholderBlockIds } from "./placeholders";
 import { buildSystemPrompt } from "./prompt";
-import type { ToolCall } from "./tools";
+import { PREFERENCES_DECLARATION } from "./preferences";
+import { HAND_OVER_DECLARATION, LOOKUP_DECLARATION, TOOL_DECLARATIONS, type ToolCall } from "./tools";
 import { parseToolCalls } from "./validate";
 
 const existing: Block = {
@@ -705,5 +706,33 @@ describe("runChat with the customer's figures", () => {
     expect(requests[0].system).toContain("(not available: look up what you need)");
     expect(requests[0].tools.map((t) => t.name)).not.toContain("lookup");
     expect(out).toMatchObject({ text: "You spent {{food.value}}.", checked: true });
+  });
+});
+
+describe("the tools the coach is given", () => {
+  // Every tool that takes engine arguments repeats the whole argument schema, so one long enum
+  // counts several times. Gemini rejects a request whose declarations carry too many enum values
+  // ("400: Request contains an invalid argument"), and then no question gets an answer at all.
+  // Measured on gemini-3.5-flash-lite on 15.11.2026: 355 values were accepted, 430 were rejected.
+  const MAX_ENUM_VALUES_ACCEPTED = 355;
+  const tools = [...new Map([HAND_OVER_DECLARATION, PREFERENCES_DECLARATION, LOOKUP_DECLARATION, ...TOOL_DECLARATIONS].map((t) => [t.name, t])).values()];
+
+  function enumValues(node: unknown): number {
+    if (Array.isArray(node)) return node.reduce((n: number, item) => n + enumValues(item), 0);
+    if (typeof node !== "object" || node === null) return 0;
+    const own = Array.isArray((node as { enum?: unknown }).enum) ? (node as { enum: unknown[] }).enum.length : 0;
+    return own + Object.entries(node).reduce((n, [key, value]) => (key === "enum" ? n : n + enumValues(value)), 0);
+  }
+
+  it("carry no more enum values than Gemini accepts", () => {
+    expect(tools.map((t) => t.name)).toEqual(expect.arrayContaining(["hand_over", "update_preferences", "lookup", "use_component", "add_block", "update_block", "reply"]));
+    expect(enumValues(tools)).toBeLessThanOrEqual(MAX_ENUM_VALUES_ACCEPTED);
+  });
+
+  it("name a long list of values in words, where the model can still read them", () => {
+    const args = (LOOKUP_DECLARATION.parametersJsonSchema as { properties: { args: { properties: Record<string, { enum?: string[]; description?: string }> } } }).properties.args.properties;
+    expect(args.subcategory.enum).toBeUndefined();
+    expect(args.subcategory.description).toContain("snacks_sweets");
+    expect(args.period.enum).toContain("last_month");
   });
 });

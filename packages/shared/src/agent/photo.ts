@@ -20,7 +20,7 @@ export const IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as con
 /** About 3 MB of picture. The app scales a photo down to a fraction of this before sending. */
 export const MAX_IMAGE_BASE64_CHARS = 4_000_000;
 
-export const PHOTO_KINDS = ["purchase", "bill", "home", "other"] as const;
+export const PHOTO_KINDS = ["purchase", "bill", "receipt", "home", "other"] as const;
 export type PhotoKind = (typeof PHOTO_KINDS)[number];
 
 /** What was read from a photo. `amount` is null when no price in euros could be read. */
@@ -50,7 +50,7 @@ const PHOTO_DECLARATION: ToolDeclaration = {
       kind: {
         type: "string",
         enum: [...PHOTO_KINDS],
-        description: "purchase: something the user could choose to buy (a price tag, a product, a menu, a ticket). bill: a cost that has to be paid (an invoice, a repair, healthcare, a fine). home: a home for sale. other: anything else.",
+        description: "purchase: something the user could choose to buy (a price tag, a product, a menu, a ticket). bill: a cost that still has to be paid (an invoice, a repair, healthcare, a fine). receipt: a shop, restaurant or fuel-station receipt for something already paid, with the lines bought and a total. home: a home for sale. other: anything else.",
       },
       monthly: { type: "boolean", description: "True when the price is per month (a rent, a subscription)." },
     },
@@ -125,5 +125,6 @@ export function photoQuestion(asked: string, photo: PhotoRead): string {
   if (photo.estimated) {
     return `${question}\n\n[PHOTO from the user${what}, about ${photo.amount} €${photo.monthly ? " a month" : ""} (${photo.kind}). No price was visible: this is the app's ESTIMATE of a typical price, not a price read from the photo.]`;
   }
+  if (photo.kind === "receipt") return `${question}\n\n[PHOTO from the user${what}, ${photo.amount} € (receipt: already paid). Read from the photo by the app.]`;
   return `${question}\n\n[PHOTO from the user${what}, ${photo.amount} €${photo.monthly ? " a month" : ""} (${photo.kind}). Read from the photo by the app.]`;
 }
