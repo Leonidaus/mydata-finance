@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="fi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demo receipts</title>
+<style>
+  body { margin: 0; padding: 24px; background: #ddd; font-family: "Courier New", monospace; }
+  h1 { font: 600 16px system-ui, sans-serif; margin: 0 0 16px; }
+  .wrap { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+  .receipt { width: 300px; background: #fff; padding: 20px 18px; box-shadow: 0 2px 6px rgb(0 0 0 / .2); font-size: 14px; color: #111; }
+  .receipt p { margin: 2px 0; }
+  .shop { text-align: center; font-weight: 700; font-size: 17px; }
+  .center { text-align: center; }
+  table { width: 100%; border-collapse: collapse; }
+  td:last-child { text-align: right; white-space: nowrap; padding-left: 8px; }
+  .total td { font-weight: 700; font-size: 16px; }
+  hr { border: 0; border-top: 1px dashed #555; }
+  .note { margin-top: 12px !important; font: 11px system-ui, sans-serif; color: #777; }
+  @media print { body { background: #fff; padding: 0; } .receipt { box-shadow: none; break-inside: avoid; } .note, h1 { display: none; } }
+</style></head>
+<body><h1>Demo receipts for CUST01700 (data up to 2026-09-15)</h1><div class="wrap">
+<section class="receipt">
+  <p class="shop">RUOKAKAUPPA KAMPPI</p>
+  <p class="center">Y-tunnus 1234567-8</p>
+  <p class="center">14.09.2026 13:20</p>
+  <hr>
+  <table><tr><td>MAITOSUKLAA 200G</td><td>3,99</td></tr><tr><td>IRTOKARKIT 380G</td><td>4,18</td></tr><tr><td>PERUNALASTUT 275G</td><td>3,49</td></tr><tr><td>COLA 1,5L</td><td>2,49</td></tr><tr><td>  PANTTI</td><td>0,40</td></tr><tr><td>ENERGIAJUOMA 0,5L</td><td>2,19</td></tr><tr><td>  PANTTI</td><td>0,15</td></tr><tr><td>MAITO 1L</td><td>1,25</td></tr><tr><td>RUISLEIPÄ 6KPL</td><td>2,39</td></tr><tr><td>PAKASTEPIZZA</td><td>3,89</td></tr><tr><td>SPAGETTI 500G</td><td>1,29</td></tr><tr><td>KANANMUNAT 10KPL</td><td>3,19</td></tr><tr><td>LOHIFILEE 300G</td><td>7,95</td></tr><tr><td>JUUSTO 500G</td><td>5,89</td></tr><tr><td>BANAANI 1,02KG</td><td>1,94</td></tr><tr><td>TALOUSPAPERI 4RL</td><td>3,95</td></tr><tr><td>KAHVI 500G</td><td>6,49</td></tr><tr><td>HAMMASTAHNA</td><td>2,49</td></tr><tr><td>KURKKU</td><td>1,49</td></tr><tr><td>HEDELMÄT IRTO</td><td>3,42</td></tr></table>
+  <hr>
+  <table><tr class="total"><td>YHTEENSÄ</td><td>62,52</td></tr></table>
+  <hr>
+  <p>KORTTIMAKSU&nbsp;&nbsp;DEBIT ****1234</p>
+  <p>MAKSETTU 62,52 EUR</p>
+  <p class="center">KIITOS KÄYNNISTÄ!</p>
+  <p class="note">Matches the card payment at 2026-09-14 13:22:45</p>
+</section>
+<section class="receipt">
+  <p class="shop">BISTRO ESPLANADI</p>
+  <p class="center">Y-tunnus 1234567-8</p>
+  <p class="center">13.09.2026 21:36</p>
+  <hr>
+  <table><tr><td>HAMPURILAISATERIA</td><td>14,90</td></tr><tr><td>OLUT 0,5L</td><td>8,50</td></tr><tr><td>LASI PUNAVIINIÄ</td><td>9,50</td></tr><tr><td>VIRVOITUSJUOMA</td><td>4,50</td></tr><tr><td>PÄIVÄN ANNOS</td><td>11,57</td></tr></table>
+  <hr>
+  <table><tr class="total"><td>YHTEENSÄ</td><td>48,97</td></tr></table>
+  <hr>
+  <p>KORTTIMAKSU&nbsp;&nbsp;DEBIT ****1234</p>
+  <p>MAKSETTU 48,97 EUR</p>
+  <p class="center">KIITOS KÄYNNISTÄ!</p>
+  <p class="note">Matches the card payment at 2026-09-13 21:38:10</p>
+</section>
+<section class="receipt">
+  <p class="shop">ASEMA LAUTTASAARI</p>
+  <p class="center">Y-tunnus 1234567-8</p>
+  <p class="center">12.09.2026 17:09</p>
+  <hr>
+  <table><tr><td>KAHVI ISO</td><td>2,90</td></tr><tr><td>KORVAPUUSTI</td><td>3,20</td></tr><tr><td>SUKLAAPATUKKA</td><td>2,19</td></tr><tr><td>ENERGIAJUOMA 0,33L</td><td>2,79</td></tr><tr><td>  PANTTI</td><td>0,15</td></tr><tr><td>POLTTOAINE 95E10</td><td>20,55</td></tr></table>
+  <hr>
+  <table><tr class="total"><td>YHTEENSÄ</td><td>31,78</td></tr></table>
+  <hr>
+  <p>KORTTIMAKSU&nbsp;&nbsp;DEBIT ****1234</p>
+  <p>MAKSETTU 31,78 EUR</p>
+  <p class="center">KIITOS KÄYNNISTÄ!</p>
+  <p class="note">Matches the card payment at 2026-09-12 17:11:33</p>
+</section>
+<section class="receipt">
+  <p class="shop">RUOKAKAUPPA KAMPPI</p>
+  <p class="center">Y-tunnus 1234567-8</p>
+  <p class="center">02.10.2026 17:43</p>
+  <hr>
+  <table><tr><td>MAITOSUKLAA 200G</td><td>3,99</td></tr><tr><td>IRTOKARKIT 380G</td><td>4,18</td></tr><tr><td>JUUSTO 500G</td><td>5,89</td></tr><tr><td>PAKASTEPIZZA</td><td>3,89</td></tr><tr><td>HAMMASTAHNA</td><td>2,49</td></tr><tr><td>KAHVI 500G</td><td>6,49</td></tr><tr><td>BANAANI 1,02KG</td><td>1,94</td></tr><tr><td>RUISLEIPÄ 6KPL</td><td>2,39</td></tr><tr><td>JAUHELIHA 400G</td><td>4,89</td></tr><tr><td>MAITO 1L</td><td>1,25</td></tr><tr><td>TALOUSPAPERI 4RL</td><td>3,95</td></tr><tr><td>KANANMUNAT 10KPL</td><td>3,19</td></tr><tr><td>SPAGETTI 500G</td><td>1,29</td></tr><tr><td>LOHIFILEE 300G</td><td>7,95</td></tr><tr><td>KURKKU</td><td>1,49</td></tr><tr><td>HEDELMÄT IRTO</td><td>7,25</td></tr></table>
+  <hr>
+  <table><tr class="total"><td>YHTEENSÄ</td><td>62,52</td></tr></table>
+  <hr>
+  <p>KORTTIMAKSU&nbsp;&nbsp;DEBIT ****1234</p>
+  <p>MAKSETTU 62,52 EUR</p>
+  <p class="center">KIITOS KÄYNNISTÄ!</p>
+  <p class="note">Dated after the end of the data: no payment to match</p>
+</section></div></body></html>

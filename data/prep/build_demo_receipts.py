@@ -7,7 +7,8 @@ card payment) and kind of shop fit actual payments of one customer. The matcher 
 only its input is prepared. Photograph a receipt from the screen or from paper and send it in the
 chat.
 
-Writes to data/out/demo-receipts/ (gitignored):
+Writes to docs/demo-receipts/, which is kept in the repository so the receipts are at hand
+without running this (the same customer always gives the same receipts):
   index.html      the receipts, one per card, thermal-receipt style; print it or show it on a screen
   expected.json   what each receipt says, line by line: compare with what the app read
 
@@ -32,7 +33,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "packages" / "app" / "public" / "fixtures"
-OUT = ROOT / "data" / "out" / "demo-receipts"
+OUT = ROOT / "docs" / "demo-receipts"
 
 # (name, price, subcategory, deposit) per kind of shop. The first ones tell the demo's story.
 GROCERY_STORY = [
