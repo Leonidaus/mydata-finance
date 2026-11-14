@@ -551,7 +551,7 @@ answers are cut off at the demo's "today", so later transactions never appear.
 | `POST /api/transactions` | The transactions behind an engine result: `{ customerId, filter, limit }` |
 | `POST /api/tts` | Text to speech: `{ text, languageCode? }` → MP3 audio (ElevenLabs, from `packages/voice`) |
 | `POST /api/stt` | Speech to text: an `audio` form file or a raw audio body → `{ text, languageCode }` |
-| `POST /api/chat` | The coach: `{ customerId, question, history, blocks }` → `{ text, ops, mood, suggestions, checked, rejected, picks }` |
+| `POST /api/chat` | The coach: `{ customerId, question, history, blocks }` → `{ text, ops, mood, suggestions, checked, answeredBy, rejected, picks }` |
 
 The spending endpoint takes `period` (`this_month`, `last_month`, `last_30_days`,
 `last_3_months`, `last_12_months`, `this_year`, `all`) or `from` and `to`, and the
@@ -585,9 +585,9 @@ Gemini with its own key. An answer is usually one model call:
    merchant type, a what-if), it first calls `lookup`, which runs one engine function
    and returns the result to the model, at most twice per answer.
 3. **Checks.** Every tool call is validated (engine arguments, card definitions,
-   custom views) and sent back once if something is wrong. Every number in the reply
-   must be one the coach was shown, as given or rounded; the coach is told not to
-   calculate. A reply that fails is sent back once, together with the figures of the
+   custom views) and sent back once if something is wrong. Every number in the reply,
+   years included, must be one the coach was shown, as given or rounded; the coach is
+   told not to calculate. A reply that fails is sent back once, together with the figures of the
    cards it built. If it fails again, a standard sentence with a `{{cardId.value}}`
    placeholder goes out instead, and the answer has `checked: false`.
 
@@ -599,8 +599,43 @@ app and load nothing from the network.
 The caller cannot supply instructions, pick the model or reach Gemini directly. The
 whole conversation logic is in `packages/shared/src/agent` (`chat.ts` for the steps
 above, `snapshot.ts`, `figures.ts` for the number check, `viewChecks.ts`); the
-backend adds the model and the engine for the customer who is asking. `GEMINI_MODEL`
-may list several models, comma-separated; the next is tried when one is overloaded.
+backend adds the model and the engine for the customer who is asking.
+
+Two models share the work. A fast one (`GEMINI_MODEL`) answers most turns in about
+two seconds. A stronger one (`GEMINI_STRONG_MODEL`) takes the turns that gain from
+it, in six to nine seconds:
+
+- turns the fast model hands over: advice and assessments ("how could I save
+  more?"), goals and plans, charts the library does not have;
+- every turn that touches the planning functions (`goalPlan`, `savingsOptions`) or a
+  plan on the dashboard, whether or not the fast model handed it over;
+- second tries, when the fast model's answer was rejected or failed the number check.
+
+If the stronger model fails, the fast one answers after all.
+`GEMINI_STRONG_MODEL=off` runs the fast model alone.
+
+Each setting may list several models, comma-separated; the next is tried when one
+is overloaded. A name may carry a thinking level after a colon. The defaults are
+`gemini-3.5-flash-lite,gemini-3.8-flash:low` for the fast model and the same two in
+the other order for the stronger one, chosen from one run of the chat evaluation per
+model (11 questions, one customer, 14 Nov 2026):
+
+| Model | Answers right | Seconds per answer (median, longest) |
+|---|---|---|
+| `gemini-3.5-flash-lite` | 11 of 11 | 2.3, 4.6 |
+| `gemini-3.1-flash-lite` | 9 of 11 | 2.1, 3.6 |
+| `gemini-3.6-flash:minimal` | 9 of 11 | 4.1, 7.6 |
+| `gemini-3.8-flash:low` | 11 of 11 | 6.0, 7.9 |
+| `gemini-3.8-flash` | 11 of 11 | 17.1, 23.8 |
+| `gemini-4-hydrogen:low` | 11 of 11 | 7.5, 12.8 |
+| `gemini-4-hydrogen` | 11 of 11 | 14.1, 21.3 |
+
+The larger models write fuller coaching: they name the amounts and notice, for
+example, that a customer spends more than comes in. With their default thinking
+they are too slow for a chat, which is why a level is set. Gemini 4 Argon and Carbon
+were not tried. With the two models together, the same evaluation passes 11 of 11:
+nine questions answered by the fast model and two (the savings plan and "how could I
+save more?") by the stronger one.
 
 `npm run eval:chat -w @mydata/backend` asks the challenge's questions with the real
 model and compares each answer with the engine: a card with the right function and

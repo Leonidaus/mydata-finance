@@ -35,8 +35,8 @@ Five criteria, 20% each. What we have for each, and where the gap is:
    forecast only.
 4. [ ] Re-run the chat evaluation (`npm run eval:chat -w @mydata/backend`). The last
    run was before three fixes (two test cases, unfillable placeholders).
-5. [ ] Replace the personal free-tier Gemini key with the Junction key
-   (`gh secret set GEMINI_API_KEY`, re-run Deploy), then rotate the personal key.
+5. [x] The Junction Gemini key is in production. [ ] Delete the personal key that
+   was used before it.
 6. [ ] Test on a real phone: chat, voice on, the animated widgets (WebGL), the
    transaction drawer. The app is light on every device now; the dark palette is
    only shown with `?theme=dark`.
@@ -67,6 +67,9 @@ Counts towards: originality of AI integration, financial literacy.
   parses, no network)
 - [x] Replies follow the language of the question (Finnish or English)
 - [x] Chat evaluation with the real model against the engine, 11 questions
+- [x] Models chosen from measurements, and two of them sharing the work: a fast one
+  for most turns, a stronger one for goals, plans, advice and second tries
+- [x] Years in a reply are checked like any other number
 
 ### Coaching profile
 One coach with configurable behaviour, stored per customer and sent with each chat
@@ -96,7 +99,10 @@ wording, initiative and the suggested next steps change.
 - [ ] Verify what the prompt promises: a custom view that fails on screen is swapped
   for the standard card. That swap was not found in the renderer
 - [ ] Add a multi-turn goal conversation to the evaluation
-- [ ] Pace the evaluation for the free-tier quota, or run it with the Junction key
+- [ ] The fast model decides by itself whether to hand over advice questions; it
+  kept "what kind of spender am I?" for itself. Decide whether that one should always
+  go to the stronger model
+- [ ] The browser-only dev mode (no backend) still uses the fast model alone
 - [ ] Check that the coach explains a concept in plain language when asked
   ("what is a buffer?"); the brief names this explicitly
 

@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { createApp } from "./app";
-import { createServerGeminiModel } from "./chat";
+import { createServerChatModels } from "./chat";
 import { openDatabase, resolveFromInvocationDir } from "./db";
 
 // Keys for outside services (ELEVENLABS_API_KEY, ...) may live in a .env file at the
@@ -21,15 +21,16 @@ if (staticDir && !existsSync(staticDir)) {
 
 const geminiKey = process.env.GEMINI_API_KEY?.trim() || undefined;
 
-// GEMINI_MODEL may list several models, comma-separated; the next one is tried when one is overloaded.
-const chatModel = geminiKey ? createServerGeminiModel(geminiKey, process.env.GEMINI_MODEL) : undefined;
+// GEMINI_MODEL answers most turns and GEMINI_STRONG_MODEL the ones handed over to it. Each may list
+// several models, comma-separated; the next one is tried when one is overloaded.
+const chatModel = geminiKey ? createServerChatModels(geminiKey, process.env) : undefined;
 
 serve({ fetch: createApp(db, { staticDir, chatModel }).fetch, port }, (info) => {
   console.log(
     `Finance API on http://localhost:${info.port} ` +
       `(${db.meta.rows_customers} customers, today is ${db.today})` +
       (staticDir ? `, serving the app from ${staticDir}` : "") +
-      `; chat model ${geminiKey ? "on" : "off (no GEMINI_API_KEY)"}` +
+      `; chat model ${geminiKey ? (chatModel?.strong ? "on, with a stronger model for handed-over turns" : "on") : "off (no GEMINI_API_KEY)"}` +
       `, voice ${process.env.ELEVENLABS_API_KEY ? "on" : "off (no ELEVENLABS_API_KEY)"}`,
   );
 });
