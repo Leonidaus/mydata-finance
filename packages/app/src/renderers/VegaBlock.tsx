@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { TopLevelSpec } from "vega-lite";
 import type { Datum } from "../blocks/templates";
+import { theme } from "../theme";
 
 /** Replace "var(--token)" strings anywhere in a spec with the computed CSS value. */
 function resolveCssVars<T>(value: T, style: CSSStyleDeclaration): T {
@@ -34,16 +35,8 @@ function themeConfig() {
   };
 }
 
-export function useColorScheme() {
-  const [dark, setDark] = useState(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false);
-  useEffect(() => {
-    const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
-    const on = (e: MediaQueryListEvent) => setDark(e.matches);
-    mq?.addEventListener("change", on);
-    return () => mq?.removeEventListener("change", on);
-  }, []);
-  return dark;
-}
+/** Whether the page uses the dark palette. Fixed for the life of the page: see theme.ts. */
+export const useColorScheme = () => theme === "dark";
 
 interface Props {
   spec: TopLevelSpec;
