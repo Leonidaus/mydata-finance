@@ -4,7 +4,7 @@
  */
 import { ENGINE_ARG_SPECS } from "../engine/args";
 import type { EngineFn } from "../engine/types";
-import { MCC_CODES } from "../mcc";
+import { DATASET_MCC_CODES, lookupMcc } from "../mcc";
 import { PERIODS, SPENDING_CATEGORIES } from "../engine/util";
 import type { TemplateId } from "../blocks";
 
@@ -21,7 +21,7 @@ export const ENGINE_DOCS: Record<EngineFn, EngineDoc> = {
     description:
       "Money spent in a period, grouped by category or by merchant type (MCC). Optional category narrows to one category; " +
       "optional mcc narrows to one merchant type (taxis, fast food, pharmacies, ...), and the value is then the total for that merchant type alone.",
-    rows: "key (category or MCC code), label, amount (€, positive), count (payments). Sorted by amount, biggest first.",
+    rows: "key (category or MCC code), label, category, amount (€, positive), count (payments). Sorted by amount, biggest first.",
     unit: "€ total",
   },
   monthlyTrend: {
@@ -118,7 +118,7 @@ export const ENGINE_DOCS: Record<EngineFn, EngineDoc> = {
 
 /** The column names of each function's rows: what a custom view may read. Checked against the engine in the tests. */
 export const ENGINE_COLUMNS: Record<EngineFn, readonly string[]> = {
-  spendBy: ["key", "label", "amount", "count"],
+  spendBy: ["key", "label", "category", "amount", "count"],
   monthlyTrend: ["month", "amount"],
   baskets: ["basket", "label", "amount", "count"],
   dailySpend: ["date", "amount"],
@@ -161,7 +161,7 @@ function describeArg(spec: (typeof ENGINE_ARG_SPECS)[EngineFn][string]): string 
     case "month":
       return `a month as YYYY-MM`;
     case "mcc":
-      return `a merchant type code from MERCHANT TYPES; do not combine with category`;
+      return `a four-digit merchant type code, see MERCHANT TYPES; do not combine with category`;
     case "number":
       return `number ${spec.min}..${spec.max}${spec.integer ? ", whole" : ""}`;
     case "text":
@@ -169,8 +169,32 @@ function describeArg(spec: (typeof ENGINE_ARG_SPECS)[EngineFn][string]): string 
   }
 }
 
+/** A merchant type the customer has paid at, as it appears in their own transactions. */
+export interface UsedMerchantType {
+  code: string;
+  label: string;
+  category?: string;
+}
+
+/**
+ * The merchant types the coach is told about: the ones the bank's data is known to contain, and
+ * any others this customer has paid at. The full code list has hundreds of entries; listing all
+ * of them would crowd the prompt and say nothing about this customer.
+ */
+function merchantTypeLines(used: readonly UsedMerchantType[]): string[] {
+  const lines = new Map<string, string>();
+  for (const code of DATASET_MCC_CODES) {
+    const info = lookupMcc(code);
+    if (info) lines.set(code, `- ${code}: ${info.label} (${info.category})`);
+  }
+  for (const { code, label, category } of used) {
+    if (!lines.has(code)) lines.set(code, `- ${code}: ${label}${category ? ` (${category})` : ""}, which this customer has used`);
+  }
+  return [...lines.entries()].sort(([x], [y]) => x.localeCompare(y)).map(([, line]) => line);
+}
+
 /** The engine catalog as plain text for the system prompt. */
-export function engineCatalogText(): string {
+export function engineCatalogText(used: readonly UsedMerchantType[] = []): string {
   const fns = Object.entries(ENGINE_DOCS).map(([fn, doc]) => {
     const args = Object.entries(ENGINE_ARG_SPECS[fn as EngineFn]);
     const argText = args.length ? args.map(([k, s]) => `${k}: ${describeArg(s)}`).join("; ") : "none";
@@ -187,7 +211,8 @@ export function engineCatalogText(): string {
     "MERCHANT TYPES (mcc)",
     "When the question is about one kind of merchant (taxis, fast food, a pharmacy), pass its code as mcc, so the figure is",
     "for exactly that and not for the whole category. A category is broader: Transportation also holds fuel, parking and public transport.",
-    ...Object.entries(MCC_CODES).map(([code, info]) => `- ${code}: ${info.label} (${info.category})`),
+    ...merchantTypeLines(used),
+    "Other four-digit merchant category codes (ISO 18245) are accepted too; use one only when you are sure of it.",
     "",
     "TEMPLATES (view_kind = template)",
     ...templates,

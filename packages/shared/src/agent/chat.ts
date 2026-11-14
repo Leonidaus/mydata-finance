@@ -22,7 +22,7 @@ import { describeResult, numbersIn, questionLanguage, requestLabel, resultNumber
 import { placeholders } from "./placeholders";
 import { type PreferenceAccess, PREFERENCES_DECLARATION, PREFERENCES_TOOL, updatePreferences } from "./preferences";
 import { buildSystemPrompt } from "./prompt";
-import { buildSnapshot, type Figures, type Headline, type Lookup, runLookup } from "./snapshot";
+import { buildSnapshot, type Figures, type Headline, type Lookup, runLookup, usedMerchantTypes } from "./snapshot";
 import {
   HAND_OVER_DECLARATION,
   HAND_OVER_TOOL,
@@ -293,12 +293,13 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
     userTurn(question),
   ];
   const { lookup } = input;
-  const snapshot = lookup ? await buildSnapshot(lookup, input.blocks) : null;
+  const [snapshot, merchantTypes] = lookup ? await Promise.all([buildSnapshot(lookup, input.blocks), usedMerchantTypes(lookup)]) : [null, []];
   let profile = input.profile;
   const preferences = profile ? input.preferences : undefined;
   const systemFor = (current: CoachingProfile | undefined, pendingUnprotect: readonly ProtectedCategory[]) =>
     buildSystemPrompt(input.blocks, input.today, {
       snapshot: snapshot?.text,
+      merchantTypes,
       profile: current,
       allowProtected: input.allowProtected,
       ...(preferences && { preferences: { pendingUnprotect } }),

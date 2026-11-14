@@ -115,6 +115,12 @@ Counts towards: financial literacy.
 - [x] Recurring payments (`engine/streams.ts`; in this dataset only housing,
   utilities and saving transfers recur)
 - [x] Spending by category and by merchant type (taxis, fast food), trends, calendar
+- [x] The merchant code table covers the whole public list, not only the 36 codes in
+  the dataset, with basket hints for the merchant types a category is too coarse for
+- [ ] With real data: check the basket hints against how people actually pay, and
+  add the categories of new codes to the table
+- [ ] The coach is told only the dataset's codes and the customer's own; a question
+  about a merchant type outside both needs it to know the code by heart
 - [x] "What kind of spender am I?" answered from the baskets
 
 ## Safe to spend and safe to save

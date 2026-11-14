@@ -5,7 +5,7 @@
  */
 import type { Block } from "../blocks";
 import { libraryCatalogText } from "../library/components";
-import { engineCatalogText } from "./catalog";
+import { engineCatalogText, type UsedMerchantType } from "./catalog";
 import { coachingStyleSection, type CoachingProfile, type ProtectedCategory } from "../profile";
 import { preferencesSection } from "./preferences";
 
@@ -66,6 +66,8 @@ export interface PromptContext {
   snapshot?: string;
   profile?: CoachingProfile;
   allowProtected?: readonly ProtectedCategory[];
+  /** Merchant types this customer has paid at, named to the coach next to the ones the bank's data is known to contain. */
+  merchantTypes?: readonly UsedMerchantType[];
   /** Set when the coach may change the saved preferences in this conversation (see preferences.ts). */
   preferences?: { pendingUnprotect: readonly ProtectedCategory[] };
 }
@@ -147,7 +149,7 @@ CUSTOM CARDS (add_block with a spec or code view): be strict with yourself here
 - Add controls when the question invites exploring: a period picker, a category select, a slider for a percentage or amount.
 - Titles are short and human ("Where your food money goes"), explanations say in plain words how the figures are computed.
 
-${engineCatalogText()}
+${engineCatalogText(context.merchantTypes)}
 
 VEGA-LITE SPECS (view_kind = spec)
 - Pass the spec as a JSON string. Do not include "data": the function's rows are injected as data.values. You may use transforms (calculate, aggregate, window, filter, timeUnit).

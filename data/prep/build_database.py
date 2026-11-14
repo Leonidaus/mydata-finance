@@ -44,9 +44,31 @@ DEFAULT_TODAY = "2026-09-15"
 LARGE_PURCHASE_EUR = 500.0
 # Health purchases of this size or more count as an unexpected necessity.
 HEALTH_IRREGULAR_EUR = 100.0
+# A repair (car, home, appliance, vet) of this size or more counts as an unexpected necessity.
+REPAIR_IRREGULAR_EUR = 100.0
 # Monthly averages and cohort benchmarks cover this many complete months before today.
 AVERAGE_WINDOW_MONTHS = 12
-TAXI_MCC = "4121"
+
+# The merchant category code table, shared with the TypeScript engine (packages/shared/src/mcc.ts).
+# A code may carry a basket hint; build_mcc_table.py writes the file.
+MCC_TABLE = json.loads((Path(__file__).resolve().parents[2] / "packages/shared/src/mcc.json").read_text(encoding="utf-8"))
+
+
+def basket_by_merchant_type(mcc_code: str | None, size: float):
+    """The (basket, rule) a merchant type's hint gives a purchase of `size` euros, or None without a hint."""
+    info = MCC_TABLE.get(mcc_code) if mcc_code else None
+    hint = info.get("basket") if info else None
+    if hint == "regular":
+        return ("regular", info.get("rule", "essential_merchant"))
+    if hint == "everyday":
+        return ("everyday", info.get("rule", "discretionary"))
+    if hint == "health":
+        return ("irregular", "health_large") if size >= HEALTH_IRREGULAR_EUR else ("regular", "health_routine")
+    if hint == "home":
+        return ("irregular", "home_large") if size >= LARGE_PURCHASE_EUR else ("everyday", "home_small")
+    if hint == "repair":
+        return ("irregular", "repair") if size >= REPAIR_IRREGULAR_EUR else ("everyday", "repair_small")
+    return None
 
 AGE_BANDS = [(18, 24), (25, 34), (35, 44), (45, 54), (55, 64), (65, 200)]
 
@@ -60,8 +82,14 @@ def classify(transaction_type: str, category: str, mcc_code: str | None, amount:
       regular     mandatory and regular (housing, utilities, groceries, getting around,
                   routine health costs)
       irregular   mandatory and irregular, the "unexpected necessities" (a large health
-                  or home purchase)
+                  or home purchase, a repair)
       everyday    everything discretionary, large or small
+
+    A purchase is classified by its merchant type when the code table has a basket hint
+    for it, and by its category otherwise. For the 36 codes in this dataset the hints
+    give exactly what the category rules give, so RULES_VERSION stays the same: a
+    rebuild produces the same basket and rule on every transaction. The hints matter
+    for codes a bigger dataset brings.
 
     This dataset has no recurring payments at merchant level (no customer pays one
     merchant a steady amount month after month), so the rules use transaction
@@ -82,11 +110,12 @@ def classify(transaction_type: str, category: str, mcc_code: str | None, amount:
 
     size = -amount
     is_large = int(size >= LARGE_PURCHASE_EUR)
+    hinted = basket_by_merchant_type(mcc_code, size)
+    if hinted:
+        return ("spending", hinted[0], hinted[1], is_large)
     if category == "Groceries":
         return ("spending", "regular", "groceries", is_large)
     if category == "Transportation":
-        if mcc_code == TAXI_MCC:
-            return ("spending", "everyday", "taxi", is_large)
         return ("spending", "regular", "transport", is_large)
     if category == "Health":
         if size >= HEALTH_IRREGULAR_EUR:

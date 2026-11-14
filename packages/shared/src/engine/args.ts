@@ -6,7 +6,7 @@
  * to a different question.
  */
 import { BENCHMARK_BASES, BENCHMARK_CATEGORY_NAMES } from "../benchmark/statfin";
-import { MCC_CODES } from "../mcc";
+import { isKnownMcc, lookupMcc } from "../mcc";
 import type { EngineFn } from "./types";
 import { PERIODS, SPENDING_CATEGORIES } from "./util";
 
@@ -137,8 +137,8 @@ export function validateEngineArgs(fn: EngineFn, args: Record<string, unknown>):
         }
         break;
       case "mcc":
-        if (typeof value !== "string" || !Object.hasOwn(MCC_CODES, value)) {
-          throw new EngineArgumentError(`${key} must be a merchant type code from the list, e.g. "4121" for taxis.`);
+        if (!isKnownMcc(value)) {
+          throw new EngineArgumentError(`${key} must be a four-digit merchant category code, e.g. "4121" for taxis.`);
         }
         break;
       case "number": {
@@ -161,10 +161,12 @@ export function validateEngineArgs(fn: EngineFn, args: Record<string, unknown>):
     }
     clean[key] = value;
   }
-  // A merchant type belongs to one category; asking for it within another would always be empty.
-  if (typeof clean.mcc === "string" && typeof clean.category === "string" && MCC_CODES[clean.mcc].category !== clean.category) {
+  // In the bank's data a merchant type sits in one category; asking for it within another would always be
+  // empty. A code the data has not shown has no known category, and is not checked.
+  const known = typeof clean.mcc === "string" ? lookupMcc(clean.mcc) : null;
+  if (known?.category && typeof clean.category === "string" && known.category !== clean.category) {
     throw new EngineArgumentError(
-      `mcc ${clean.mcc} (${MCC_CODES[clean.mcc].label}) belongs to ${MCC_CODES[clean.mcc].category}, not ${clean.category}. Leave category out.`,
+      `mcc ${clean.mcc} (${known.label}) belongs to ${known.category}, not ${clean.category}. Leave category out when you give mcc.`,
     );
   }
   return clean;
