@@ -28,7 +28,7 @@ describe("server chat client", () => {
       seen.push({ url: String(url), body: JSON.parse(String(init?.body)) });
       return json({ text: "You spent {{taxi.value}}.", ops: [], rejected: [], picks: [] });
     });
-    const input = { customerId: "CUST00001", question: "taxis?", history: [{ role: "user" as const, text: "hi" }], blocks: [] };
+    const input = { customerId: "CUST00001", question: "taxis?", history: [{ role: "user" as const, text: "hi" }], blocks: [], language: "fi" as const };
     const out = await client.ask(input);
     expect(out.text).toBe("You spent {{taxi.value}}.");
     expect(seen).toEqual([{ url: "https://api.example/api/chat", body: input }]);
