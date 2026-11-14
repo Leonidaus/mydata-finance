@@ -65,20 +65,22 @@ function spendBy(ctx: EngineContext, args: Record<string, unknown>): EngineResul
   // Asking about one merchant type implies looking at merchant types.
   const by = args.by === "merchant_type" || (merchantType && args.by === undefined) ? "merchant_type" : "category";
   const category = str(args.category);
-  const groups = new Map<string, { label: string; amount: number; count: number }>();
+  const groups = new Map<string, { label: string; category: string; amount: number; count: number }>();
   for (const t of ctx.tx) {
     if (!isSpending(t) || !inRange(t, from, to) || (category && t.category !== category)) continue;
     if (merchantType && t.mcc_code !== merchantType) continue;
     const mcc = lookupMcc(t.mcc_code);
     const key = by === "category" ? t.category : (t.mcc_code ?? `none:${t.category}`);
-    const label = by === "category" ? t.category : (mcc?.label ?? `${t.category} (no merchant type)`);
-    const g = groups.get(key) ?? { label, amount: 0, count: 0 };
+    // A code that is not in the list keeps its number as the label, so it is still told apart.
+    const label = by === "category" ? t.category : t.mcc_code ? (mcc?.label ?? `Merchant type ${t.mcc_code}`) : `${t.category} (no merchant type)`;
+    // The category the bank gave the payments: for a merchant type, the first one seen.
+    const g = groups.get(key) ?? { label, category: t.category, amount: 0, count: 0 };
     g.amount += out(t);
     g.count += 1;
     groups.set(key, g);
   }
   const rows: Row[] = [...groups.entries()]
-    .map(([key, g]) => ({ key, label: g.label, amount: round2(g.amount), count: g.count }))
+    .map(([key, g]) => ({ key, label: g.label, category: g.category, amount: round2(g.amount), count: g.count }))
     .sort((a, b) => (b.amount as number) - (a.amount as number));
   return {
     rows,
@@ -981,6 +983,7 @@ function afford(ctx: EngineContext, args: Record<string, unknown>): EngineResult
   if (!Number.isFinite(amount)) throw new EngineArgumentError("afford needs amount: the price in euros.");
   const label = str(args.label) ?? "This purchase";
   const necessity = args.kind === "necessity";
+  const estimated = args.price === "estimate";
   const stated = typeof args.reserve === "number";
   const p = plan(ctx, stated ? (args.reserve as number) : undefined);
   const safe = Math.max(0, p.spendable);
@@ -1013,13 +1016,14 @@ function afford(ctx: EngineContext, args: Record<string, unknown>): EngineResult
     rows: [
       { term: `Safe to spend until payday (${payday})`, amount: round2(safe) },
       ...(necessity ? [{ term: "Buffer for unexpected necessities", amount: round2(buffer) }] : []),
-      { term: label, amount: round2(-amount) },
+      { term: estimated ? `${label} (estimated price)` : label, amount: round2(-amount) },
       { term: left >= 0 ? "Left until payday after this" : "Missing from this pay period's money", amount: round2(left) },
     ],
     value: round2(left),
     unit: "€",
-    caption,
+    caption: estimated ? `Based on an estimated price of about ${euros(amount)}, not an exact one. ${caption}` : caption,
     assumptions: [
+      ...(estimated ? ["The price is an estimate of what this typically costs. Give the real price for an exact answer."] : []),
       necessity
         ? "A necessity you could not plan for may use the buffer for unexpected necessities as well as what is safe to spend."
         : "A purchase you choose comes out of everyday spending: what is safe to spend until payday. Bills, essentials and the buffer stay untouched.",
