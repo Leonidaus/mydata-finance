@@ -260,6 +260,10 @@ We merge `develop` into `main` whenever a demoable milestone works.
 requests. CI requires every pull request to target `develop`, except release pull
 requests from `develop` into `main`.
 
+Run `/release` to prepare or reuse the `develop` into `main` release pull request.
+The skill does not merge it or start a deployment; merging remains manual and starts
+the Deploy workflow automatically.
+
 ## Repo layout
 
 Current layout from the first skeleton. If we go with Next.js, `packages/app`
