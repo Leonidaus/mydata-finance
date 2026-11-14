@@ -40,8 +40,9 @@ const store = {
     }
   },
 };
-// v2: blocks carry `pinned`; older saved dashboards (no pins) are dropped for the new one-card default.
-const dashboardKey = (cid: string) => `mydata.dashboard.v2.${cid}`;
+// v2: blocks carry `pinned`; older saved dashboards (no pins) are dropped for the new default.
+// v3: the default first screen has two cards (safe to spend, this month so far).
+const dashboardKey = (cid: string) => `mydata.dashboard.v3.${cid}`;
 const coachingPromptKey = (cid: string) => `mydata.coachingPrompt.v1.${cid}`;
 const profileClient = createProfileClient(apiBase);
 

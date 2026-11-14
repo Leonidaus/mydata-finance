@@ -52,6 +52,19 @@ const CASES: Case[] = [
     inWords: { fn: "goalPlan", args: { target: 12000, saved: 2000, monthly: 200 } },
     by: "strong",
   },
+  { question: "How is this month going?", fns: ["monthSoFar"], by: "fast" },
+  {
+    question: "I have been saving 300 euros a month for a home since June. The target is 20 000 and I had 5 000 before that. Am I on track?",
+    fns: ["goalReview"],
+    args: { target: 20000, monthly: 300, since: "2026-06" },
+    by: "strong",
+  },
+  {
+    question: "1 000 euros of this account is my savings. What is safe for me to spend this week?",
+    fns: ["safeToSpend"],
+    args: { reserve: 1000 },
+    inWords: { fn: "safeToSpend", args: { horizon: "week", reserve: 1000 } },
+  },
   { question: "Paljonko käytin ruokakauppaan viime kuussa?", fns: ["spendBy"], args: { category: "Groceries", period: "last_month" }, inWords: { fn: "spendBy", args: { category: "Groceries", period: "last_month" } }, by: "fast" },
 ];
 

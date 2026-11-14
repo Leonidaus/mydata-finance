@@ -19,8 +19,9 @@ const existing: Block = {
   view: { kind: "template", template: "stat" },
 };
 
-/** Every component builds without arguments, except a plan, which needs the user's target. */
-const exampleArgs = (component: string): Record<string, unknown> => (component === "goal_plan" ? { target: 25000 } : {});
+/** Every component builds without arguments, except a plan and its review, which need the user's figures. */
+const exampleArgs = (component: string): Record<string, unknown> =>
+  component === "goal_plan" ? { target: 25000 } : component === "goal_review" ? { target: 25000, monthly: 400 } : {};
 
 const add = (over: Record<string, unknown> = {}): ToolCall => ({
   name: "add_block",
@@ -557,6 +558,46 @@ describe("runChat with the customer's figures", () => {
     expect(out.checked).toBe(false); // 1 500 is from nowhere
     const fine = harness([goal("With 25 000 € as the target, see {{goal.value}}.")]);
     expect(await fine.ask("My target is 25000 euros")).toMatchObject({ checked: true });
+  });
+
+  it("sends back a reply that quotes the figure from before the change the card makes", async () => {
+    // The snapshot has safe to spend for the week (312,40 €). The card sets a reserve, which here changes it to 92 €.
+    const reserved: Lookup = (fn, args) => {
+      if (fn === "safeToSpend" && args.reserve === 1000) return { rows: [{ term: "Safe to spend", amount: 92 }], value: 92, unit: "€" };
+      const result = results[fn];
+      if (!result) throw new Error(`${fn} is not available here`);
+      return result;
+    };
+    const card = (reply: string): ToolCall => ({ name: "use_component", args: { id: "safe", component: "safe_to_spend", args: { reserve: 1000 }, reply } });
+    const run = async (...answers: ToolCall[][]) => {
+      const requests: ChatModelRequest[] = [];
+      const model: ChatModel = {
+        async generate(req) {
+          requests.push(structuredClone(req));
+          return { calls: answers[requests.length - 1] ?? [] };
+        },
+      };
+      const out = await runChat(model, { question: "1 000 euros of this account is savings. What is safe to spend?", history: [], blocks: [], today: "2026-09-15", lookup: reserved });
+      return { out, requests };
+    };
+
+    const wrong = await run([card("You have 312,40 € safe to spend this week, with your 1 000 € kept aside.")], [say("With 1 000 € kept aside, 92 € is safe to spend this week.")]);
+    expect(wrong.requests).toHaveLength(2);
+    expect(wrong.requests[1].turns.at(-1)?.text).toMatch(/Your reply says 312.4, the figure from before this change\. The card you built shows 92/);
+    expect(wrong.out).toMatchObject({ text: "With 1 000 € kept aside, 92 € is safe to spend this week.", checked: true });
+
+    // Saying both is fine, once the coach has looked the new figure up.
+    const both = await run(
+      [{ name: "lookup", args: { fn: "safeToSpend", args: { horizon: "week", reserve: 1000 } } }],
+      [card("That brings it from 312,40 € down to 92 € this week.")],
+    );
+    expect(both.requests).toHaveLength(2);
+    expect(both.out).toMatchObject({ text: "That brings it from 312,40 € down to 92 € this week.", checked: true });
+
+    const stubborn = await run([card("You have 312,40 € safe to spend this week.")], [say("You have 312,40 € safe to spend this week.")]);
+    expect(stubborn.out.checked).toBe(false);
+    expect(stubborn.out.text).toMatch(/\{\{safe\.value\}\}/);
+    expect(stubborn.out.rejected).toEqual(["reply: figures from before the change: 312.4"]);
   });
 
   it("sends back a placeholder the app could not fill", async () => {

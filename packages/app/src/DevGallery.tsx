@@ -25,6 +25,7 @@ function gallery(): { section: string; note: string; blocks: Block[] }[] {
       note: "view.kind = \"template\": fixed views the app knows how to draw.",
       blocks: [
         catalog.safeToSpend(),
+        catalog.monthSoFar(),
         catalog.categoryBars(),
         catalog.categoryBars({ category: "Restaurants" }),
         catalog.trend(),
@@ -41,7 +42,7 @@ function gallery(): { section: string; note: string; blocks: Block[] }[] {
     {
       section: "Custom charts",
       note: "view.kind = \"spec\": a raw Vega-Lite spec. Without its own data, the engine rows are injected as data.values.",
-      blocks: [custom.donut(), custom.weekday(), custom.pace(), custom.goalPlan({ target: 25000, saved: 10000, extra: 100, byMonths: 24, label: "Home deposit" }), custom.savingOptions(["Travel"])],
+      blocks: [custom.donut(), custom.weekday(), custom.pace(), custom.goalPlan({ target: 25000, saved: 10000, extra: 100, byMonths: 24, label: "Home deposit" }), custom.savingOptions(["Travel"]), custom.goalReview({ target: 25000, saved: 10000, monthly: 400, since: "2026-04", label: "Home deposit" })],
     },
     {
       section: "Iframe widgets",
