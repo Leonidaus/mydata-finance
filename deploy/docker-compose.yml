@@ -17,6 +17,7 @@ services:
         required: false
     volumes:
       - ./data:/data:ro
+      - ./profiles:/profiles
 
   caddy:
     image: caddy:2

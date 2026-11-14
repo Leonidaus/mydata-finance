@@ -7,18 +7,22 @@ import {
   fillPlaceholders,
   placeholderBlockIds,
   type TxFilter,
+  type ProtectedCategory,
+  type ProfileUpdate,
 } from "@mydata/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { askAgent, cannedReply, type ChatMode, chatMode, geminiAvailable, type RunEngine } from "./agent";
 import BlockCard from "./BlockCard";
 import Chat, { type CoachState } from "./Chat";
+import CoachingSettings from "./CoachingSettings";
 import CoachFace from "./CoachFace";
 import DevGallery from "./DevGallery";
-import { DataSourceContext, dataSource, fixtureSource, loadIndex } from "./data";
+import { apiBase, DataSourceContext, dataSource, fixtureSource, loadIndex } from "./data";
 import { formatDate, formatEur } from "./format";
 import { useLatest } from "./latest";
 import LoadError from "./LoadError";
 import TxDrawer from "./TxDrawer";
+import { createProfileClient } from "./sources/profile";
 
 const store = {
   get(key: string): string | null {
@@ -39,6 +43,8 @@ const store = {
 // v2: blocks carry `pinned`; older saved dashboards (no pins) are dropped for the new default.
 // v3: the default first screen has two cards (safe to spend, this month so far).
 const dashboardKey = (cid: string) => `mydata.dashboard.v3.${cid}`;
+const coachingPromptKey = (cid: string) => `mydata.coachingPrompt.v1.${cid}`;
+const profileClient = createProfileClient(apiBase);
 
 /**
  * Dev mode (?dev in the URL, or the Dev button) runs on the static demo fixtures with the engine in
@@ -87,6 +93,12 @@ export default function App() {
   const [dev, setDev] = useState(devInUrl);
   const [gallery, setGallery] = useState(devInUrl);
   const source = dev ? fixtureSource : dataSource;
+  const [profileReload, setProfileReload] = useState(0);
+  const profile = useLatest(
+    source.mode === "api" && customerId ? `profile:${customerId}:${profileReload}` : null,
+    (signal) => profileClient.get(customerId ?? "", signal),
+  );
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // What answers typed questions. Known at once without the backend; with it, the backend is asked.
   const [mode, setMode] = useState<ChatMode>(geminiAvailable ? "browser" : "mock");
   useEffect(() => {
@@ -113,6 +125,12 @@ export default function App() {
     setDevInUrl(on);
   };
 
+  useEffect(() => {
+    if (profile.status === "ready" && profile.data.isDefault && customerId && store.get(coachingPromptKey(customerId)) !== "done") {
+      setSettingsOpen(true);
+    }
+  }, [profile.status, customerId, profile.status === "ready" ? profile.data.isDefault : false]);
+
   const selectCustomer = useCallback((id: string) => {
     store.set("mydata.customer", id);
     setDrill(null);
@@ -137,9 +155,9 @@ export default function App() {
   }, []);
 
   /** Suggested prompts are canned (answered locally, no API call); typed questions go to the agent. */
-  const ask = async (question: string, canned = false) => {
-    if (customer.status === "error") return "I couldn't load your data. Use “Try again” above first.";
-    if (!dashboard || !info) return "Still loading your data…";
+  const ask = async (question: string, canned = false, allowProtected?: ProtectedCategory[]) => {
+    if (customer.status === "error") return { text: "I couldn't load your data. Use “Try again” above first." };
+    if (!dashboard || !info) return { text: "Still loading your data…" };
     // The whole answer is for the customer who asked, also if another one is selected before it is ready.
     const { customerId: askedFor, blocks } = dashboard;
     if (history.current.customerId !== askedFor) history.current = { customerId: askedFor, turns: [] };
@@ -150,6 +168,7 @@ export default function App() {
       history: history.current.turns,
       run: ((fn, args = {}) => source.runData(askedFor, { kind: "engine", fn, args })) as RunEngine,
       useBackend: source.mode === "api",
+      allowProtected,
     };
     const reply = await (canned ? cannedReply : askAgent)(question, ctx);
     if (shownCustomer.current === askedFor) setCoach({ mood: reply.mood ?? null, suggestions: reply.suggestions ?? [] });
@@ -172,10 +191,25 @@ export default function App() {
         if (b) results.set(id, await source.runData(askedFor, b.data).catch(() => ({ rows: [] }) as EngineResult));
       }),
     );
-    return fillPlaceholders(reply.text, (id, field) => {
+    return {
+      text: fillPlaceholders(reply.text, (id, field) => {
       const r = results.get(id);
       return r && (field === "value" ? formatValue(r) : r.caption);
-    });
+      }),
+      blocked: reply.blocked as ProtectedCategory[] | undefined,
+    };
+  };
+
+  const saveProfile = async (update: ProfileUpdate) => {
+    if (!customerId) return;
+    await profileClient.update(customerId, update);
+    store.set(coachingPromptKey(customerId), "done");
+    setProfileReload((n) => n + 1);
+  };
+
+  const skipProfile = () => {
+    if (customerId) store.set(coachingPromptKey(customerId), "done");
+    setSettingsOpen(false);
   };
 
   const addBlock = (block: Block) => {
@@ -239,6 +273,11 @@ export default function App() {
               <button type="button" className="ghost-btn" onClick={pickRandom} title="Random customer">
                 Random
               </button>
+              {source.mode === "api" && profile.status === "ready" && (
+                <button type="button" className="ghost-btn" onClick={() => setSettingsOpen(true)} title="Change coaching settings">
+                  Coaching
+                </button>
+              )}
               {devAvailable && (
                 <button
                   type="button"
@@ -305,6 +344,16 @@ export default function App() {
         </main>
 
         <Chat onAsk={ask} resetKey={customerId ?? ""} request={chatRequest} mode={mode} coach={coach} />
+
+        {settingsOpen && profile.status === "ready" && source.mode === "api" && (
+          <CoachingSettings
+            profile={profile.data.profile}
+            onboarding={profile.data.isDefault && store.get(coachingPromptKey(customerId ?? "")) !== "done"}
+            onSave={saveProfile}
+            onSkip={skipProfile}
+            onClose={() => setSettingsOpen(false)}
+          />
+        )}
 
         {drill && drill.customerId === customerId && (
           <TxDrawer customerId={drill.customerId} title={drill.title} filter={drill.filter} onClose={() => setDrill(null)} />

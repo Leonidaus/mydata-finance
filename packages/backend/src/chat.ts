@@ -18,6 +18,10 @@ import {
   type Lookup,
   MAX_HISTORY_TURNS,
   MAX_QUESTION_CHARS,
+  type CoachingProfile,
+  type ProtectedCategory,
+  ProfileError,
+  parseCategoryList,
   parseGeminiModels,
   runChat,
   TEMPLATE_IDS,
@@ -55,6 +59,7 @@ export interface ChatRequest {
   question: string;
   history: { role: "user" | "assistant"; text: string }[];
   blocks: Block[];
+  allowProtected?: ProtectedCategory[];
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -120,21 +125,29 @@ export function parseChatRequest(body: unknown): ChatRequest {
   if (body.question.length > MAX_QUESTION_CHARS) {
     throw new ChatRequestError(`question must be at most ${MAX_QUESTION_CHARS} characters`);
   }
-  return {
-    customerId: body.customerId,
-    question: body.question,
-    history: readHistory(body.history),
-    blocks: readBlocks(body.blocks),
-  };
+  try {
+    return {
+      customerId: body.customerId,
+      question: body.question,
+      history: readHistory(body.history),
+      blocks: readBlocks(body.blocks),
+      ...(body.allowProtected !== undefined && { allowProtected: parseCategoryList(body.allowProtected, "allowProtected") }),
+    };
+  } catch (error) {
+    if (error instanceof ProfileError) throw new ChatRequestError(error.message);
+    throw error;
+  }
 }
 
-export type ChatAnswer = ChatOutput;
+export type ChatAnswer = ChatOutput & { blocked: ProtectedCategory[] };
 
 export interface AnswerOptions {
   /** `today` comes from the server's database, not from the caller. */
   today: string;
   /** Runs an engine function for the customer who is asking. Throws when it cannot be computed. */
   lookup: Lookup;
+  profile?: CoachingProfile;
+  allowProtected?: readonly ProtectedCategory[];
   signal?: AbortSignal;
 }
 
@@ -153,9 +166,17 @@ export function createServerChatModels(apiKey: string, env: { GEMINI_MODEL?: str
 export async function answerChat(model: ChatModel | ChatModels, request: ChatRequest, options: AnswerOptions): Promise<ChatAnswer> {
   const answer = await runChat(
     model,
-    { question: request.question, history: request.history, blocks: request.blocks, today: options.today, lookup: options.lookup },
+    {
+      question: request.question,
+      history: request.history,
+      blocks: request.blocks,
+      today: options.today,
+      lookup: options.lookup,
+      profile: options.profile,
+      allowProtected: options.allowProtected,
+    },
     options.signal,
   );
   if (answer.rejected.length) console.warn("[chat] rejected:", answer.rejected);
-  return answer;
+  return { ...answer, blocked: [] };
 }
