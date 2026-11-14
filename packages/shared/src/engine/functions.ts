@@ -2,6 +2,7 @@
  * Finance engine: deterministic functions over one customer's transactions.
  * The AI chooses which function to call with which arguments; it never does the arithmetic.
  */
+import { ageBandLabel, type BenchmarkBasis, nationalBenchmark, STATFIN } from "../benchmark/statfin";
 import { lookupMcc } from "../mcc";
 import type { Transaction } from "../schema";
 import { type TREND_METRICS, validateEngineArgs } from "./args";
@@ -13,7 +14,9 @@ import {
   addMonths,
   dayOfMonth,
   daysBetween,
+  displayDate,
   endOfMonth,
+  euros,
   inRange,
   isIncome,
   isSaving,
@@ -58,11 +61,14 @@ export function ageBand(age: number): string {
 function spendBy(ctx: EngineContext, args: Record<string, unknown>): EngineResult {
   const p = period(args, "last_month");
   const [from, to] = resolvePeriod(p, ctx.today);
-  const by = args.by === "merchant_type" ? "merchant_type" : "category";
+  const merchantType = str(args.mcc);
+  // Asking about one merchant type implies looking at merchant types.
+  const by = args.by === "merchant_type" || (merchantType && args.by === undefined) ? "merchant_type" : "category";
   const category = str(args.category);
   const groups = new Map<string, { label: string; amount: number; count: number }>();
   for (const t of ctx.tx) {
     if (!isSpending(t) || !inRange(t, from, to) || (category && t.category !== category)) continue;
+    if (merchantType && t.mcc_code !== merchantType) continue;
     const mcc = lookupMcc(t.mcc_code);
     const key = by === "category" ? t.category : (t.mcc_code ?? `none:${t.category}`);
     const label = by === "category" ? t.category : (mcc?.label ?? `${t.category} (no merchant type)`);
@@ -78,8 +84,8 @@ function spendBy(ctx: EngineContext, args: Record<string, unknown>): EngineResul
     rows,
     value: round2(sum(rows.map((r) => r.amount as number))),
     unit: "€",
-    caption: `${PERIODS[p]}${category ? `, ${category}` : ""}`,
-    filter: { from, to, kind: "spending", category },
+    caption: `${PERIODS[p]}${merchantType ? `, ${lookupMcc(merchantType)?.label ?? merchantType}` : category ? `, ${category}` : ""}`,
+    filter: { from, to, kind: "spending", category, ...(merchantType && { mcc: merchantType }) },
   };
 }
 
@@ -87,6 +93,8 @@ function monthlyTrend(ctx: EngineContext, args: Record<string, unknown>): Engine
   const months = num(args.months, 12);
   const metric = (args.metric as (typeof TREND_METRICS)[number] | undefined) ?? "spending";
   const category = str(args.category);
+  const merchantType = str(args.mcc);
+  const subject = merchantType ? (lookupMcc(merchantType)?.label ?? merchantType) : category;
   const thisMonth = startOfMonth(ctx.today);
   const from = addMonths(thisMonth, -months);
   const to = addDays(thisMonth, -1);
@@ -94,6 +102,7 @@ function monthlyTrend(ctx: EngineContext, args: Record<string, unknown>): Engine
   for (let i = 0; i < months; i++) totals.set(monthOf(addMonths(from, i)), 0);
   for (const t of ctx.tx) {
     if (!inRange(t, from, to) || (category && t.category !== category)) continue;
+    if (merchantType && t.mcc_code !== merchantType) continue;
     const m = monthOf(t.tx_date);
     let v = 0;
     if (metric === "spending" && isSpending(t)) v = out(t);
@@ -110,8 +119,8 @@ function monthlyTrend(ctx: EngineContext, args: Record<string, unknown>): Engine
     caption:
       metric === "net"
         ? `Average left over per month (income minus spending, before saving), last ${months} full months`
-        : `Average ${metric}${category ? ` on ${category}` : ""} per month, last ${months} full months`,
-    filter: { from, to, kind: metric, category },
+        : `Average ${metric}${subject ? ` on ${subject}` : ""} per month, last ${months} full months`,
+    filter: { from, to, kind: metric, category, ...(merchantType && { mcc: merchantType }) },
   };
 }
 
@@ -325,19 +334,19 @@ export type { Plan };
 
 /** The assumptions behind a plan, in plain language. */
 function planAssumptions(ctx: EngineContext, p: Plan): string[] {
-  const bills = p.due.filter((d) => !d.stream.saving).map((d) => `${d.stream.label} about €${Math.round(d.amount)}`);
+  const bills = p.due.filter((d) => !d.stream.saving).map((d) => `${d.stream.label} about ${euros(d.amount)}`);
   return [
-    `Payday is taken to be ${p.payday}, from the day of the month your salary usually arrives.`,
+    `Payday is taken to be ${displayDate(p.payday)}, from the day of the month your salary usually arrives.`,
     ...(p.lateMargin > 0
-      ? [`Your salary has sometimes arrived as late as ${p.latePayday.slice(8)}th of the month, so essentials for those extra days are kept back as a margin.`]
+      ? [`Your salary has sometimes arrived as late as day ${Number(p.latePayday.slice(8))} of the month, so essentials for those extra days are kept back as a margin.`]
       : []),
     bills.length
       ? `Bills still expected before then: ${bills.join(", ")}.`
       : "No bills are expected before then: this pay cycle's housing and utilities are already paid.",
-    `Groceries, transport and routine health costs are set aside at your average of the last 3 full months, about €${Math.round(p.essentialsPerDay)} a day.`,
-    `The buffer covers unexpected necessities: your average of the last 12 months (about €${Math.round(monthlyBasket(ctx, "irregular"))} a month) for the days left, or one typical such purchase if that is more.`,
+    `Groceries, transport and routine health costs are set aside at your average of the last 3 full months, about ${euros(p.essentialsPerDay)} a day.`,
+    `The buffer covers unexpected necessities: your average of the last 12 months (about ${euros(monthlyBasket(ctx, "irregular"))} a month) for the days left, or one typical such purchase if that is more.`,
     p.savingDue > 0
-      ? `Your usual saving transfer of about €${Math.round(p.savingDue)} is treated as already committed.`
+      ? `Your usual saving transfer of about ${euros(p.savingDue)} is treated as already committed.`
       : "No regular saving transfer is expected before payday.",
     "This is an estimate from past patterns, not a guarantee. An unusually large bill would change it.",
   ];
@@ -355,7 +364,7 @@ function safeToSpend(ctx: EngineContext, args: Record<string, unknown>): EngineR
     { term: "Planned saving before payday", amount: round2(-p.savingDue) },
     { term: "Buffer for unexpected necessities", amount: round2(-p.buffer) },
     { term: "Margin in case your salary arrives late", amount: round2(-p.lateMargin) },
-    { term: `Safe to spend until payday (${p.payday})`, amount: round2(p.available) },
+    { term: `Safe to spend until payday (${displayDate(p.payday)})`, amount: round2(p.available) },
   ];
   return {
     rows,
@@ -363,8 +372,8 @@ function safeToSpend(ctx: EngineContext, args: Record<string, unknown>): EngineR
     unit: "€",
     caption:
       p.available <= 0
-        ? `Nothing is safe to spend before payday on ${p.payday}: commitments exceed your balance.`
-        : `${horizon === "week" ? "This week" : `Until payday ${p.payday}`} · about €${Math.round(perDay)} a day for everyday spending`,
+        ? `Nothing is safe to spend before payday on ${displayDate(p.payday)}: commitments exceed your balance.`
+        : `${horizon === "week" ? "This week" : `Until payday ${displayDate(p.payday)}`} · about ${euros(perDay)} a day for everyday spending`,
     assumptions: planAssumptions(ctx, p),
     filter: { from: addDays(ctx.today, -29), to: ctx.today, kind: "all" },
   };
@@ -385,11 +394,11 @@ function safeToSave(ctx: EngineContext): EngineResult {
   const surplus = income - spending - saving;
   const surplusText =
     surplus >= 0
-      ? `Over the last ${months} months about €${Math.round(surplus)} a month was left after spending and your existing saving.`
-      : `Over the last ${months} months you spent about €${Math.round(-surplus)} a month more than came in.`;
+      ? `Over the last ${months} months about ${euros(surplus)} a month was left after spending and your existing saving.`
+      : `Over the last ${months} months you spent about ${euros(-surplus)} a month more than came in.`;
 
   const rows: Row[] = [
-    { term: `Safe to spend until payday (${p.payday})`, amount: round2(p.available) },
+    { term: `Safe to spend until payday (${displayDate(p.payday)})`, amount: round2(p.available) },
     { term: "Everyday spending at your usual pace", amount: round2(-everydayUntilPayday) },
     { term: "Cushion kept: one month of regular essentials", amount: round2(-cushion) },
     { term: left > 0 ? "Safe to move to savings now" : "Short of the cushion", amount: round2(left) },
@@ -400,14 +409,14 @@ function safeToSave(ctx: EngineContext): EngineResult {
     unit: "€",
     caption:
       left > 0
-        ? `You could move about €${Math.round(left)} to savings now and still keep a cushion. ${surplusText}`
+        ? `You could move about ${euros(left)} to savings now and still keep a cushion. ${surplusText}`
         : `Nothing is safe to move right now: after your usual spending you would be below a one-month cushion. ${surplusText}`,
     assumptions: [
       ...planAssumptions(ctx, p),
-      `Everyday spending is assumed to continue at your average of the last 3 full months, about €${Math.round(p.everydayPerDay)} a day.`,
-      `The cushion is one month of your regular essentials, about €${Math.round(cushion)}, kept in the account.`,
+      `Everyday spending is assumed to continue at your average of the last 3 full months, about ${euros(p.everydayPerDay)} a day.`,
+      `The cushion is one month of your regular essentials, about ${euros(cushion)}, kept in the account.`,
       saving > 0
-        ? `Your existing saving, about €${Math.round(saving)} a month, is counted as already committed.`
+        ? `Your existing saving, about ${euros(saving)} a month, is counted as already committed.`
         : "You have no regular saving transfer yet.",
     ],
     filter: { from, to, kind: "net" },
@@ -441,10 +450,10 @@ function balanceForecast(ctx: EngineContext): EngineResult {
     rows,
     value: round2(projected),
     unit: "€",
-    caption: `Projected balance on payday ${p.payday}, before your salary${salary > 0 ? ` of about €${Math.round(salary)}` : ""} arrives`,
+    caption: `Projected balance on payday ${displayDate(p.payday)}, before your salary${salary > 0 ? ` of about ${euros(salary)}` : ""} arrives`,
     assumptions: [
       ...planAssumptions(ctx, p),
-      `Everyday spending is assumed to continue at your average of the last 3 full months, about €${Math.round(p.everydayPerDay)} a day.`,
+      `Everyday spending is assumed to continue at your average of the last 3 full months, about ${euros(p.everydayPerDay)} a day.`,
       "The forecast stops just before payday and does not include the incoming salary.",
     ],
     filter: { from: start, to: ctx.today, kind: "all" },
@@ -454,20 +463,24 @@ function balanceForecast(ctx: EngineContext): EngineResult {
 // ---------- what-if, peers, recurring, goals ----------
 
 function whatIf(ctx: EngineContext, args: Record<string, unknown>): EngineResult {
-  const category = str(args.category) ?? "Restaurants";
+  const merchantType = str(args.mcc);
+  // One merchant type (e.g. fast food) when given, otherwise a whole category.
+  const category = merchantType ? undefined : (str(args.category) ?? "Restaurants");
+  const subject = merchantType ? (lookupMcc(merchantType)?.label ?? merchantType) : (category as string);
   const cutPct = num(args.cutPct, 20);
   const [from, to] = resolvePeriod("last_12_months", ctx.today);
   const months = monthsOfHistory(ctx);
-  const monthly = sum(ctx.tx.filter((t) => isSpending(t) && t.category === category && inRange(t, from, to)).map(out)) / months;
+  const matches = (t: Transaction) => (merchantType ? t.mcc_code === merchantType : t.category === category);
+  const monthly = sum(ctx.tx.filter((t) => isSpending(t) && matches(t) && inRange(t, from, to)).map(out)) / months;
   const perMonth = (monthly * cutPct) / 100;
   const rows: Row[] = Array.from({ length: 12 }, (_, k) => ({ month: k + 1, saved: round2(perMonth * (k + 1)) }));
   return {
     rows,
     value: round2(perMonth * 12),
     unit: "€ / year",
-    caption: `Cutting ${category} by ${cutPct}% (now about €${Math.round(monthly)}/month) saves about €${Math.round(perMonth)} a month`,
-    assumptions: [`Based on your average ${category} spending over the last ${months} full months continuing unchanged.`],
-    filter: { from, to, kind: "spending", category },
+    caption: `Cutting ${subject} by ${cutPct}% (now about ${euros(monthly)}/month) saves about ${euros(perMonth)} a month`,
+    assumptions: [`Based on your average ${subject} spending over the last ${months} full months continuing unchanged.`],
+    filter: { from, to, kind: "spending", category, ...(merchantType && { mcc: merchantType }) },
   };
 }
 
@@ -493,6 +506,49 @@ function peerCompare(ctx: EngineContext, args: Record<string, unknown>): EngineR
       "Peers are the synthetic customers in this dataset, not a representative sample of people in Finland.",
       "A peer with no spending in a category counts as zero in the average.",
       ...(window && window !== `${from} to ${to}` ? [`Your own average covers ${from} to ${to}; the peer average covers ${window}.`] : []),
+    ],
+    filter: { from, to, kind: "spending" },
+  };
+}
+
+const monthLabel = (month: string) => `${Number(month.slice(5, 7))}/${month.slice(0, 4)}`;
+
+/**
+ * The customer's monthly average per category next to what people in Finland spend, from
+ * Statistics Finland's consumption survey raised to current prices (benchmark/statfin.ts).
+ */
+function nationalCompare(ctx: EngineContext, args: Record<string, unknown>): EngineResult {
+  const basis = (args.basis as BenchmarkBasis | undefined) ?? "one_adult";
+  const [from, to] = resolvePeriod("last_12_months", ctx.today);
+  const months = monthsOfHistory(ctx);
+  const national = nationalBenchmark(ctx.customer.customer_age, basis, monthOf(from), monthOf(to));
+  const band = ageBandLabel(national.band);
+  const own = new Map<string, number>();
+  for (const t of ctx.tx) if (isSpending(t) && inRange(t, from, to)) own.set(t.category, (own.get(t.category) ?? 0) + out(t) / months);
+  const only = str(args.category);
+  const figures = national.figures.filter((f) => !only || f.category === only);
+  const rows = figures.flatMap((f): Row[] => {
+    const mine = round2(own.get(f.category) ?? 0);
+    const theirs = round2(f.amount);
+    return [
+      { category: f.category, who: "You", amount: mine, difference: round2(mine - theirs) },
+      { category: f.category, who: `Finland ${band}`, amount: theirs, in2022Prices: f.surveyAmount, covers: f.covers },
+    ];
+  });
+  const who = basis === "household" ? `the average household in Finland in the ${band} age group` : `the Finnish average for one adult in the ${band} age group`;
+  const priceWindow = `${monthLabel(national.priceWindow[0])} to ${monthLabel(national.priceWindow[1])}`;
+  return {
+    rows,
+    unit: "€/month",
+    caption: `Your monthly average next to ${who} (Statistics Finland, ${STATFIN.surveyYear} survey in today's prices)`,
+    assumptions: [
+      `Source: Statistics Finland, Households' consumption ${STATFIN.surveyYear}, by the age of the household member with the highest income. Each figure is raised from ${STATFIN.surveyYear} prices to those of ${priceWindow} with the consumer price index of its own category.`,
+      basis === "household"
+        ? "The national figure is for a whole household, whatever its size, and this is one account: it fits when this account pays for the whole household."
+        : "The national figure is per adult-equivalent member of a household (consumption unit): roughly what one adult living alone spends. If this account pays for a whole family, compare with a whole household instead.",
+      "Only prices are brought up to date; what people buy is as it was in the survey year.",
+      ...figures.map((f) => f.note).filter(Boolean),
+      "The customers in this demo are synthetic, so the comparison shows how the feature works, not how real customers spend.",
     ],
     filter: { from, to, kind: "spending" },
   };
@@ -550,7 +606,7 @@ function goalProgress(ctx: EngineContext, args: Record<string, unknown>): Engine
         ? "Goal reached"
         : monthsLeft === null
           ? "No regular saving yet: start with a small monthly transfer"
-          : `About ${monthsLeft} months to go at €${Math.round(rate)}/month`,
+          : `About ${monthsLeft} months to go at ${euros(rate)}/month`,
     assumptions: [
       "Every transfer to savings or investments in this account's history counts toward the goal, starting from zero, minus withdrawals.",
       "Money saved before the data starts, or held elsewhere, is not visible here.",
@@ -570,6 +626,7 @@ const FNS: Record<EngineFn, (ctx: EngineContext, args: Record<string, unknown>) 
   balanceForecast,
   whatIf,
   peerCompare,
+  nationalCompare,
   dailySpend,
   recurring,
   goalProgress,

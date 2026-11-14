@@ -4,6 +4,7 @@
  */
 import { ENGINE_ARG_SPECS } from "../engine/args";
 import type { EngineFn } from "../engine/types";
+import { MCC_CODES } from "../mcc";
 import { PERIODS, SPENDING_CATEGORIES } from "../engine/util";
 import type { TemplateId } from "../blocks";
 
@@ -17,12 +18,16 @@ export interface EngineDoc {
 
 export const ENGINE_DOCS: Record<EngineFn, EngineDoc> = {
   spendBy: {
-    description: "Money spent in a period, grouped by category or by merchant type (MCC). Optional category narrows to one category.",
+    description:
+      "Money spent in a period, grouped by category or by merchant type (MCC). Optional category narrows to one category; " +
+      "optional mcc narrows to one merchant type (taxis, fast food, pharmacies, ...), and the value is then the total for that merchant type alone.",
     rows: "key (category or MCC code), label, amount (€, positive), count (payments). Sorted by amount, biggest first.",
     unit: "€ total",
   },
   monthlyTrend: {
-    description: "One figure per calendar month for the last N months: spending, income, net (income minus spending) or saving. Optional category for spending.",
+    description:
+      "One figure per calendar month for the last N months: spending, income, net (income minus spending) or saving. " +
+      "Optional category or mcc (one merchant type) for spending.",
     rows: "month (YYYY-MM), amount (€)",
     unit: "€/month average",
   },
@@ -51,13 +56,20 @@ export const ENGINE_DOCS: Record<EngineFn, EngineDoc> = {
     unit: "€ projected balance on payday",
   },
   whatIf: {
-    description: "What cutting one category by cutPct percent would save over a year.",
+    description: "What cutting one category, or one merchant type (mcc), by cutPct percent would save over a year.",
     rows: "month (1..12), saved (€ cumulative)",
     unit: "€ per year",
   },
   peerCompare: {
     description: "The customer's monthly average per category next to the average of customers in the same age band.",
     rows: "category, who (You | Peers <band>), amount (€/month)",
+  },
+  nationalCompare: {
+    description:
+      "The customer's monthly average next to what people in Finland in the same age group spend, from Statistics Finland's open data " +
+      "(2022 consumption survey raised to today's prices). Covers Housing, Utilities, Groceries, Restaurants and Transportation. " +
+      "basis one_adult (default) compares with one adult; household with a whole household.",
+    rows: "category, who (You | Finland <age group>), amount (€/month); You rows also have difference (€/month, you minus Finland)",
   },
   recurring: {
     description: "Bills and saving transfers that repeat every month.",
@@ -79,7 +91,7 @@ export const TEMPLATE_FNS: Record<TemplateId, readonly EngineFn[]> = {
   baskets: ["baskets"],
   balance_forecast: ["balanceForecast"],
   what_if: ["whatIf"],
-  peer_compare: ["peerCompare"],
+  peer_compare: ["peerCompare", "nationalCompare"],
   calendar_heatmap: ["dailySpend"],
   recurring_list: ["recurring"],
   goal_progress: ["goalProgress"],
@@ -90,7 +102,9 @@ function describeArg(spec: (typeof ENGINE_ARG_SPECS)[EngineFn][string]): string 
     case "enum":
       return `one of ${spec.values.join(" | ")}`;
     case "category":
-      return `a spending category`;
+      return spec.only ? `one of ${spec.only.join(" | ")}` : `a spending category`;
+    case "mcc":
+      return `a merchant type code from MERCHANT TYPES; do not combine with category`;
     case "number":
       return `number ${spec.min}..${spec.max}${spec.integer ? ", whole" : ""}`;
     case "text":
@@ -112,6 +126,11 @@ export function engineCatalogText(): string {
     "",
     `Periods: ${Object.keys(PERIODS).join(", ")}`,
     `Spending categories: ${SPENDING_CATEGORIES.join(", ")}`,
+    "",
+    "MERCHANT TYPES (mcc)",
+    "When the question is about one kind of merchant (taxis, fast food, a pharmacy), pass its code as mcc, so the figure is",
+    "for exactly that and not for the whole category. A category is broader: Transportation also holds fuel, parking and public transport.",
+    ...Object.entries(MCC_CODES).map(([code, info]) => `- ${code}: ${info.label} (${info.category})`),
     "",
     "TEMPLATES (view_kind = template)",
     ...templates,

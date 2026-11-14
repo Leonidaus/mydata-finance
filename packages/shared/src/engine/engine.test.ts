@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { BENCHMARK_CATEGORY_NAMES } from "../benchmark/statfin";
 import { applyOps, type Block } from "../blocks";
 import { contextFromFixture, type FixtureBundle, type FixtureIndex } from "./fixture";
 import { EngineArgumentError } from "./args";
@@ -150,6 +151,55 @@ describe.each(contexts)("financial definitions on $label", ({ ctx }) => {
     // Empty values mean "not given", as the app's controls send them.
     expect(runEngine(ctx, "spendBy", { category: "", period: "last_month" }).rows.length).toBeGreaterThan(0);
     expect(Number.isFinite(runEngine(ctx, "goalProgress", { target: 5000 }).value)).toBe(true);
+  });
+
+  it("narrows to one merchant type, so a question about taxis is not answered with all transport", () => {
+    const taxis = runEngine(ctx, "spendBy", { period: "last_12_months", mcc: "4121" });
+    const transport = runEngine(ctx, "spendBy", { period: "last_12_months", category: "Transportation" });
+    const behind = filterTransactions(ctx, taxis.filter!);
+    expect(behind.every((t) => t.mcc_code === "4121")).toBe(true);
+    close(-sum(behind.map((t) => t.tx_amount_eur)), taxis.value!);
+    expect(taxis.value!).toBeLessThanOrEqual(transport.value!);
+    expect(taxis.rows.every((row) => row.key === "4121")).toBe(true);
+    expect(taxis.caption).toContain("Taxis");
+
+    const trend = runEngine(ctx, "monthlyTrend", { mcc: "4121", months: 12 });
+    close(sum(trend.rows.map((row) => row.amount as number)), taxis.value!);
+    const fastFood = runEngine(ctx, "whatIf", { mcc: "5814", cutPct: 50 });
+    const restaurants = runEngine(ctx, "whatIf", { category: "Restaurants", cutPct: 50 });
+    expect(fastFood.value!).toBeLessThanOrEqual(restaurants.value!);
+    expect(fastFood.caption).toContain("Fast food");
+
+    expect(() => runEngine(ctx, "spendBy", { mcc: "9999" })).toThrow(EngineArgumentError);
+    expect(() => runEngine(ctx, "spendBy", { mcc: "4121", category: "Groceries" })).toThrow(/belongs to Transportation/);
+  });
+
+  it("compares with Statistics Finland per category, and says where the figures come from", () => {
+    const r = runEngine(ctx, "nationalCompare");
+    expect(r.rows.map((row) => row.category)).toEqual(BENCHMARK_CATEGORY_NAMES.flatMap((c) => [c, c]));
+    for (let i = 0; i < r.rows.length; i += 2) {
+      const [you, finland] = [r.rows[i], r.rows[i + 1]];
+      expect(you.who).toBe("You");
+      expect(String(finland.who)).toMatch(/^Finland \d/);
+      close(you.difference as number, (you.amount as number) - (finland.amount as number));
+      // The "You" figure is the same monthly average the peer comparison shows.
+      const peer = runEngine(ctx, "peerCompare", { category: you.category }).rows.find((row) => row.who === "You");
+      expect(you.amount).toBe(peer?.amount ?? 0);
+    }
+    expect(r.assumptions!.join(" ")).toMatch(/Statistics Finland.*2022.*consumer price index/);
+    expect(r.assumptions!.join(" ")).toMatch(/synthetic/);
+  });
+
+  it("compares with one adult by default and with a whole household on request", () => {
+    const one = runEngine(ctx, "nationalCompare", { category: "Groceries" });
+    const all = runEngine(ctx, "nationalCompare", { category: "Groceries", basis: "household" });
+    expect(one.rows).toHaveLength(2);
+    expect(all.rows[1].amount as number).toBeGreaterThan(one.rows[1].amount as number);
+    expect(one.caption).toMatch(/one adult/);
+    expect(all.caption).toMatch(/household/);
+    // A category without a national counterpart is an error, not an empty chart.
+    expect(() => runEngine(ctx, "nationalCompare", { category: "Travel" })).toThrow(EngineArgumentError);
+    expect(() => runEngine(ctx, "nationalCompare", { basis: "family" })).toThrow(/one_adult, household/);
   });
 
   it("peer comparison covers the same 12 months on both sides", () => {

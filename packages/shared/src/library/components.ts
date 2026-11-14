@@ -34,11 +34,13 @@ export const COMPONENTS = {
     build: (a) => catalog.safeToSpend(a.horizon === "until_payday" ? "until_payday" : "week"),
   },
   category_bars: {
-    description: "Bars of spending by category, or within one category by merchant type (taxis, cafés, fuel...).",
-    examples: ["How much did I spend on taxis last month?", "Where did my money go this month?"],
+    description:
+      "Bars of spending by category, or within one category by merchant type. For a question about one kind of merchant " +
+      "(taxis, fast food, a pharmacy) pass its code as mcc and leave category out: the figure is then for that merchant type alone.",
+    examples: ["How much did I spend on taxis last month? (mcc 4121)", "Where did my money go this month?"],
     fn: "spendBy",
-    args: ["period", "category", "by"],
-    build: (a) => catalog.categoryBars({ period: s(a.period), category: s(a.category), by: a.by as "category" | "merchant_type" | undefined }),
+    args: ["period", "category", "by", "mcc"],
+    build: (a) => catalog.categoryBars({ period: s(a.period), category: s(a.category), by: a.by as "category" | "merchant_type" | undefined, mcc: s(a.mcc) }),
   },
   spending_trend: {
     description: "Line of one figure per month: spending (optionally one category), income, saving or net.",
@@ -62,11 +64,11 @@ export const COMPONENTS = {
     build: () => catalog.forecast(),
   },
   what_if: {
-    description: "What cutting one category by a percentage saves over a year, with a slider.",
-    examples: ["What if I cut eating out by 20%?", "How much would I save spending less on clothes?"],
+    description: "What cutting one category, or one merchant type (mcc), by a percentage saves over a year, with a slider.",
+    examples: ["What if I cut eating out by 20%?", "How much would I save with half the fast food? (mcc 5814)"],
     fn: "whatIf",
-    args: ["category", "cutPct"],
-    build: (a) => catalog.whatIf(s(a.category), n(a.cutPct)),
+    args: ["category", "mcc", "cutPct"],
+    build: (a) => catalog.whatIf(s(a.category), n(a.cutPct), s(a.mcc)),
   },
   peer_compare: {
     description: "The customer's monthly spending per category next to people in the same age band.",
@@ -74,6 +76,16 @@ export const COMPONENTS = {
     fn: "peerCompare",
     args: ["category"],
     build: (a) => catalog.peers(s(a.category)),
+  },
+  finland_compare: {
+    description:
+      "The customer's monthly spending next to the average for their age group in Finland (Statistics Finland, in today's prices), " +
+      "for housing, utilities, groceries, restaurants and transport. Use it for questions about the average person, Finns or Finland; " +
+      "peer_compare is for other customers of the bank.",
+    examples: ["Do I spend more on food than the average Finn?", "How does my spending compare with people my age in Finland?", "Is my rent normal?"],
+    fn: "nationalCompare",
+    args: ["category", "basis"],
+    build: (a) => catalog.national(s(a.category), a.basis === "household" ? "household" : "one_adult"),
   },
   spending_calendar: {
     description: "Calendar heatmap of spending per day; tap a day for its payments.",

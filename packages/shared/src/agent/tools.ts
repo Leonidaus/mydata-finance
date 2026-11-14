@@ -6,6 +6,7 @@
 import { TEMPLATE_IDS, WIDGET_LIBS } from "../blocks";
 import { ENGINE_ARG_SPECS } from "../engine/args";
 import { ENGINE_FNS } from "../engine/types";
+import { MCC_CODES } from "../mcc";
 import { SPENDING_CATEGORIES } from "../engine/util";
 import { COMPONENT_IDS } from "../library/components";
 
@@ -33,7 +34,9 @@ function engineArgsSchema(description: string): Record<string, unknown> {
       if (spec.type === "enum") properties[key] = { type: "string", enum: [...spec.values], description: usedBy };
       else if (spec.type === "category") properties[key] = { type: "string", enum: [...SPENDING_CATEGORIES], description: usedBy };
       else if (spec.type === "number") properties[key] = { type: "number", minimum: spec.min, maximum: spec.max, description: usedBy };
-      else properties[key] = { type: "string", maxLength: spec.maxLength, description: usedBy };
+      else if (spec.type === "mcc") {
+        properties[key] = { type: "string", enum: Object.keys(MCC_CODES), description: `Merchant type code from MERCHANT TYPES, e.g. 4121 for taxis. ${usedBy}` };
+      } else properties[key] = { type: "string", maxLength: spec.maxLength, description: usedBy };
     }
   }
   return { type: "object", description, properties };
@@ -63,7 +66,7 @@ const control = {
 const blockFields = {
   title: { type: "string", description: "Short card title, in the user's language" },
   explanation: { type: "string", description: "One or two plain sentences: how the figures are computed" },
-  source: { type: "string", enum: ["own", "peer", "estimate"], description: "own data, peer comparison, or an estimate/forecast" },
+  source: { type: "string", enum: ["own", "peer", "public", "estimate"], description: "own data, peer comparison, public statistics (nationalCompare), or an estimate/forecast" },
   fn: { type: "string", enum: [...ENGINE_FNS], description: "Engine function that computes the data" },
   args: engineArgsSchema("Arguments for fn: only the ones it takes (see the catalog), set to what the question asks"),
   view_kind: { type: "string", enum: ["template", "spec", "code"] },

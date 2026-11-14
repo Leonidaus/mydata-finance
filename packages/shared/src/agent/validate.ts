@@ -11,6 +11,7 @@ import { TEMPLATE_FNS } from "./catalog";
 import type { ToolCall } from "./tools";
 
 export const MAX_VIEW_CHARS = 30_000;
+const isSource = (v: unknown): v is Block["source"] => v === "own" || v === "peer" || v === "public" || v === "estimate";
 const ID_RE = /^[a-z][a-z0-9-]{0,47}$/;
 
 /** How each added card was made, for debugging which questions still get custom views. */
@@ -128,7 +129,7 @@ function id(v: unknown): string {
 function addBlock(a: Record<string, unknown>): Block {
   const fn = engineFn(a.fn);
   const source = a.source;
-  if (source !== "own" && source !== "peer" && source !== "estimate") fail('source must be "own", "peer" or "estimate".');
+  if (!isSource(source)) fail('source must be "own", "peer", "public" or "estimate".');
   const ctrls = controls(a.controls, fn);
   const v = view(a, fn);
   if (v.kind !== "template") {
@@ -169,7 +170,7 @@ function updateBlock(a: Record<string, unknown>, existing: Block): DashboardOp {
   if (a.title !== undefined) patch.title = str(a.title, "title", 80);
   if (a.explanation !== undefined) patch.explanation = str(a.explanation, "explanation", 600);
   if (a.source !== undefined) {
-    if (a.source !== "own" && a.source !== "peer" && a.source !== "estimate") fail('source must be "own", "peer" or "estimate".');
+    if (!isSource(a.source)) fail('source must be "own", "peer", "public" or "estimate".');
     patch.source = a.source as Block["source"];
   }
   if (a.fn !== undefined || a.args !== undefined) {

@@ -76,6 +76,23 @@ describe("parseToolCalls", () => {
     expect(r.picks).toEqual([{ blockId: "taxi", via: "library", component: "category_bars" }]);
   });
 
+  it("offers the comparison with Finland as a library card with a public-statistics badge", () => {
+    const r = parseToolCalls(
+      [
+        { name: "use_component", args: { id: "food-fi", component: "finland_compare", args: { category: "Groceries", basis: "household" } } },
+        { name: "use_component", args: { id: "travel-fi", component: "finland_compare", args: { category: "Travel" } } },
+      ],
+      [],
+    );
+    expect(r.ops).toHaveLength(1);
+    const block = r.ops[0].op === "add_block" ? r.ops[0].block : null;
+    expect(block?.source).toBe("public");
+    expect(block?.data).toEqual({ kind: "engine", fn: "nationalCompare", args: { category: "Groceries", basis: "household" } });
+    expect(block?.view).toEqual({ kind: "template", template: "peer_compare" });
+    expect(r.errors[0]).toMatch(/category must be one of: Housing, Utilities, Groceries, Restaurants, Transportation/);
+    expect(buildSystemPrompt([], "2026-09-15")).toMatch(/finland_compare/);
+  });
+
   it("rejects unknown components and arguments the component doesn't take", () => {
     const r = parseToolCalls(
       [
@@ -206,5 +223,41 @@ describe("runChat", () => {
       expect(prompt).toContain(`- ${c}:`);
       expect(buildComponent(c).data.kind).toBe("engine");
     }
+  });
+});
+
+describe("runChat when the model sends one tool call per turn", () => {
+  const card: ToolCall = {
+    name: "add_block",
+    args: { id: "safe-week", title: "Safe to spend", explanation: "Balance minus what is still due.", source: "estimate", fn: "safeToSpend", args: { horizon: "week" }, view_kind: "template", template: "stat" },
+  };
+  function oneCallPerTurn() {
+    const seen: ChatModelRequest[] = [];
+    const model: ChatModel = {
+      async generate(request) {
+        seen.push(request);
+        return seen.length === 1 ? { calls: [card] } : { calls: [{ name: "reply", args: { text: "You can safely spend {{safe-week.value}} this week." } }] };
+      },
+    };
+    return { model, seen };
+  }
+  const input = { question: "What is safe to spend?", history: [], blocks: [], today: "2026-09-15" };
+
+  it("asks for the reply alone and keeps the card", async () => {
+    const { model, seen } = oneCallPerTurn();
+    const out = await runChat(model, input);
+    expect(out.text).toBe("You can safely spend {{safe-week.value}} this week.");
+    expect(out.ops).toHaveLength(1);
+    expect(seen).toHaveLength(2);
+    expect(seen[1].tools.map((t) => t.name)).toEqual(["reply"]);
+    expect(seen[1].turns.at(-1)?.text).toContain("ids: safe-week");
+  });
+
+  it("does not ask when the caller writes the reply itself", async () => {
+    const { model, seen } = oneCallPerTurn();
+    const out = await runChat(model, { ...input, replyFollowUp: false });
+    expect(seen).toHaveLength(1);
+    expect(out.ops).toHaveLength(1);
+    expect(out.text).toBe("Here is a card for that.");
   });
 });
