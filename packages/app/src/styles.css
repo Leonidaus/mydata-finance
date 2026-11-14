@@ -501,6 +501,58 @@ body {
   border-bottom-right-radius: 4px;
 }
 
+/* A photo waiting to be sent, above the input row. */
+.chat-attached {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 16px 0;
+  padding: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.chat-attached img {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 10px;
+}
+.chat-attached span { flex: 1; min-width: 0; }
+.chat-attached button {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* A photo sent with a question, and what the coach read from it. */
+.bubble-photo {
+  display: block;
+  width: 100%;
+  max-width: 220px;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 12px;
+  margin: 2px 0 8px;
+}
+.bubble-photo-read {
+  display: block;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgb(255 255 255 / 0.35);
+  font-size: 0.8rem;
+}
+
 /* The coach's latest answer: its face (a 20 euro note) beside the bubble, next steps below. */
 .coach-row {
   display: flex;
