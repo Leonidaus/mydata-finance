@@ -260,7 +260,9 @@ Done:
   item sub-category, and the receipt is matched to the card payment it belongs to
   (a strong match is linked at once, a possible one waits for the user). The coach
   can then say what is inside the shopping, always with how much of the spending
-  the receipts cover. See [docs/RECEIPTS_PLAN.md](docs/RECEIPTS_PLAN.md).
+  the receipts cover. See [docs/RECEIPTS_PLAN.md](docs/RECEIPTS_PLAN.md). Receipts to
+  photograph for the demo, matching real payments of CUST01700, are in
+  [docs/demo-receipts/index.html](docs/demo-receipts/index.html) (open it in a browser).
 - A backtest of the forecast and safe to spend on all customers, and an evaluation
   of the coach's answers against the engine with the real model.
 - CI on every pull request, and deployment to a host with HTTPS on every push to
