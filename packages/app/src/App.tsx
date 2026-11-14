@@ -267,8 +267,10 @@ export default function App() {
             aria-label={t("language.switch", { language: t(locale === "en" ? "language.finnish" : "language.english") })}
             title={t("language.switch", { language: t(locale === "en" ? "language.finnish" : "language.english") })}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
-              <path d="M4 5h16v11H9l-5 4z" />
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="9" />
+              <ellipse cx="12" cy="12" rx="4" ry="9" />
+              <path d="M12 3v18M3 12h18M4.5 7.5Q12 10 19.5 7.5M4.5 16.5Q12 14 19.5 16.5" />
             </svg>
             <span className="topbar-language-code" aria-hidden="true">{locale.toUpperCase()}</span>
           </button>
@@ -308,14 +310,14 @@ export default function App() {
                   className={`ghost-btn${dev ? " on" : ""}`}
                   onClick={() => toggleDev(!dev)}
                   aria-pressed={dev}
-                  title={dev ? "Leave dev mode and use the configured data source" : "Show every component, on static demo data"}
+                  title={t(dev ? "dev.toggleOn" : "dev.toggleOff")}
                 >
-                  Dev
+                  {t("dev.button")}
                 </button>
               )}
               {dev && !gallery && (
-                <button type="button" className="ghost-btn" onClick={() => setGallery(true)} title="Back to the component gallery">
-                  Gallery
+                <button type="button" className="ghost-btn" onClick={() => setGallery(true)} title={t("dev.galleryTitle")}>
+                  {t("dev.gallery")}
                 </button>
               )}
             </div>
@@ -328,7 +330,7 @@ export default function App() {
           {info && (
             <p className="intro muted small">
               {preset ? `${preset.label} · ${preset.blurb}` : t("dashboard.customer", { id: info.customerId, age: info.age })} · {t("dashboard.dataUpTo", { date: formatDate(info.today, locale) })}
-              {dev && " · static demo data"}
+              {dev && ` · ${t("dashboard.staticDemo")}`}
             </p>
           )}
           {index.status !== "error" && customer.status === "loading" && (

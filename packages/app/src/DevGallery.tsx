@@ -6,8 +6,9 @@
 import { investmentDownsideScenario, investmentGoalScenario, type Block, catalog, custom, type TxFilter, widgets } from "@mydata/shared";
 import { useState } from "react";
 import { geminiAvailable } from "./agent/gemini";
-import { DEMO_PROMPTS } from "./agent/mockAgent";
+import { demoPrompts } from "./agent/mockAgent";
 import BlockCard from "./BlockCard";
+import { type TranslationKey, useI18n } from "./i18n";
 
 interface Props {
   customerId: string;
@@ -18,16 +19,16 @@ interface Props {
   onDrill: (title: string, filter: TxFilter) => void;
 }
 
-function gallery(): { section: string; note: string; blocks: Block[] }[] {
+function gallery(): { section: TranslationKey; note: TranslationKey; blocks: Block[] }[] {
   return [
     {
-      section: "Investment scenarios · prototypes",
-      note: "Illustrative examples with invented values and adjustable assumptions; not forecasts or investment advice.",
+      section: "dev.investmentScenarios",
+      note: "dev.investmentScenariosHelp",
       blocks: [investmentDownsideScenario(), investmentGoalScenario()],
     },
     {
-      section: "Templates",
-      note: "view.kind = \"template\": fixed views the app knows how to draw.",
+      section: "dev.templates",
+      note: "dev.templatesHelp",
       blocks: [
         catalog.safeToSpend(),
         catalog.monthSoFar(),
@@ -45,18 +46,18 @@ function gallery(): { section: string; note: string; blocks: Block[] }[] {
       ],
     },
     {
-      section: "Custom charts",
-      note: "view.kind = \"spec\": a raw Vega-Lite spec. Without its own data, the engine rows are injected as data.values.",
+      section: "dev.customCharts",
+      note: "dev.customChartsHelp",
       blocks: [custom.donut(), custom.weekday(), custom.pace(), custom.goalPlan({ target: 25000, saved: 10000, extra: 100, byMonths: 24, label: "Home deposit" }), custom.savingOptions(["Travel"]), custom.goalReview({ target: 25000, saved: 10000, monthly: 400, since: "2026-04", label: "Home deposit" })],
     },
     {
-      section: "Iframe widgets",
-      note: "view.kind = \"code\": HTML/JS in a sandboxed iframe (no network, opaque origin). Rows arrive via mydata.onData.",
+      section: "dev.iframeWidgets",
+      note: "dev.iframeWidgetsHelp",
       blocks: [custom.waffle(), custom.receipt()],
     },
     {
-      section: "Animated widgets",
-      note: "Code widgets with view.libs: GSAP, Matter.js and Three.js are injected into the sandbox only for cards that name them. Motion runs while the card is on screen and pauses off screen; the corner button opens a widget full screen.",
+      section: "dev.animatedWidgets",
+      note: "dev.animatedWidgetsHelp",
       blocks: [widgets.story(), widgets.jar(), widgets.gauge(), widgets.flow(), widgets.coins()],
     },
   ];
@@ -98,6 +99,7 @@ function parseBlock(text: string): Block {
 }
 
 export default function DevGallery({ customerId, today, onAdd, onAsk, onDrill }: Props) {
+  const { locale, t } = useI18n();
   const [sections, setSections] = useState(gallery);
   const [json, setJson] = useState(SAMPLE);
   const [pasted, setPasted] = useState<Block | null>(() => parseBlock(SAMPLE));
@@ -119,11 +121,11 @@ export default function DevGallery({ customerId, today, onAdd, onAsk, onDrill }:
   return (
     <>
       <section className="dev-section">
-        <h2>Ask the agent</h2>
+        <h2>{t("dev.askAgent")}</h2>
         <p className="muted small">
           {geminiAvailable
-            ? "Typed questions go to Gemini with only the block definitions, never the figures. The answer opens on the dashboard."
-            : "No GEMINI_API_KEY in packages/app/.env.local, so typed questions use the keyword stand-in."}
+            ? t("dev.agentWithGemini")
+            : t("dev.agentWithoutGemini")}
         </p>
         <form
           className="chat-input dev-ask"
@@ -135,19 +137,19 @@ export default function DevGallery({ customerId, today, onAdd, onAsk, onDrill }:
           <input
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder="e.g. Show my spending by weekday in a fun way"
-            aria-label="Question for the agent"
+            placeholder={t("dev.questionPlaceholder")}
+            aria-label={t("dev.questionLabel")}
           />
           <button type="submit" disabled={!question.trim()}>
-            Ask
+            {t("chat.ask")}
           </button>
         </form>
       </section>
 
       <section className="dev-section">
-        <h2>Demo prompts</h2>
-        <p className="muted small">Tap one to send it to the stand-in agent and see the dashboard edit it makes.</p>
-        {DEMO_PROMPTS.map((g) => (
+        <h2>{t("dev.demoPrompts")}</h2>
+        <p className="muted small">{t("dev.demoPromptsHelp")}</p>
+        {demoPrompts(locale).map((g) => (
           <div key={g.group} className="dev-prompts">
             <h3>{g.group}</h3>
             <p className="muted small">{g.note}</p>
@@ -164,8 +166,8 @@ export default function DevGallery({ customerId, today, onAdd, onAsk, onDrill }:
 
       {sections.map((s) => (
         <section key={s.section} className="dev-section">
-          <h2>{s.section}</h2>
-          <p className="muted small">{s.note}</p>
+          <h2>{t(s.section)}</h2>
+          <p className="muted small">{t(s.note)}</p>
           {s.blocks.map((b) => (
             <div key={b.id} className="dev-item">
               <div className="dev-item-bar">
@@ -174,7 +176,7 @@ export default function DevGallery({ customerId, today, onAdd, onAsk, onDrill }:
                   {b.data.kind === "engine" ? b.data.fn : "sql"}
                 </code>
                 <button type="button" className="dev-add" onClick={() => onAdd(freshId(b))}>
-                  + Add to dashboard
+                  + {t("dev.add")}
                 </button>
               </div>
               <BlockCard block={b} customerId={customerId} today={today} onChange={(patch) => update(b.id, patch)} onDrill={onDrill} />
@@ -184,19 +186,16 @@ export default function DevGallery({ customerId, today, onAdd, onAsk, onDrill }:
       ))}
 
       <section className="dev-section">
-        <h2>Block JSON playground</h2>
-        <p className="muted small">
-          Paste a Block (e.g. what an LLM returned for an add_block tool call) to check that it renders. Any view kind works;
-          data must be an engine request.
-        </p>
-        <textarea className="dev-json" value={json} onChange={(e) => setJson(e.target.value)} spellCheck={false} aria-label="Block JSON" />
+        <h2>{t("dev.playground")}</h2>
+        <p className="muted small">{t("dev.playgroundHelp")}</p>
+        <textarea className="dev-json" value={json} onChange={(e) => setJson(e.target.value)} spellCheck={false} aria-label={t("dev.jsonLabel")} />
         <div className="dev-item-bar">
           <button type="button" className="dev-add" onClick={render}>
-            Render
+            {t("dev.render")}
           </button>
           {pasted && (
             <button type="button" className="dev-add" onClick={() => onAdd(freshId(pasted))}>
-              + Add to dashboard
+              + {t("dev.add")}
             </button>
           )}
         </div>

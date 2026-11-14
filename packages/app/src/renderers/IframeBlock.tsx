@@ -23,6 +23,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Datum } from "../blocks/templates";
 import { useColorScheme } from "./VegaBlock";
 import { loadWidgetLibs } from "./widgetLibs";
+import { useI18n } from "../i18n";
 
 const THEME_TOKENS = ["--bg", "--surface", "--text", "--muted", "--border", "--danger", "--chart-1", "--chart-2", "--chart-3", "--chart-4", "--heat-0", "--green-500"];
 
@@ -36,11 +37,11 @@ const CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-i
 const BOOTSTRAP = `
 (function () {
   var callbacks = [], last = null;
-  var eur = new Intl.NumberFormat("fi-FI", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
+  var eur = new Intl.NumberFormat(__LOCALE__, { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
   function showError(err) {
     var p = document.createElement("p");
     p.className = "frame-error";
-    p.textContent = "Widget error: " + (err && err.message ? err.message : String(err));
+    p.textContent = __WIDGET_ERROR__ + ": " + (err && err.message ? err.message : String(err));
     (document.body || document.documentElement).appendChild(p);
   }
   function run(cb) { try { cb(last.result.rows, last.result); } catch (err) { showError(err); } }
@@ -125,8 +126,9 @@ html.fullscreen body { box-sizing: border-box; padding: 12px 16px; }
 /** Library source inlined as a script; a literal closing tag inside it must not end the element. */
 const inlineScript = (source: string) => `<script>${source.replace(/<\/script/gi, "<\\/script")}</script>`;
 
-function buildSrcDoc(code: string, libSources: string[]) {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${CSP}"><style>${BASE_CSS}</style><script>${BOOTSTRAP}</script>${libSources.map(inlineScript).join("")}</head><body>${code}</body></html>`;
+function buildSrcDoc(code: string, libSources: string[], locale: string, widgetError: string) {
+  const bootstrap = BOOTSTRAP.replace("__LOCALE__", JSON.stringify(locale)).replace("__WIDGET_ERROR__", JSON.stringify(widgetError));
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${CSP}"><style>${BASE_CSS}</style><script>${bootstrap}</script>${libSources.map(inlineScript).join("")}</head><body>${code}</body></html>`;
 }
 
 const NO_LIBS: readonly WidgetLib[] = [];
@@ -141,6 +143,7 @@ interface Props {
 }
 
 export default function IframeBlock({ code, libs = NO_LIBS, result, label, onSelect }: Props) {
+  const { locale, t } = useI18n();
   const ref = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(120);
   const [full, setFull] = useState(false);
@@ -155,14 +158,14 @@ export default function IframeBlock({ code, libs = NO_LIBS, result, label, onSel
     setLibError(null);
     loadWidgetLibs(libKey.split(",") as WidgetLib[]).then(
       (list) => live && setSources({ key: libKey, list }),
-      () => live && setLibError("Couldn't load what this widget needs. Check your connection and try again."),
+      () => live && setLibError(t("iframe.loadError")),
     );
     return () => {
       live = false;
     };
-  }, [libKey]);
+  }, [libKey, t]);
   const ready = sources?.key === libKey ? sources.list : null;
-  const srcDoc = useMemo(() => (ready ? buildSrcDoc(code, ready) : null), [code, ready]);
+  const srcDoc = useMemo(() => (ready ? buildSrcDoc(code, ready, locale === "fi" ? "fi-FI" : "en-FI", t("iframe.widgetError")) : null), [code, ready, locale, t]);
 
   const latest = useRef({ result, label, onSelect });
   latest.current = { result, label, onSelect };
@@ -204,8 +207,8 @@ export default function IframeBlock({ code, libs = NO_LIBS, result, label, onSel
   if (srcDoc === null) return <div className="frame" style={{ height }} aria-busy="true" />;
   return (
     <div className={full ? "frame-wrap full" : "frame-wrap"}>
-      <button type="button" className="frame-expand" onClick={() => setFull(!full)} aria-label={full ? "Close full screen" : `Show ${label} full screen`}>
-        {full ? "Close ✕" : "⤢"}
+      <button type="button" className="frame-expand" onClick={() => setFull(!full)} aria-label={full ? t("iframe.closeFullScreen") : t("iframe.showFullScreen", { label })}>
+        {full ? `${t("iframe.close")} ✕` : "⤢"}
       </button>
       <iframe ref={ref} className="frame" title={label} sandbox="allow-scripts" srcDoc={srcDoc} style={full ? undefined : { height }} />
     </div>

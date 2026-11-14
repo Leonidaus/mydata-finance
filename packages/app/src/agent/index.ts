@@ -20,7 +20,7 @@ import { apiBase } from "../data";
 import { gemini, geminiAvailable } from "./gemini";
 import { type AgentReply, type RunEngine, respond } from "./mockAgent";
 import { createServerChat } from "./server";
-import type { Locale } from "../i18n";
+import { translate, type Locale } from "../i18n";
 
 export type { AgentReply, RunEngine };
 export { geminiAvailable };
@@ -69,7 +69,7 @@ function report(out: ChatOutput & { blocked?: ProtectedCategory[] }): AgentReply
   };
 }
 
-export const cannedReply = (prompt: string, ctx: AgentContext): Promise<AgentReply> => respond(prompt, ctx.blocks, ctx.run);
+export const cannedReply = (prompt: string, ctx: AgentContext): Promise<AgentReply> => respond(prompt, ctx.blocks, ctx.run, ctx.language);
 
 export async function askAgent(question: string, ctx: AgentContext): Promise<AgentReply> {
   const mode = await chatMode(ctx.useBackend);
@@ -90,6 +90,6 @@ export async function askAgent(question: string, ctx: AgentContext): Promise<Age
   if (mode === "browser") {
     return report(await runChat(gemini, { question, history: ctx.history, blocks: ctx.blocks, today: ctx.today, lookup: (fn, args) => ctx.run(fn, args), image: ctx.image, language: ctx.language }));
   }
-  if (ctx.image) return { text: "I can only read photos when the language model is on. Tell me the price and I can check it.", ops: [] };
-  return respond(question, ctx.blocks, ctx.run);
+  if (ctx.image) return { text: translate(ctx.language, "chat.photoUnsupported"), ops: [] };
+  return respond(question, ctx.blocks, ctx.run, ctx.language);
 }
