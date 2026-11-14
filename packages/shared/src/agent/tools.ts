@@ -139,6 +139,29 @@ export const LOOKUP_DECLARATION: ToolDeclaration = {
   },
 };
 
+export const HAND_OVER_TOOL = "hand_over";
+
+/**
+ * Offered to the fast model only, when a stronger one is available: lets it pass a turn on instead
+ * of answering. The stronger model writes better coaching but takes several seconds longer, so
+ * only the turns that gain from it should go there.
+ */
+export const HAND_OVER_DECLARATION: ToolDeclaration = {
+  name: HAND_OVER_TOOL,
+  description:
+    "Pass this turn to the senior coach, a slower and more careful model, instead of answering yourself. Call it alone: no lookup, no card, no reply. " +
+    "You MUST hand over, even when the question looks simple and you have the figures, when the user: " +
+    "(1) mentions a savings goal, a target amount, a deadline or a plan, or asks anything about their savings plan; " +
+    "(2) asks for advice or an assessment rather than a figure: how could I save more, where could I cut, what should I change, am I doing okay, what kind of spender am I; " +
+    "(3) asks for a chart or widget the component library does not have. " +
+    "Answer yourself when the user asks for a figure (how much did I spend on something, what is safe to spend, how one category compares), " +
+    "when a follow-up only changes a card (another period, another category, remove it), and for greetings and small talk.",
+  parametersJsonSchema: {
+    type: "object",
+    properties: { why: { type: "string", description: "A few words: what makes this turn one for the senior coach" } },
+  },
+};
+
 export const TOOL_DECLARATIONS: ToolDeclaration[] = [
   {
     name: "use_component",

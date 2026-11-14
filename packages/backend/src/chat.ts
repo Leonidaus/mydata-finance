@@ -10,8 +10,10 @@
 import {
   type Block,
   type ChatModel,
+  type ChatModels,
   type ChatOutput,
   createGeminiModel,
+  DEFAULT_STRONG_GEMINI_MODELS,
   ENGINE_FNS,
   type Lookup,
   MAX_HISTORY_TURNS,
@@ -26,11 +28,11 @@ const MAX_BLOCKS = 40;
 const MAX_TITLE_CHARS = 120;
 const MAX_HISTORY_TEXT_CHARS = 4000;
 const BLOCK_ID = /^[a-z][a-z0-9-]{0,47}$/;
-/** One answer is usually one model call and at most five, each with fallbacks; past this the request is abandoned. */
+/** One answer is usually one model call (two when the turn is handed over) and at most six, each with fallbacks; past this the request is abandoned. */
 export const CHAT_TIMEOUT_MS = 75_000;
 
-/** Gemini called directly from the server, with the key added here. */
-export function createServerGeminiModel(apiKey: string, models?: string, fetchFn: typeof fetch = fetch): ChatModel {
+/** Gemini called directly from the server, with the key added here. `defaults` is the model list used when `models` is empty. */
+export function createServerGeminiModel(apiKey: string, models?: string, fetchFn: typeof fetch = fetch, defaults?: string[]): ChatModel {
   return createGeminiModel(
     (model, body, signal) =>
       fetchFn(`${GEMINI_URL}/${encodeURIComponent(model)}:generateContent`, {
@@ -40,7 +42,7 @@ export function createServerGeminiModel(apiKey: string, models?: string, fetchFn
         signal,
       }),
     {
-      models: parseGeminiModels(models),
+      models: parseGeminiModels(models, defaults),
       log: (level, message) => (level === "warn" ? console.warn : console.info)(`[chat] ${message}`),
     },
   );
@@ -136,7 +138,19 @@ export interface AnswerOptions {
   signal?: AbortSignal;
 }
 
-export async function answerChat(model: ChatModel, request: ChatRequest, options: AnswerOptions): Promise<ChatAnswer> {
+/**
+ * The models from the environment: GEMINI_MODEL answers, and GEMINI_STRONG_MODEL takes the turns it hands
+ * over. Both may list several models. GEMINI_STRONG_MODEL=off runs the fast model alone.
+ */
+export function createServerChatModels(apiKey: string, env: { GEMINI_MODEL?: string; GEMINI_STRONG_MODEL?: string }, fetchFn: typeof fetch = fetch): ChatModels {
+  const strongOff = env.GEMINI_STRONG_MODEL?.trim().toLowerCase() === "off";
+  return {
+    fast: createServerGeminiModel(apiKey, env.GEMINI_MODEL, fetchFn),
+    strong: strongOff ? undefined : createServerGeminiModel(apiKey, env.GEMINI_STRONG_MODEL, fetchFn, DEFAULT_STRONG_GEMINI_MODELS),
+  };
+}
+
+export async function answerChat(model: ChatModel | ChatModels, request: ChatRequest, options: AnswerOptions): Promise<ChatAnswer> {
   const answer = await runChat(
     model,
     { question: request.question, history: request.history, blocks: request.blocks, today: options.today, lookup: options.lookup },
