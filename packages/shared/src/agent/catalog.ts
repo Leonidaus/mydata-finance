@@ -41,7 +41,9 @@ export const ENGINE_DOCS: Record<EngineFn, EngineDoc> = {
     rows: "date (YYYY-MM-DD), amount (€)",
   },
   safeToSpend: {
-    description: "How much the customer can safely spend this week or until payday, after bills, essentials, saving and a buffer.",
+    description:
+      "How much of this pay period's money is left to spend this week or until payday, after bills, essentials, saving and a buffer. " +
+      "Money that was on the account before the last salary is a reserve and is not counted, so a large balance does not make a large figure.",
     rows: "term (text), amount (€; negative terms are deductions). The last row is the result.",
     unit: "€",
   },
