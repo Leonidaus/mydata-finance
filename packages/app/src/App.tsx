@@ -93,7 +93,7 @@ export default function App() {
   const indexData = index.status === "ready" ? index.data : null;
   // The selected customer and their blocks are one value, so the blocks always belong to that customer.
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
-  const [drill, setDrill] = useState<{ customerId: string; title: string; filter: TxFilter } | null>(null);
+  const [drill, setDrill] = useState<{ customerId: string; title: string; filter: TxFilter; evidenceNote?: string } | null>(null);
   const customerId = dashboard?.customerId ?? null;
   const [dev, setDev] = useState(devInUrl);
   const [gallery, setGallery] = useState(devInUrl);
@@ -357,7 +357,7 @@ export default function App() {
                 onChange={(patch) => updateBlocks(dashboard.customerId, (prev) => prev.map((x) => (x.id === b.id ? { ...x, ...patch } : x)))}
                 onRemove={() => updateBlocks(dashboard.customerId, (prev) => prev.filter((x) => x.id !== b.id))}
                 onPin={() => updateBlocks(dashboard.customerId, (prev) => prev.map((x) => (x.id === b.id ? { ...x, pinned: !x.pinned } : x)))}
-                onDrill={(title, filter) => setDrill({ customerId: dashboard.customerId, title, filter })}
+                onDrill={(title, filter, evidenceNote) => setDrill({ customerId: dashboard.customerId, title, filter, evidenceNote })}
               />
             ))}
           {info && dashboard && !gallery && (
@@ -380,7 +380,7 @@ export default function App() {
         )}
 
         {drill && drill.customerId === customerId && (
-          <TxDrawer customerId={drill.customerId} title={drill.title} filter={drill.filter} onClose={() => setDrill(null)} />
+          <TxDrawer customerId={drill.customerId} title={drill.title} filter={drill.filter} evidenceNote={drill.evidenceNote} onClose={() => setDrill(null)} />
         )}
       </div>
     </DataSourceContext.Provider>
