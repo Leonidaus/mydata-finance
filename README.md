@@ -256,8 +256,13 @@ gh pr create --base develop             # or open the pull request on GitHub
 Keep pull requests small and merge them quickly; a teammate's quick look is enough.
 We merge `develop` into `main` whenever a demoable milestone works.
 
-Until the repository's default branch is changed to `develop`, GitHub proposes
-`main` as the target of a new pull request. Pick `develop` as the base.
+`develop` is the repository's default branch, so GitHub selects it for new pull
+requests. CI requires every pull request to target `develop`, except release pull
+requests from `develop` into `main`.
+
+Run `/release` to prepare or reuse the `develop` into `main` release pull request.
+The skill does not merge it or start a deployment; merging remains manual and starts
+the Deploy workflow automatically.
 
 ## Repo layout
 
