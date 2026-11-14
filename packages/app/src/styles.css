@@ -742,6 +742,12 @@ body {
 .style-choice.selected, .chip.selected { border-color: var(--green-500); background: var(--green-100); }
 .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .essentials-toggle { border: 0; background: none; padding: 8px 0; color: var(--green-700); font-weight: 700; }
+.save-btn { background: var(--green-700); border-color: var(--green-700); color: #fff; }
+.save-btn:hover:not(:disabled) { background: var(--green-900); border-color: var(--green-900); }
+.coaching-progress { display: flex; justify-content: center; gap: 8px; margin-top: 16px; }
+.coaching-progress-dot { width: 8px; height: 8px; padding: 0; border: 0; border-radius: 999px; background: var(--green-200); }
+.coaching-progress-dot.active { width: 24px; background: var(--green-700); }
+.coaching-progress-dot:focus-visible { outline: 2px solid var(--green-700); outline-offset: 3px; }
 .inline-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
 
 .dev-section { display: flex; flex-direction: column; gap: 10px; }
