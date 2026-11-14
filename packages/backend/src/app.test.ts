@@ -536,6 +536,8 @@ describe("number check for explanations", () => {
     assert.deepEqual(unbackedNumbers("Voit käyttää 1 500 €.", sources), ["1 500"]);
     // A small whole number is fine as a count, but not as an amount or a percentage the model worked out.
     assert.deepEqual(unbackedNumbers("That was 26 visits in 12 months.", [589.86, 26]), []);
+    // Dates are not figures, in either notation.
+    assert.deepEqual(unbackedNumbers("Payday is 15.10.2026, or 15.10. at the latest; data up to 2026-09-15.", [589.86]), []);
     assert.deepEqual(unbackedNumbers("That is just over €22 per visit.", [589.86, 26]), ["22"]);
     assert.deepEqual(unbackedNumbers("Se on noin 23 € käynniltä, eli 4 % menoista.", [589.86, 26]), ["23", "4"]);
   });
