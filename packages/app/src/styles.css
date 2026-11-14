@@ -819,7 +819,8 @@ body {
 .coaching-heading h2 { margin: 0; font-size: 1.15rem; }
 .style-options { display: grid; gap: 8px; }
 .style-choice { display: grid; gap: 3px; text-align: left; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 12px; color: var(--text); }
-.style-choice.selected, .chip.selected { border-color: var(--green-500); background: var(--green-100); }
+.style-choice.selected { border-color: var(--green-500); background: var(--green-100); }
+.chip.selected { border-color: var(--green-900); background: var(--green-900); color: #fff; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .essentials-toggle { border: 0; background: none; padding: 8px 0; color: var(--green-700); font-weight: 700; }
 .save-btn { background: var(--green-700); border-color: var(--green-700); color: #fff; }
