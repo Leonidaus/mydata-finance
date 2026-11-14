@@ -308,14 +308,14 @@ export default function App() {
                   className={`ghost-btn${dev ? " on" : ""}`}
                   onClick={() => toggleDev(!dev)}
                   aria-pressed={dev}
-                  title={dev ? "Leave dev mode and use the configured data source" : "Show every component, on static demo data"}
+                  title={t(dev ? "dev.toggleOn" : "dev.toggleOff")}
                 >
-                  Dev
+                  {t("dev.button")}
                 </button>
               )}
               {dev && !gallery && (
-                <button type="button" className="ghost-btn" onClick={() => setGallery(true)} title="Back to the component gallery">
-                  Gallery
+                <button type="button" className="ghost-btn" onClick={() => setGallery(true)} title={t("dev.galleryTitle")}>
+                  {t("dev.gallery")}
                 </button>
               )}
             </div>
@@ -328,7 +328,7 @@ export default function App() {
           {info && (
             <p className="intro muted small">
               {preset ? `${preset.label} · ${preset.blurb}` : t("dashboard.customer", { id: info.customerId, age: info.age })} · {t("dashboard.dataUpTo", { date: formatDate(info.today, locale) })}
-              {dev && " · static demo data"}
+              {dev && ` · ${t("dashboard.staticDemo")}`}
             </p>
           )}
           {index.status !== "error" && customer.status === "loading" && (

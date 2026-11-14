@@ -28,20 +28,22 @@ type Message = {
 type Attached = { image: ChatImage; url: string };
 
 /** What was read from a photo, under the picture: the user checks it against what they see. */
-function photoReading(photo: PhotoRead): string {
-  if (photo.amount === null) return "No price found in the photo";
-  const price = `${formatEurCents(photo.amount)}${photo.monthly ? " a month" : ""}`;
-  if (photo.estimated) return `No price in the photo. Estimate: ${photo.item ? `${photo.item}, ` : ""}about ${price}`;
-  return `Read from the photo: ${photo.item ? `${photo.item}, ` : ""}${price}`;
+function photoReading(photo: PhotoRead, locale: ReturnType<typeof useI18n>["locale"], t: ReturnType<typeof useI18n>["t"]): string {
+  if (photo.amount === null) return t("chat.photoNoPrice");
+  const price = `${formatEurCents(photo.amount, locale)}${photo.monthly ? t("chat.photoMonthly") : ""}`;
+  const item = photo.item ? `${photo.item}, ` : "";
+  if (photo.estimated) return t("chat.photoEstimate", { item, price });
+  return t("chat.photoPrice", { item, price });
 }
 
 /** A user's message: the photo, if there is one, above the words. A photo may be sent without words. */
 function UserBubble({ message }: { message: Message }) {
+  const { locale, t } = useI18n();
   return (
     <div className="bubble bubble-user">
-      {message.photoUrl && <img className="bubble-photo" src={message.photoUrl} alt="The photo you sent" />}
+      {message.photoUrl && <img className="bubble-photo" src={message.photoUrl} alt={t("chat.photoSent")} />}
       {message.text}
-      {message.photo && <span className="bubble-photo-read">{photoReading(message.photo)}</span>}
+      {message.photo && <span className="bubble-photo-read">{photoReading(message.photo, locale, t)}</span>}
     </div>
   );
 }
@@ -371,9 +373,9 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
 
       {attached && (
         <div className="chat-attached">
-          <img src={attached.url} alt="The photo you are about to send" />
-          <span>Ask anything about it, or send it as it is to check whether you can afford it.</span>
-          <button type="button" onClick={() => setAttached(null)} aria-label="Remove the photo" title="Remove the photo">
+          <img src={attached.url} alt={t("chat.photoPending")} />
+          <span>{t("chat.photoAdd")}</span>
+          <button type="button" onClick={() => setAttached(null)} aria-label={t("chat.photoRemove")} title={t("chat.photoRemove")}>
             ×
           </button>
         </div>

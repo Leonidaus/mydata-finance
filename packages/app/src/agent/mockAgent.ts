@@ -18,6 +18,7 @@ import {
   type TemplateId,
 } from "@mydata/shared";
 import { formatEur } from "../format";
+import type { Locale } from "../i18n";
 
 export interface AgentReply {
   text: string;
@@ -89,7 +90,7 @@ function place(blocks: Block[], block: Block): DashboardOp[] {
 }
 
 /** Example prompts for the chat chips and the dev gallery, grouped by the kind of block they create. */
-export const DEMO_PROMPTS: { group: string; note: string; prompts: string[] }[] = [
+const EN_DEMO_PROMPTS: { group: string; note: string; prompts: string[] }[] = [
   {
     group: "Templates",
     note: "Ready-made views; the AI only picks the template and its arguments.",
@@ -118,7 +119,69 @@ export const DEMO_PROMPTS: { group: string; note: string; prompts: string[] }[] 
   },
 ];
 
-export async function respond(question: string, blocks: Block[], run: RunEngine): Promise<AgentReply> {
+const FI_DEMO_PROMPTS: typeof EN_DEMO_PROMPTS = [
+  {
+    group: "Mallipohjat",
+    note: "Valmiit näkymät; tekoäly valitsee vain mallipohjan ja sen parametrit.",
+    prompts: [
+      "Paljonko käytin takseihin viime kuussa?",
+      "Paljonko voin käyttää turvallisesti tällä viikolla?",
+      "Millainen rahankäyttäjä olen?",
+      "Mitä jos vähennän ravintolakuluja 20 %?",
+      "Näytä laskuni",
+      "Miten säästötavoitteeni etenee?",
+      "Loppuvatko rahat ennen palkkapäivää?",
+      "Näytä tuloni kuukausittain",
+      "Näytä kulutukseni päivittäin",
+      "Miten ruokakuluni vertautuvat ikäisteni kuluihin?",
+    ],
+  },
+  {
+    group: "Mukautettu kaavio (Vega-Lite-määritys)",
+    note: "Kun mallipohja ei sovi, tekoäly kirjoittaa Vega-Lite-määrityksen ja sovellus lisää siihen moottorin rivit.",
+    prompts: ["Näytä kulutukseni donitsikaaviona", "Minä viikonpäivänä kulutan eniten?", "Kulutanko nopeammin kuin aiempina kuukausina?"],
+  },
+  {
+    group: "Mukautettu pienoisohjelma (eristetty iframe)",
+    note: "Tekoäly kirjoittaa HTML/JS-koodin, joka toimii eristetyssä iframe-kehyksessä ilman verkkoyhteyttä ja saa rivit postMessage-kutsulla.",
+    prompts: ["Mihin jokainen käyttämäni 100 € menee?", "Tulosta viime kuusta kuitti"],
+  },
+];
+
+export const demoPrompts = (locale: Locale) => (locale === "fi" ? FI_DEMO_PROMPTS : EN_DEMO_PROMPTS);
+
+const normalizeFinnishQuestion = (question: string) => question
+  .toLowerCase()
+  .replace(/turvallisesti|käyttöraha|paljonko voin käyttää/g, "safe spend")
+  .replace(/palkkapäiv(ää|ään|ä)?/g, "payday")
+  .replace(/taksei(?:hin|sta)?|taksi/g, "taxi")
+  .replace(/donitsi(?:kaavio)?/g, "donut")
+  .replace(/viikonpäiv(?:ä|änä|inä)?/g, "weekday")
+  .replace(/nopeammin/g, "faster")
+  .replace(/kuitti/g, "receipt")
+  .replace(/vähennä|säästä/g, "cut")
+  .replace(/rahankäyttäjä|mihin.*raha/g, "spender")
+  .replace(/vertau|ikäist/g, "compare")
+  .replace(/lasku(?:ni|t)?/g, "bill")
+  .replace(/säästötavoit/g, "goal")
+  .replace(/ennuste|loppuvatko rahat/g, "forecast")
+  .replace(/päivittäin/g, "daily")
+  .replace(/kuukausittain/g, "monthly")
+  .replace(/ruoka(?:kulut|ostokset)?/g, "groceries")
+  .replace(/ravintola(?:kuluja|kulut)?/g, "restaurant")
+  .replace(/liikkumis(?:en)?/g, "transportation");
+
+export async function respond(question: string, blocks: Block[], run: RunEngine, language: Locale = "en"): Promise<AgentReply> {
+  if (language === "fi") {
+    const reply = await respondEnglish(normalizeFinnishQuestion(question), blocks, run);
+    return reply.ops.length
+      ? { ...reply, text: "Päivitin näkymääsi pyytämäsi tiedon perusteella. Avaa kortti nähdäksesi tarkemmat luvut." }
+      : { ...reply, text: "En vielä tunnistanut kysymystäsi esimerkkivalmentajana. Kokeile kysyä käyttörahasta, takseista, laskuista, säästötavoitteesta tai viime kuun kuitista." };
+  }
+  return respondEnglish(question, blocks, run);
+}
+
+async function respondEnglish(question: string, blocks: Block[], run: RunEngine): Promise<AgentReply> {
   const q = question.toLowerCase();
   const category = findCategory(q);
   const period = findPeriod(q);
