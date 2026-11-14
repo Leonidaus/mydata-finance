@@ -76,6 +76,23 @@ describe("parseToolCalls", () => {
     expect(r.picks).toEqual([{ blockId: "taxi", via: "library", component: "category_bars" }]);
   });
 
+  it("offers the comparison with Finland as a library card with a public-statistics badge", () => {
+    const r = parseToolCalls(
+      [
+        { name: "use_component", args: { id: "food-fi", component: "finland_compare", args: { category: "Groceries", basis: "household" } } },
+        { name: "use_component", args: { id: "travel-fi", component: "finland_compare", args: { category: "Travel" } } },
+      ],
+      [],
+    );
+    expect(r.ops).toHaveLength(1);
+    const block = r.ops[0].op === "add_block" ? r.ops[0].block : null;
+    expect(block?.source).toBe("public");
+    expect(block?.data).toEqual({ kind: "engine", fn: "nationalCompare", args: { category: "Groceries", basis: "household" } });
+    expect(block?.view).toEqual({ kind: "template", template: "peer_compare" });
+    expect(r.errors[0]).toMatch(/category must be one of: Housing, Utilities, Groceries, Restaurants, Transportation/);
+    expect(buildSystemPrompt([], "2026-09-15")).toMatch(/finland_compare/);
+  });
+
   it("rejects unknown components and arguments the component doesn't take", () => {
     const r = parseToolCalls(
       [

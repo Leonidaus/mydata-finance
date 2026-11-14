@@ -58,6 +58,7 @@ export const ENGINE_FNS = [
   "balanceForecast",
   "whatIf",
   "peerCompare",
+  "nationalCompare",
   "dailySpend",
   "recurring",
   "goalProgress",

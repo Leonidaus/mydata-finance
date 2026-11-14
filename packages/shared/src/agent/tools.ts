@@ -66,7 +66,7 @@ const control = {
 const blockFields = {
   title: { type: "string", description: "Short card title, in the user's language" },
   explanation: { type: "string", description: "One or two plain sentences: how the figures are computed" },
-  source: { type: "string", enum: ["own", "peer", "estimate"], description: "own data, peer comparison, or an estimate/forecast" },
+  source: { type: "string", enum: ["own", "peer", "public", "estimate"], description: "own data, peer comparison, public statistics (nationalCompare), or an estimate/forecast" },
   fn: { type: "string", enum: [...ENGINE_FNS], description: "Engine function that computes the data" },
   args: engineArgsSchema("Arguments for fn: only the ones it takes (see the catalog), set to what the question asks"),
   view_kind: { type: "string", enum: ["template", "spec", "code"] },

@@ -35,6 +35,8 @@ const CASES: Case[] = [
   { question: "Where did my money go last month?", fns: ["spendBy", "baskets"], args: { period: "last_month" } },
   { question: "How could I save more?", fns: ["safeToSave", "whatIf", "baskets", "spendBy", "peerCompare"] },
   { question: "How much did I spend on fast food in the last 12 months?", fns: ["spendBy"], args: { mcc: "5814", period: "last_12_months" } },
+  { question: "Do I spend more on groceries than the average Finn my age?", fns: ["nationalCompare"], args: { category: "Groceries" } },
+  { question: "Onko asumiseni kalliimpaa kuin suomalaisilla keskimäärin?", fns: ["nationalCompare"], args: { category: "Housing" } },
   { question: "Paljonko käytin ruokakauppaan viime kuussa?", fns: ["spendBy"], args: { category: "Groceries", period: "last_month" } },
 ];
 
