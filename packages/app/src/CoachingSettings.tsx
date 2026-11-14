@@ -50,7 +50,7 @@ export default function CoachingSettings({ profile, onboarding = false, onSave, 
   };
   const chips = (categories: readonly ProtectedCategory[]) => categories.map((category) => (
     <button key={category} type="button" className={`chip${selected.has(category) ? " selected" : ""}`} onClick={() => toggle(category)}>
-      {category === "Home & Tech" ? "Home & Tech (small purchases)" : category === "Transportation" ? "Transportation (taxis)" : category}
+      {category === "Home & Tech" ? "Home & Tech (small purchases)" : category}
     </button>
   ));
   return (
