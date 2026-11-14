@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { createApp } from "./app";
+import { createServerGeminiModel } from "./chat";
 import { openDatabase, resolveFromInvocationDir } from "./db";
 
 // Keys for outside services (ELEVENLABS_API_KEY, ...) may live in a .env file at the
@@ -20,7 +21,10 @@ if (staticDir && !existsSync(staticDir)) {
 
 const geminiKey = process.env.GEMINI_API_KEY?.trim() || undefined;
 
-serve({ fetch: createApp(db, { staticDir, gemini: { apiKey: geminiKey } }).fetch, port }, (info) => {
+// GEMINI_MODEL may list several models, comma-separated; the next one is tried when one is overloaded.
+const chatModel = geminiKey ? createServerGeminiModel(geminiKey, process.env.GEMINI_MODEL) : undefined;
+
+serve({ fetch: createApp(db, { staticDir, chatModel }).fetch, port }, (info) => {
   console.log(
     `Finance API on http://localhost:${info.port} ` +
       `(${db.meta.rows_customers} customers, today is ${db.today})` +

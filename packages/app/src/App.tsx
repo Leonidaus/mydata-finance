@@ -9,7 +9,7 @@ import {
   type TxFilter,
 } from "@mydata/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { askAgent, cannedReply, type RunEngine } from "./agent";
+import { askAgent, cannedReply, type ChatMode, chatMode, geminiAvailable, type RunEngine } from "./agent";
 import BlockCard from "./BlockCard";
 import Chat from "./Chat";
 import DevGallery from "./DevGallery";
@@ -85,6 +85,15 @@ export default function App() {
   const [dev, setDev] = useState(devInUrl);
   const [gallery, setGallery] = useState(devInUrl);
   const source = dev ? fixtureSource : dataSource;
+  // What answers typed questions. Known at once without the backend; with it, the backend is asked.
+  const [mode, setMode] = useState<ChatMode>(geminiAvailable ? "browser" : "mock");
+  useEffect(() => {
+    let current = true;
+    void chatMode(source.mode === "api").then((m) => current && setMode(m));
+    return () => {
+      current = false;
+    };
+  }, [source.mode]);
   // Keyed by source and customer: an answer for a customer who is no longer selected is never shown.
   const customer = useLatest(customerId && `${source.mode}:${customerId}`, (signal) => source.customer(customerId ?? "", signal));
   const info = customer.status === "ready" ? customer.data : null;
@@ -131,10 +140,12 @@ export default function App() {
     const { customerId: askedFor, blocks } = dashboard;
     if (history.current.customerId !== askedFor) history.current = { customerId: askedFor, turns: [] };
     const ctx = {
+      customerId: askedFor,
       blocks,
       today: info.today,
       history: history.current.turns,
       run: ((fn, args = {}) => source.runData(askedFor, { kind: "engine", fn, args })) as RunEngine,
+      useBackend: source.mode === "api",
     };
     const reply = await (canned ? cannedReply : askAgent)(question, ctx);
     const after = applyOps({ customerId: askedFor, blocks }, reply.ops).blocks;
@@ -276,7 +287,7 @@ export default function App() {
           )}
         </main>
 
-        <Chat onAsk={ask} resetKey={customerId ?? ""} request={chatRequest} />
+        <Chat onAsk={ask} resetKey={customerId ?? ""} request={chatRequest} mode={mode} />
 
         {drill && drill.customerId === customerId && (
           <TxDrawer customerId={drill.customerId} title={drill.title} filter={drill.filter} onClose={() => setDrill(null)} />

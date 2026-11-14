@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { DEMO_PROMPTS } from "./agent/mockAgent";
-import { geminiAvailable } from "./agent/gemini";
+import type { ChatMode } from "./agent";
 import { errorMessage } from "./latest";
 
 type Message = { id: number; role: "user" | "assistant"; text: string };
@@ -20,9 +20,11 @@ interface Props {
   resetKey: string;
   /** Send a question from outside the chat (e.g. the dev gallery). A new `n` sends again. */
   request?: { text: string; n: number; canned?: boolean } | null;
+  /** What answers typed questions: the backend's model, Gemini through the dev server, or keyword rules. */
+  mode: ChatMode;
 }
 
-export default function Chat({ onAsk, resetKey, request }: Props) {
+export default function Chat({ onAsk, resetKey, request, mode }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
@@ -82,7 +84,7 @@ export default function Chat({ onAsk, resetKey, request }: Props) {
           ))}
           {pending && (
             <div className="bubble bubble-assistant" role="status">
-              {geminiAvailable ? "Building your answer…" : "Thinking…"}
+              {mode === "mock" ? "Thinking…" : "Building your answer…"}
             </div>
           )}
         </div>
@@ -102,9 +104,9 @@ export default function Chat({ onAsk, resetKey, request }: Props) {
         </button>
       </form>
       <p className="chat-note">
-        {geminiAvailable
-          ? "Typed questions go to Gemini, which never sees your figures. Chips are instant keyword answers."
-          : "Demo coach: keyword-based. Set GEMINI_API_KEY in packages/app/.env.local to use Gemini."}
+        {mode === "mock"
+          ? "Demo coach: keyword-based. Set GEMINI_API_KEY (in .env for the backend, or packages/app/.env.local for dev mode) to use Gemini."
+          : "Typed questions go to Gemini, which never sees your figures. Chips are instant keyword answers."}
       </p>
     </section>
   );

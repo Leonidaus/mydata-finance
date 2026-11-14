@@ -65,7 +65,8 @@ export async function runChat(model: ChatModel, input: ChatInput, signal?: Abort
   let res = await model.generate({ system, turns, tools: TOOL_DECLARATIONS }, signal);
   let parsed = parseToolCalls(res.calls, input.blocks);
 
-  if (parsed.errors.length || parsed.text === null) {
+  // Something was rejected, or there is neither a card nor a reply: ask for the whole answer again.
+  if (parsed.errors.length || (parsed.text === null && parsed.ops.length === 0)) {
     const problems = [...parsed.errors, ...(parsed.text === null ? ["reply: missing. Call reply exactly once."] : [])];
     turns.push(
       { role: "model", raw: res.raw, text: res.text },
@@ -81,6 +82,33 @@ export async function runChat(model: ChatModel, input: ChatInput, signal?: Abort
       res = retry;
       parsed = { ...reparsed, text: reparsed.text ?? parsed.text };
     }
+  }
+
+  // The cards are fine but the reply is missing. Models often return one tool call per turn, so
+  // asking for the whole answer again only repeats the card. Ask for the reply alone, with only
+  // the reply tool on offer.
+  if (parsed.text === null && parsed.ops.length > 0) {
+    const ids = [...new Set(parsed.ops.flatMap((o) => (o.op === "add_block" ? [o.block.id] : o.op === "update_block" ? [o.id] : [])))];
+    const followUp = await model.generate(
+      {
+        system,
+        turns: [
+          ...turns,
+          { role: "model", raw: res.raw, text: res.text },
+          {
+            role: "user",
+            text:
+              `The cards are in place${ids.length ? ` (ids: ${ids.join(", ")})` : ""}. Now call reply exactly once: one to three friendly sentences ` +
+              "in the user's language that answer the question. Do not write figures yourself; refer to them as {{<id>.value}} or {{<id>.caption}}.",
+          },
+        ],
+        tools: TOOL_DECLARATIONS.filter((t) => t.name === "reply"),
+      },
+      signal,
+    );
+    const reply = parseToolCalls(followUp.calls.filter((c) => c.name === "reply"), []);
+    parsed = { ...parsed, text: reply.text };
+    if (reply.text === null && followUp.text?.trim()) res = { ...res, text: followUp.text };
   }
 
   const fallback = parsed.ops.length ? "Here is a card for that." : "Sorry, I couldn't build a card for that. Try asking in another way.";

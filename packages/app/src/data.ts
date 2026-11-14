@@ -35,6 +35,9 @@ const fixtures = createFixtureSource(`${import.meta.env.BASE_URL}fixtures/`);
 /** The configured source (VITE_DATA_SOURCE). */
 export const dataSource: DataSource = config.mode === "api" ? createApiSource(config.apiBase) : fixtures;
 
+/** The backend's origin (empty = same origin), for calls that are not data requests, such as the chat. */
+export const apiBase = config.apiBase;
+
 /** Static demo fixtures with the engine in the browser. Dev mode uses these, so no backend is needed. */
 export const fixtureSource: DataSource = fixtures;
 

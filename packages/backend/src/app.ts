@@ -1,4 +1,5 @@
 import {
+  type ChatModel,
   ENGINE_FNS,
   EngineArgumentError,
   TRANSACTION_CATEGORIES,
@@ -10,6 +11,7 @@ import { handleStt, handleTts } from "@mydata/voice";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
+import { answerChat, CHAT_TIMEOUT_MS, type ChatRequest, ChatRequestError, parseChatRequest } from "./chat";
 import type { FinanceDb } from "./db";
 import { getCustomer, listCustomers, monthlySummary } from "./finance/customers";
 import { isEngineFn, runEngineFor, transactionsFor } from "./finance/engine";
@@ -90,25 +92,13 @@ export interface AppOptions {
   staticDir?: string;
   /** How often the speech routes may be called. They spend ElevenLabs credits. */
   voiceBudget?: RequestBudget;
-  /** The language model behind the chat. Without an apiKey the route answers 503. */
-  gemini?: {
-    apiKey?: string;
-    budget?: RequestBudget;
-    /** Replaceable in tests. */
-    fetch?: typeof fetch;
-  };
+  /** The language model behind the chat. Without one, POST /api/chat answers 503. */
+  chatModel?: ChatModel;
+  /** How often the chat may be called. Each answer costs one or two model calls. */
+  chatBudget?: RequestBudget;
 }
 
-const DEFAULT_GEMINI_BUDGET: RequestBudget = { perMinute: 30, perHour: 600 };
-/** Only this call is forwarded: generateContent on a Gemini model. */
-const GEMINI_PATH = /^\/gemini\/v1beta\/models\/(gemini-[a-z0-9.-]+):generateContent$/;
-/** The chat prompt, history and tool definitions fit well within this. */
-const MAX_GEMINI_BODY_CHARS = 300_000;
-const GEMINI_TIMEOUT_MS = 60_000;
-
-/** Errors in the shape Google's API uses, which the app's Gemini client reads. */
-const geminiError = (message: string) => ({ error: { message } });
-
+const DEFAULT_CHAT_BUDGET: RequestBudget = { perMinute: 20, perHour: 400 };
 const DEFAULT_VOICE_BUDGET: RequestBudget = { perMinute: 30, perHour: 400 };
 /** Same limit as the voice package applies after reading the upload; checked here before reading it. */
 const MAX_STT_BYTES = 25 * 1024 * 1024;
@@ -135,7 +125,7 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
       transactions: Number(db.meta.rows_transactions),
       builtAt: db.meta.built_at,
       // Which optional services have a key on this server, so the app can offer them.
-      services: { chat: Boolean(options.gemini?.apiKey), voice: Boolean(process.env.ELEVENLABS_API_KEY) },
+      services: { chat: Boolean(options.chatModel), voice: Boolean(process.env.ELEVENLABS_API_KEY) },
     }),
   );
 
@@ -264,55 +254,41 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
     return handleStt(c.req.raw);
   });
 
-  // ---- chat model: Gemini, with the key kept on the server ----
-  // The app's chat agent (packages/shared/src/agent) calls /gemini/v1beta/models/<model>:generateContent.
-  // In development the Vite server forwards that to Google; here the backend does, so the built
-  // app works the same way. Only that one call is forwarded, with a size limit and a request budget.
+  // ---- chat: the question goes in, a validated reply and card operations come out ----
+  // The prompt is built here, the model is called here with the server's key, and the model's
+  // tool calls are checked here. The caller cannot supply instructions or choose the model.
 
-  app.use("/gemini/*", requestBudget("chat", options.gemini?.budget ?? DEFAULT_GEMINI_BUDGET));
-  app.post("/gemini/*", async (c) => {
-    const match = GEMINI_PATH.exec(c.req.path);
-    if (!match) return c.json(geminiError("Only generateContent on a Gemini model is forwarded."), 404);
-    const apiKey = options.gemini?.apiKey;
-    if (!apiKey) return c.json(geminiError("GEMINI_API_KEY is not set on the server."), 503);
-
-    const body = await c.req.text();
-    if (body.length > MAX_GEMINI_BODY_CHARS) return c.json(geminiError("The request is too large."), 413);
+  app.use("/api/chat", requestBudget("chat", options.chatBudget ?? DEFAULT_CHAT_BUDGET));
+  app.post("/api/chat", async (c) => {
+    let request: ChatRequest;
     try {
-      JSON.parse(body);
-    } catch {
-      return c.json(geminiError("The request body must be JSON."), 400);
+      request = parseChatRequest(await jsonBody(c.req.raw));
+    } catch (error) {
+      if (error instanceof ChatRequestError) badRequest(error.message);
+      throw error;
     }
-
-    let upstream: Response;
+    const id = customerId(request.customerId);
+    if (!getCustomer(db, id)) throw new HTTPException(404, { message: "Customer not found" });
+    if (!options.chatModel) {
+      throw new HTTPException(503, { message: "The chat model is not configured on this server (GEMINI_API_KEY)." });
+    }
     try {
-      upstream = await (options.gemini?.fetch ?? fetch)(
-        `https://generativelanguage.googleapis.com/v1beta/models/${match[1]}:generateContent`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
-          body,
-          signal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
-        },
-      );
-    } catch (cause) {
-      console.error("Gemini request failed:", cause);
-      return c.json(geminiError("Could not reach the language model."), 502);
+      return c.json(await answerChat(options.chatModel, request, db.today, AbortSignal.timeout(CHAT_TIMEOUT_MS)));
+    } catch (error) {
+      if (error instanceof Error && error.name === "TimeoutError") {
+        throw new HTTPException(504, { message: "The coach took too long to answer. Try again in a moment." });
+      }
+      console.error("Chat failed:", error);
+      throw new HTTPException(502, { message: error instanceof Error ? error.message : "The chat model could not answer." });
     }
-    // Pass Google's answer through as it is, errors included; the app reads both.
-    return new Response(upstream.body, {
-      status: upstream.status,
-      headers: { "content-type": upstream.headers.get("content-type") ?? "application/json" },
-    });
   });
 
   if (options.staticDir) {
     // Everything that is not an API route is the web app; unknown paths fall back to its
     // index page so client-side navigation works after a reload.
-    const isService = (path: string) => path.startsWith("/api/") || path.startsWith("/gemini/");
-    app.use("*", async (c, next) => (isService(c.req.path) ? next() : serveStatic({ root: options.staticDir })(c, next)));
+    app.use("*", async (c, next) => (c.req.path.startsWith("/api/") ? next() : serveStatic({ root: options.staticDir })(c, next)));
     app.get("*", async (c, next) =>
-      isService(c.req.path) ? next() : serveStatic({ root: options.staticDir, path: "index.html" })(c, next),
+      c.req.path.startsWith("/api/") ? next() : serveStatic({ root: options.staticDir, path: "index.html" })(c, next),
     );
   }
 
