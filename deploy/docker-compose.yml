@@ -1,0 +1,35 @@
+# The demo host: the app image behind Caddy, which gets and renews an HTTPS certificate.
+# HTTPS matters: a phone's browser only allows microphone use on a secure address.
+#
+# Lives at /srv/mydata/docker-compose.yml on the host, next to:
+#   .env      DOMAIN, and any other settings for this host
+#   keys.env  service keys, written by the deploy workflow from the repository secrets
+#   data/     finance.sqlite
+# See deploy/README.md.
+services:
+  app:
+    image: ${IMAGE:-ghcr.io/leonidaus/mydata-finance:latest}
+    restart: unless-stopped
+    env_file:
+      - .env
+      # Written on every deploy; later files win, so a key here replaces one in .env.
+      - path: keys.env
+        required: false
+    volumes:
+      - ./data:/data:ro
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [app]
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    # DOMAIN must resolve to this host. Without a domain of your own, use the host's
+    # public address in the form 203-0-113-7.sslip.io, which resolves to 203.0.113.7.
+    command: caddy reverse-proxy --from ${DOMAIN:?Set DOMAIN in .env} --to app:8787
+    volumes:
+      - caddy_data:/data
+
+volumes:
+  caddy_data:

@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "vitest";
 import { createApp } from "./app";
-import { resolveFromInvocationDir } from "./db";
+import { DatabaseSync } from "node:sqlite";
+import { resolveFromInvocationDir, wrapDatabase } from "./db";
 import { resolvePeriod } from "./finance/period";
 import type { SpendingResult } from "./finance/spending";
 import { createFixtureDb } from "./testing/fixture";
@@ -278,5 +279,118 @@ describe("paths from environment variables", () => {
     // npm sets INIT_CWD to that directory and runs workspace scripts from the package.
     assert.equal(resolveFromInvocationDir("packages/app/dist", { INIT_CWD: "/repo" }), "/repo/packages/app/dist");
     assert.equal(resolveFromInvocationDir("/data/finance.sqlite", { INIT_CWD: "/repo" }), "/data/finance.sqlite");
+  });
+});
+
+describe("voice routes", () => {
+  // No key in the test environment: the handlers must say so, not crash.
+  delete process.env.ELEVENLABS_API_KEY;
+
+  it("validates input and reports a missing key", async () => {
+    assert.equal((await post("/api/tts", "not json")).status, 400);
+    assert.equal((await post("/api/tts", { text: "" })).status, 400);
+    const noKey = await post<{ error: string }>("/api/tts", { text: "Paljonko käytin takseihin?" });
+    assert.equal(noKey.status, 503);
+    assert.match(noKey.body.error, /ELEVENLABS_API_KEY/);
+    assert.equal((await get("/api/tts")).status, 404);
+  });
+
+  it("rejects an oversized upload before reading it", async () => {
+    const response = await app.request("/api/stt", {
+      method: "POST",
+      headers: { "content-type": "audio/webm", "content-length": String(26 * 1024 * 1024) },
+      body: "x",
+    });
+    assert.equal(response.status, 413);
+  });
+
+  it("stops answering when the request budget is used up", async () => {
+    const limited = createApp(createFixtureDb(), { voiceBudget: { perMinute: 2, perHour: 100 } });
+    const call = () => limited.request("/api/tts", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    assert.equal((await call()).status, 400);
+    assert.equal((await call()).status, 400);
+    const third = await call();
+    assert.equal(third.status, 429);
+    assert.ok(Number(third.headers.get("retry-after")) >= 1);
+    // The finance routes are not affected.
+    assert.equal((await limited.request("/api/health")).status, 200);
+  });
+});
+
+describe("chat model route", () => {
+  const path = "/gemini/v1beta/models/gemini-flash-latest:generateContent";
+  const answer = { candidates: [{ content: { role: "model", parts: [{ text: "ok" }] } }] };
+
+  function appWith(gemini: NonNullable<Parameters<typeof createApp>[1]>["gemini"]) {
+    return createApp(createFixtureDb(), { gemini });
+  }
+  const send = (target: ReturnType<typeof createApp>, url: string, body: string) =>
+    target.request(url, { method: "POST", headers: { "content-type": "application/json" }, body });
+
+  it("forwards generateContent to Google with the server's key and returns the answer", async () => {
+    const seen: { url: string; key: string | null; body: string }[] = [];
+    const target = appWith({
+      apiKey: "secret-key",
+      fetch: async (url, init) => {
+        seen.push({ url: String(url), key: new Headers(init?.headers).get("x-goog-api-key"), body: String(init?.body) });
+        return Response.json(answer);
+      },
+    });
+    const response = await send(target, path, JSON.stringify({ contents: [] }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), answer);
+    assert.deepEqual(seen, [{
+      url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent",
+      key: "secret-key",
+      body: JSON.stringify({ contents: [] }),
+    }]);
+    // The key never appears in what the caller gets back.
+    assert.equal(JSON.stringify(answer).includes("secret-key"), false);
+  });
+
+  it("passes Google's errors through with their status", async () => {
+    const target = appWith({ apiKey: "k", fetch: async () => Response.json({ error: { message: "quota" } }, { status: 429 }) });
+    const response = await send(target, path, "{}");
+    assert.equal(response.status, 429);
+    assert.deepEqual(await response.json(), { error: { message: "quota" } });
+  });
+
+  it("forwards nothing else", async () => {
+    let called = 0;
+    const target = appWith({ apiKey: "k", fetch: async () => (called++, Response.json(answer)) });
+    assert.equal((await send(target, "/gemini/v1beta/models/gemini-flash-latest:streamGenerateContent", "{}")).status, 404);
+    assert.equal((await send(target, "/gemini/v1beta/models/other-model:generateContent", "{}")).status, 404);
+    assert.equal((await send(target, "/gemini/v1beta/files", "{}")).status, 404);
+    assert.equal((await send(target, path, "not json")).status, 400);
+    assert.equal((await send(target, path, JSON.stringify({ pad: "x".repeat(300_001) }))).status, 413);
+    assert.equal(called, 0);
+  });
+
+  it("answers 503 without a key, 502 when Google cannot be reached, 429 beyond the budget", async () => {
+    const noKey = await send(appWith({}), path, "{}");
+    assert.equal(noKey.status, 503);
+    assert.match(((await noKey.json()) as { error: { message: string } }).error.message, /GEMINI_API_KEY/);
+
+    const down = appWith({ apiKey: "k", fetch: async () => { throw new Error("network"); } });
+    assert.equal((await send(down, path, "{}")).status, 502);
+
+    const limited = appWith({ apiKey: "k", budget: { perMinute: 1, perHour: 10 }, fetch: async () => Response.json(answer) });
+    assert.equal((await send(limited, path, "{}")).status, 200);
+    assert.equal((await send(limited, path, "{}")).status, 429);
+  });
+
+  it("reports in /api/health which services have a key", async () => {
+    const withKey = await appWith({ apiKey: "k" }).request("/api/health");
+    assert.deepEqual(((await withKey.json()) as { services: unknown }).services, { chat: true, voice: false });
+    const without = await app.request("/api/health");
+    assert.deepEqual(((await without.json()) as { services: unknown }).services, { chat: false, voice: false });
+  });
+});
+
+describe("database version check", () => {
+  it("refuses a database built with other basket rules", () => {
+    const old = new DatabaseSync(":memory:");
+    old.exec("CREATE TABLE meta (key TEXT, value TEXT); INSERT INTO meta VALUES ('demo_today', '2026-09-15'), ('rules_version', '1');");
+    assert.throws(() => wrapDatabase(old), /built with basket rules version 1.*expects version 2/s);
   });
 });

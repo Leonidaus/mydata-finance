@@ -6,6 +6,7 @@ import {
   type TxFilter,
 } from "@mydata/shared";
 import { serveStatic } from "@hono/node-server/serve-static";
+import { handleStt, handleTts } from "@mydata/voice";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
@@ -14,6 +15,7 @@ import { getCustomer, listCustomers, monthlySummary } from "./finance/customers"
 import { isEngineFn, runEngineFor, transactionsFor } from "./finance/engine";
 import { isIsoDate, PERIOD_NAMES, resolvePeriod, type Period, type PeriodName } from "./finance/period";
 import { BASKETS, GROUP_BY, spending, type Basket, type GroupBy } from "./finance/spending";
+import { requestBudget, type RequestBudget } from "./rateLimit";
 
 const CUSTOMER_ID = /^CUST\d{5}$/;
 const MCC = /^\d{4}$/;
@@ -86,7 +88,30 @@ export interface AppOptions {
    * the app, so one process and one origin cover both the interface and the API.
    */
   staticDir?: string;
+  /** How often the speech routes may be called. They spend ElevenLabs credits. */
+  voiceBudget?: RequestBudget;
+  /** The language model behind the chat. Without an apiKey the route answers 503. */
+  gemini?: {
+    apiKey?: string;
+    budget?: RequestBudget;
+    /** Replaceable in tests. */
+    fetch?: typeof fetch;
+  };
 }
+
+const DEFAULT_GEMINI_BUDGET: RequestBudget = { perMinute: 30, perHour: 600 };
+/** Only this call is forwarded: generateContent on a Gemini model. */
+const GEMINI_PATH = /^\/gemini\/v1beta\/models\/(gemini-[a-z0-9.-]+):generateContent$/;
+/** The chat prompt, history and tool definitions fit well within this. */
+const MAX_GEMINI_BODY_CHARS = 300_000;
+const GEMINI_TIMEOUT_MS = 60_000;
+
+/** Errors in the shape Google's API uses, which the app's Gemini client reads. */
+const geminiError = (message: string) => ({ error: { message } });
+
+const DEFAULT_VOICE_BUDGET: RequestBudget = { perMinute: 30, perHour: 400 };
+/** Same limit as the voice package applies after reading the upload; checked here before reading it. */
+const MAX_STT_BYTES = 25 * 1024 * 1024;
 
 export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
   const app = new Hono();
@@ -109,6 +134,8 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
       customers: Number(db.meta.rows_customers),
       transactions: Number(db.meta.rows_transactions),
       builtAt: db.meta.built_at,
+      // Which optional services have a key on this server, so the app can offer them.
+      services: { chat: Boolean(options.gemini?.apiKey), voice: Boolean(process.env.ELEVENLABS_API_KEY) },
     }),
   );
 
@@ -224,12 +251,68 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
     return c.json(result);
   });
 
+  // ---- voice: text to speech and speech to text (packages/voice, ElevenLabs) ----
+  // Without ELEVENLABS_API_KEY the handlers answer 503, and the rest of the API is unaffected.
+
+  app.use("/api/tts", requestBudget("voice", options.voiceBudget ?? DEFAULT_VOICE_BUDGET));
+  app.use("/api/stt", requestBudget("voice", options.voiceBudget ?? DEFAULT_VOICE_BUDGET));
+  app.post("/api/tts", (c) => handleTts(c.req.raw));
+  app.post("/api/stt", (c) => {
+    if (Number(c.req.header("content-length") ?? 0) > MAX_STT_BYTES) {
+      return c.json({ error: "Audio exceeds the 25 MB limit" }, 413);
+    }
+    return handleStt(c.req.raw);
+  });
+
+  // ---- chat model: Gemini, with the key kept on the server ----
+  // The app's chat agent (packages/shared/src/agent) calls /gemini/v1beta/models/<model>:generateContent.
+  // In development the Vite server forwards that to Google; here the backend does, so the built
+  // app works the same way. Only that one call is forwarded, with a size limit and a request budget.
+
+  app.use("/gemini/*", requestBudget("chat", options.gemini?.budget ?? DEFAULT_GEMINI_BUDGET));
+  app.post("/gemini/*", async (c) => {
+    const match = GEMINI_PATH.exec(c.req.path);
+    if (!match) return c.json(geminiError("Only generateContent on a Gemini model is forwarded."), 404);
+    const apiKey = options.gemini?.apiKey;
+    if (!apiKey) return c.json(geminiError("GEMINI_API_KEY is not set on the server."), 503);
+
+    const body = await c.req.text();
+    if (body.length > MAX_GEMINI_BODY_CHARS) return c.json(geminiError("The request is too large."), 413);
+    try {
+      JSON.parse(body);
+    } catch {
+      return c.json(geminiError("The request body must be JSON."), 400);
+    }
+
+    let upstream: Response;
+    try {
+      upstream = await (options.gemini?.fetch ?? fetch)(
+        `https://generativelanguage.googleapis.com/v1beta/models/${match[1]}:generateContent`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
+          body,
+          signal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
+        },
+      );
+    } catch (cause) {
+      console.error("Gemini request failed:", cause);
+      return c.json(geminiError("Could not reach the language model."), 502);
+    }
+    // Pass Google's answer through as it is, errors included; the app reads both.
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: { "content-type": upstream.headers.get("content-type") ?? "application/json" },
+    });
+  });
+
   if (options.staticDir) {
     // Everything that is not an API route is the web app; unknown paths fall back to its
     // index page so client-side navigation works after a reload.
-    app.use("*", async (c, next) => (c.req.path.startsWith("/api/") ? next() : serveStatic({ root: options.staticDir })(c, next)));
+    const isService = (path: string) => path.startsWith("/api/") || path.startsWith("/gemini/");
+    app.use("*", async (c, next) => (isService(c.req.path) ? next() : serveStatic({ root: options.staticDir })(c, next)));
     app.get("*", async (c, next) =>
-      c.req.path.startsWith("/api/") ? next() : serveStatic({ root: options.staticDir, path: "index.html" })(c, next),
+      isService(c.req.path) ? next() : serveStatic({ root: options.staticDir, path: "index.html" })(c, next),
     );
   }
 
