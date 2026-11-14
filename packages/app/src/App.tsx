@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { askAgent, cannedReply, type ChatMode, chatMode, geminiAvailable, type RunEngine } from "./agent";
 import BlockCard from "./BlockCard";
 import Chat, { type CoachState } from "./Chat";
+import CoachFace from "./CoachFace";
 import DevGallery from "./DevGallery";
 import { DataSourceContext, dataSource, fixtureSource, loadIndex } from "./data";
 import { formatDate, formatEur } from "./format";
@@ -206,7 +207,7 @@ export default function App() {
               <path d="M15 5l-7 7 7 7" />
             </svg>
           </span>
-          <h1 className="topbar-title">Money coach</h1>
+          <h1 className="topbar-title"><CoachFace face="neutral" />Money coach</h1>
           <span className="topbar-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
               <path d="M4 5h16v11H9l-5 4z" />
