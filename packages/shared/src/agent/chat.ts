@@ -39,6 +39,11 @@ export interface ChatInput {
   history: { role: "user" | "assistant"; text: string }[];
   blocks: Block[];
   today: string;
+  /**
+   * Ask for the reply alone when the model sends cards without one (default true). A caller
+   * that writes the reply in a later step of its own turns this off to save a model call.
+   */
+  replyFollowUp?: boolean;
 }
 
 export interface ChatOutput {
@@ -50,6 +55,9 @@ export interface ChatOutput {
   /** Whether each added card came from the library or was built custom. */
   picks: CardPick[];
 }
+
+/** The reply used when the model built a card but said nothing. */
+export const CARD_ONLY_REPLY = "Here is a card for that.";
 
 export const MAX_QUESTION_CHARS = 1000;
 export const MAX_HISTORY_TURNS = 10;
@@ -87,7 +95,7 @@ export async function runChat(model: ChatModel, input: ChatInput, signal?: Abort
   // The cards are fine but the reply is missing. Models often return one tool call per turn, so
   // asking for the whole answer again only repeats the card. Ask for the reply alone, with only
   // the reply tool on offer.
-  if (parsed.text === null && parsed.ops.length > 0) {
+  if (parsed.text === null && parsed.ops.length > 0 && input.replyFollowUp !== false) {
     const ids = [...new Set(parsed.ops.flatMap((o) => (o.op === "add_block" ? [o.block.id] : o.op === "update_block" ? [o.id] : [])))];
     const followUp = await model.generate(
       {
@@ -111,6 +119,6 @@ export async function runChat(model: ChatModel, input: ChatInput, signal?: Abort
     if (reply.text === null && followUp.text?.trim()) res = { ...res, text: followUp.text };
   }
 
-  const fallback = parsed.ops.length ? "Here is a card for that." : "Sorry, I couldn't build a card for that. Try asking in another way.";
+  const fallback = parsed.ops.length ? CARD_ONLY_REPLY : "Sorry, I couldn't build a card for that. Try asking in another way.";
   return { text: parsed.text ?? (res.text?.trim() || fallback), ops: parsed.ops, rejected: parsed.errors, picks: parsed.picks };
 }
