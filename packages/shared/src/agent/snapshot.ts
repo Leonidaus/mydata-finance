@@ -17,6 +17,17 @@ export interface Figures {
   numbers: number[];
 }
 
+/** The headline figure of one snapshot entry, with the request it answers. */
+export interface Headline {
+  fn: EngineFn;
+  args: Record<string, unknown>;
+  value: number;
+}
+
+export interface Snapshot extends Figures {
+  headlines: Headline[];
+}
+
 const SNAPSHOT: { title: string; fn: EngineFn; args: Record<string, unknown> }[] = [
   { title: "Safe to spend this week (estimate)", fn: "safeToSpend", args: { horizon: "week" } },
   { title: "Safe to spend until payday (estimate)", fn: "safeToSpend", args: { horizon: "until_payday" } },
@@ -40,7 +51,7 @@ const MAX_LOOKUP_CHARS = 4000;
  * `blocks` is the dashboard: when the customer has said how much of the account is savings, that
  * is on their safe-to-spend card, and the snapshot's figures use the same amount as the card.
  */
-export async function buildSnapshot(lookup: Lookup, blocks: Block[] = []): Promise<Figures> {
+export async function buildSnapshot(lookup: Lookup, blocks: Block[] = []): Promise<Snapshot> {
   const stated = blocks.flatMap((b) => (b.data.kind === "engine" && b.data.fn === "safeToSpend" && typeof b.data.args.reserve === "number" ? [b.data.args.reserve] : []))[0];
   const parts = await Promise.all(
     SNAPSHOT.map(async (entry) => {
@@ -48,14 +59,22 @@ export async function buildSnapshot(lookup: Lookup, blocks: Block[] = []): Promi
       const args = fn === "safeToSpend" && stated !== undefined ? { ...entry.args, reserve: stated } : entry.args;
       try {
         const result = await lookup(fn, args);
-        return { text: describeResult(`${title} = ${requestLabel(fn, args)}`, result, SNAPSHOT_ROWS), numbers: resultNumbers(result) };
+        return {
+          text: describeResult(`${title} = ${requestLabel(fn, args)}`, result, SNAPSHOT_ROWS),
+          numbers: resultNumbers(result),
+          headline: typeof result.value === "number" ? { fn, args, value: result.value } : null,
+        };
       } catch {
         return null; // one figure that cannot be computed should not cost the whole snapshot
       }
     }),
   );
   const ok = parts.filter((p) => p !== null);
-  return { text: ok.map((p) => p.text).join("\n\n") || "(no figures available)", numbers: ok.flatMap((p) => p.numbers) };
+  return {
+    text: ok.map((p) => p.text).join("\n\n") || "(no figures available)",
+    numbers: ok.flatMap((p) => p.numbers),
+    headlines: ok.flatMap((p) => (p.headline ? [p.headline] : [])),
+  };
 }
 
 /** Runs one lookup the model asked for. A wrong call comes back as a message the model can act on. */

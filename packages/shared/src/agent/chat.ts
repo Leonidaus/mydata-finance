@@ -21,7 +21,7 @@ import { ENGINE_FNS, type EngineFn, type EngineResult } from "../engine/types";
 import { describeResult, numbersIn, questionLanguage, requestLabel, resultNumbers, unbackedNumbers } from "./figures";
 import { placeholders } from "./placeholders";
 import { buildSystemPrompt } from "./prompt";
-import { buildSnapshot, type Figures, type Lookup, runLookup } from "./snapshot";
+import { buildSnapshot, type Figures, type Headline, type Lookup, runLookup } from "./snapshot";
 import {
   HAND_OVER_DECLARATION,
   HAND_OVER_TOOL,
@@ -222,6 +222,31 @@ async function unfillable(text: string, lookup: Lookup | undefined, blocks: Bloc
   return [...new Set(bad)];
 }
 
+/**
+ * Figures a reply took from the snapshot although the card it comes with now says otherwise.
+ * When an answer builds a card for a function the snapshot also has, with other arguments
+ * ("1 000 € of this account is savings"), the snapshot's headline is the figure from before the
+ * change. Quoting it without the card's own headline tells the user the wrong number, even
+ * though the number itself is one the coach was shown.
+ */
+function staleFigures(text: string, cards: BuiltCard[], headlines: Headline[]): { said: number; card: number }[] {
+  const said = numbersIn(text);
+  const mentions = (value: number) => said.some((n) => Math.abs(n - value) < 0.006 || n === Math.round(value));
+  const stale: { said: number; card: number }[] = [];
+  for (const { block, result } of cards) {
+    if (block.data.kind !== "engine" || typeof result.value !== "number") continue;
+    const { fn, args } = block.data;
+    const now = result.value;
+    if (mentions(now)) continue;
+    for (const before of headlines) {
+      if (before.fn !== fn || requestLabel(fn, before.args) === requestLabel(fn, args)) continue;
+      const different = Math.round(before.value) !== Math.round(now);
+      if (different && mentions(before.value) && !stale.some((f) => f.said === before.value)) stale.push({ said: before.value, card: now });
+    }
+  }
+  return stale;
+}
+
 /** What stands in for a reply that was missing or failed the number check. */
 function standardReply(question: string, cards: BuiltCard[], hasOps: boolean): string {
   const finnish = questionLanguage(question) === "fi";
@@ -333,9 +358,14 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
   // 3. The reply must be there, quote only numbers the coach was shown, and use only placeholders the app can fill.
   const after = applyOps({ customerId: "", blocks: input.blocks }, parsed.ops).blocks;
   const cards = await builtCards(lookup, input.blocks, parsed.ops);
-  const faultsIn = async (text: string) => ({ unbacked: unbackedNumbers(text, backed), empty: await unfillable(text, lookup, after, cards) });
+  const faultsIn = async (text: string) => ({
+    unbacked: unbackedNumbers(text, backed),
+    empty: await unfillable(text, lookup, after, cards),
+    stale: staleFigures(text, cards, snapshot?.headlines ?? []),
+  });
+  const sound = (f: Awaited<ReturnType<typeof faultsIn>>) => f.unbacked.length === 0 && f.empty.length === 0 && f.stale.length === 0;
   let faults = parsed.text === null ? null : await faultsIn(parsed.text);
-  let checked = faults !== null && faults.unbacked.length === 0 && faults.empty.length === 0;
+  let checked = faults !== null && sound(faults);
   if (!checked) {
     // Ask for the reply alone, with only the reply tool on offer: the cards stay as they are.
     // The coach now gets the figures of the cards it built, which it had not seen.
@@ -347,6 +377,7 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
         : [
             faults.unbacked.length ? `Your reply quoted numbers that are not in your figures: ${faults.unbacked.join(", ")}.` : "",
             faults.empty.length ? `Your reply used ${faults.empty.join(", ")}, which the app cannot fill in: that card has no such figure. Say the figures themselves.` : "",
+            faults.stale.length ? `Your reply says ${faults.stale.map((f) => f.said).join(", ")}, the figure from before this change. The card you built shows ${faults.stale.map((f) => f.card).join(", ")}: answer with the card's figures.` : "",
           ]
             .filter(Boolean)
             .join(" ");
@@ -371,7 +402,7 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
     const reply = followUp && parseToolCalls(followUp.calls.filter((c) => c.name === REPLY_TOOL), []);
     if (reply && reply.text !== null) {
       faults = await faultsIn(reply.text);
-      if (faults.unbacked.length === 0 && faults.empty.length === 0) {
+      if (sound(faults)) {
         checked = true;
         parsed = {
           ...parsed,
@@ -389,6 +420,7 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
       : [
           ...(faults.unbacked.length ? [`reply: numbers not in the figures: ${faults.unbacked.join(", ")}`] : []),
           ...(faults.empty.length ? [`reply: placeholders that cannot be filled: ${faults.empty.join(", ")}`] : []),
+          ...(faults.stale.length ? [`reply: figures from before the change: ${faults.stale.map((f) => f.said).join(", ")}`] : []),
         ];
   return {
     text: checked && parsed.text !== null ? parsed.text : standardReply(question, cards, parsed.ops.length > 0),

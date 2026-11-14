@@ -651,7 +651,9 @@ Gemini with its own key. An answer is usually one model call:
 3. **Checks.** Every tool call is validated (engine arguments, card definitions,
    custom views) and sent back once if something is wrong. Every number in the reply,
    years included, must be one the coach was shown, as given or rounded; the coach is
-   told not to calculate. A reply that fails is sent back once, together with the figures of the
+   told not to calculate. When the answer builds a card that changes a figure
+   the coach already had (a reserve set, another horizon), the reply may not quote the
+   old figure without the card's own. A reply that fails is sent back once, together with the figures of the
    cards it built. If it fails again, a standard sentence with a `{{cardId.value}}`
    placeholder goes out instead, and the answer has `checked: false`.
 
