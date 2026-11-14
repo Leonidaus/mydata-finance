@@ -66,5 +66,6 @@ export const ENGINE_FNS = [
   "savingsOptions",
   "monthSoFar",
   "goalReview",
+  "afford",
 ] as const;
 export type EngineFn = (typeof ENGINE_FNS)[number];

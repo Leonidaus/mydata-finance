@@ -15,7 +15,7 @@
  * customer's figures: totals computed by the finance engine, never the transaction list. In
  * "server" mode the backend computes them; in "browser" mode the app does.
  */
-import { type Block, type ChatOutput, type ProtectedCategory, runChat } from "@mydata/shared";
+import { type Block, type ChatImage, type ChatOutput, type ProtectedCategory, runChat } from "@mydata/shared";
 import { apiBase } from "../data";
 import { gemini, geminiAvailable } from "./gemini";
 import { type AgentReply, type RunEngine, respond } from "./mockAgent";
@@ -37,6 +37,8 @@ export interface AgentContext {
   allowProtected?: ProtectedCategory[];
   /** What the previous answer asked the user about taking off the keep-as-is list. */
   pendingUnprotect?: ProtectedCategory[];
+  /** A photo sent with the question; only the model can read one. */
+  image?: ChatImage;
 }
 
 const serverChat = createServerChat(apiBase);
@@ -61,6 +63,7 @@ function report(out: ChatOutput & { blocked?: ProtectedCategory[] }): AgentReply
     blocked: out.blocked,
     proposedUnprotect: out.proposedUnprotect,
     profileChanged: Boolean(out.profile),
+    photo: out.photo,
   };
 }
 
@@ -69,10 +72,21 @@ export const cannedReply = (prompt: string, ctx: AgentContext): Promise<AgentRep
 export async function askAgent(question: string, ctx: AgentContext): Promise<AgentReply> {
   const mode = await chatMode(ctx.useBackend);
   if (mode === "server") {
-    return report(await serverChat.ask({ customerId: ctx.customerId, question, history: ctx.history, blocks: ctx.blocks, allowProtected: ctx.allowProtected, pendingUnprotect: ctx.pendingUnprotect }));
+    return report(
+      await serverChat.ask({
+        customerId: ctx.customerId,
+        question,
+        history: ctx.history,
+        blocks: ctx.blocks,
+        allowProtected: ctx.allowProtected,
+        pendingUnprotect: ctx.pendingUnprotect,
+        image: ctx.image,
+      }),
+    );
   }
   if (mode === "browser") {
-    return report(await runChat(gemini, { question, history: ctx.history, blocks: ctx.blocks, today: ctx.today, lookup: (fn, args) => ctx.run(fn, args) }));
+    return report(await runChat(gemini, { question, history: ctx.history, blocks: ctx.blocks, today: ctx.today, lookup: (fn, args) => ctx.run(fn, args), image: ctx.image }));
   }
+  if (ctx.image) return { text: "I can only read photos when the language model is on. Tell me the price and I can check it.", ops: [] };
   return respond(question, ctx.blocks, ctx.run);
 }

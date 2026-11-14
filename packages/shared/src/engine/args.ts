@@ -85,6 +85,14 @@ export const ENGINE_ARG_SPECS: Record<EngineFn, Record<string, ArgSpec>> = {
     label: { type: "text", maxLength: 80 },
   },
   monthSoFar: {},
+  afford: {
+    amount: { type: "number", min: 0, max: 100_000_000, exclusiveMin: true },
+    label: { type: "text", maxLength: 80 },
+    /** A purchase the customer chooses, or a necessity they could not plan for (which may use the buffer). */
+    kind: { type: "enum", values: ["everyday", "necessity"] },
+    /** As for safeToSpend: how much of the account the customer says is savings. */
+    reserve: { type: "number", min: 0, max: 100_000_000 },
+  },
   savingsOptions: {
     protect: { type: "categories" },
     cutPct: { type: "number", min: 0, max: 100, exclusiveMin: true },

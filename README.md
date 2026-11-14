@@ -615,7 +615,7 @@ answers are cut off at the demo's "today", so later transactions never appear.
 | `POST /api/tts` | Text to speech: `{ text, languageCode? }` → MP3 audio (ElevenLabs, from `packages/voice`) |
 | `POST /api/stt` | Speech to text: an `audio` form file or a raw audio body → `{ text, languageCode }` |
 | `GET/PATCH /api/customers/:id/profile` | Stored coaching style and protected spending categories |
-| `POST /api/chat` | The coach: `{ customerId, question, history, blocks, allowProtected? }` → `{ text, ops, mood, suggestions, checked, answeredBy, rejected, picks, blocked }` |
+| `POST /api/chat` | The coach: `{ customerId, question, history, blocks, allowProtected?, image? }` → `{ text, ops, mood, suggestions, checked, answeredBy, rejected, picks, blocked, photo? }` |
 
 The spending endpoint takes `period` (`this_month`, `last_month`, `last_30_days`,
 `last_3_months`, `last_12_months`, `this_year`, `all`) or `from` and `to`, and the
@@ -656,6 +656,18 @@ Gemini with its own key. An answer is usually one model call:
    old figure without the card's own. A reply that fails is sent back once, together with the figures of the
    cards it built. If it fails again, a standard sentence with a `{{cardId.value}}`
    placeholder goes out instead, and the answer has `checked: false`.
+
+A question can come with a photo (`image: { mimeType, data }`, a JPEG, PNG or WebP as
+base64): a price tag, a bill, a listing. The photo is read in a model call of its own
+that sees the picture and nothing about the customer, and can only report the item,
+its price and its kind. The coach gets that reading as a line of text, and for a
+one-off price the engine's `afford` function works out whether it fits what is safe to
+spend until payday (a bill may also use the buffer for unexpected necessities). In the
+app the photo waits in the input row and goes out with the user's next message, so
+they can ask anything about it. Sent without words (`question` may then be empty) it
+means "can I afford this?", and the server adds that card itself. The answer carries
+what was read (`photo`) for the app to show under the picture. This path has tests against a
+stand-in model; it has not been run with the real model yet.
 
 Views the model writes itself (a Vega-Lite spec or widget code) are checked before
 they reach the dashboard: a spec may only read columns the engine function returns

@@ -52,6 +52,21 @@ export const catalog = {
     view: { kind: "template", template: "stat" },
   }),
 
+  /** Whether one price fits what is safe to spend until payday. The id is fixed, so a new price replaces the last check. */
+  afford: (opts: { amount: number; label?: string; kind?: "everyday" | "necessity"; reserve?: number }): Block => ({
+    id: "can-afford",
+    title: opts.label ? `Can I afford: ${opts.label}?` : "Can I afford this?",
+    explanation:
+      "What is safe to spend until payday, minus this price. A purchase you choose comes out of everyday spending; a necessity you could not plan for may also use your buffer for unexpected necessities. Bills and essentials still due stay untouched either way.",
+    source: "estimate",
+    data: {
+      kind: "engine",
+      fn: "afford",
+      args: { amount: opts.amount, ...(opts.label && { label: opts.label }), ...(opts.kind && { kind: opts.kind }), ...(opts.reserve !== undefined && { reserve: opts.reserve }) },
+    },
+    view: { kind: "template", template: "stat" },
+  }),
+
   categoryBars: (opts: { period?: string; category?: string; by?: "category" | "merchant_type"; mcc?: string; title?: string } = {}): Block => {
     // One merchant type (e.g. taxis): the figure is for exactly that, so there is no category to switch.
     const merchant = opts.mcc ? (lookupMcc(opts.mcc)?.label ?? opts.mcc) : undefined;
