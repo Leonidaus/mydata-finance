@@ -98,8 +98,8 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
   const view = block.view;
   const template = view.kind === "template" ? VEGA_TEMPLATES[view.template] : undefined;
   const spec = useMemo(
-    () => (view.kind === "spec" ? withRows(view.spec, result) : template?.spec(block, result)),
-    [view, template, block, result],
+    () => (view.kind === "spec" ? withRows(view.spec, result) : template?.spec(block, result, locale)),
+    [view, template, block, result, locale],
   );
 
   const drillAll = () => result.filter && onDrill(block.title, result.filter);

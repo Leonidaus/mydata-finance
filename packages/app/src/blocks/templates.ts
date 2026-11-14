@@ -4,11 +4,12 @@
  */
 import type { Block, EngineResult, TemplateId, TxFilter } from "@mydata/shared";
 import type { TopLevelSpec } from "vega-lite";
+import { type Locale, translate } from "../i18n";
 
 export type Datum = Record<string, unknown>;
 
 export interface VegaTemplate {
-  spec: (block: Block, result: EngineResult) => TopLevelSpec;
+  spec: (block: Block, result: EngineResult, locale: Locale) => TopLevelSpec;
   /** Extra filter for a tapped datum, merged into result.filter. Null = not drillable. */
   drill?: (datum: Datum, block: Block) => Partial<TxFilter> | null;
 }
@@ -16,10 +17,11 @@ export interface VegaTemplate {
 const eur = { format: ",.0f", tickCount: 4 } as const;
 const values = (result: EngineResult) => ({ values: result.rows });
 const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+const chart = (locale: Locale, key: Parameters<typeof translate>[1]) => translate(locale, key);
 
 export const VEGA_TEMPLATES: Partial<Record<TemplateId, VegaTemplate>> = {
   category_bars: {
-    spec: (_b, r) => ({
+    spec: (_b, r, locale) => ({
       data: values(r),
       height: { step: 26 },
       mark: { type: "bar", cornerRadiusEnd: 4, cursor: "pointer" },
@@ -28,9 +30,9 @@ export const VEGA_TEMPLATES: Partial<Record<TemplateId, VegaTemplate>> = {
         x: { field: "amount", type: "quantitative", title: "€", axis: eur },
         color: { value: "var(--chart-1)" },
         tooltip: [
-          { field: "label", title: "What" },
+          { field: "label", title: chart(locale, "chart.what") },
           { field: "amount", title: "€", format: ",.2f" },
-          { field: "count", title: "Payments" },
+          { field: "count", title: chart(locale, "chart.payments") },
         ],
       },
     }),
@@ -43,7 +45,7 @@ export const VEGA_TEMPLATES: Partial<Record<TemplateId, VegaTemplate>> = {
   },
 
   trend_line: {
-    spec: (_b, r) => ({
+    spec: (_b, r, locale) => ({
       data: values(r),
       height: 180,
       layer: [
@@ -55,7 +57,7 @@ export const VEGA_TEMPLATES: Partial<Record<TemplateId, VegaTemplate>> = {
         x: { field: "month", type: "ordinal", title: null, axis: { labelAngle: -40 } },
         y: { field: "amount", type: "quantitative", title: "€", axis: eur },
         tooltip: [
-          { field: "month", title: "Month" },
+          { field: "month", title: chart(locale, "chart.month") },
           { field: "amount", title: "€", format: ",.2f" },
         ],
       },
@@ -64,7 +66,7 @@ export const VEGA_TEMPLATES: Partial<Record<TemplateId, VegaTemplate>> = {
   },
 
   baskets: {
-    spec: (_b, r) => ({
+    spec: (_b, r, locale) => ({
       data: values(r),
       height: { step: 34 },
       transform: [
@@ -83,10 +85,10 @@ export const VEGA_TEMPLATES: Partial<Record<TemplateId, VegaTemplate>> = {
           scale: { domain: ["regular", "irregular", "everyday"], range: ["var(--chart-1)", "var(--chart-3)", "var(--chart-2)"] },
         },
         tooltip: [
-          { field: "label", title: "Basket" },
+          { field: "label", title: chart(locale, "chart.basket") },
           { field: "amount", title: "€", format: ",.2f" },
-          { field: "share", title: "Share", format: ".0%" },
-          { field: "count", title: "Payments" },
+          { field: "share", title: chart(locale, "chart.share"), format: ".0%" },
+          { field: "count", title: chart(locale, "chart.payments") },
         ],
       },
     }),
@@ -94,8 +96,13 @@ export const VEGA_TEMPLATES: Partial<Record<TemplateId, VegaTemplate>> = {
   },
 
   balance_forecast: {
-    spec: (_b, r) => ({
-      data: values(r),
+    spec: (_b, r, locale) => ({
+      data: {
+        values: r.rows.map((row) => ({
+          ...row,
+          kind: row.kind === "Actual" ? chart(locale, "chart.actual") : row.kind === "Forecast" ? chart(locale, "chart.forecast") : row.kind,
+        })),
+      },
       height: 190,
       layer: [
         { mark: { type: "rule", color: "var(--danger)", strokeDash: [2, 3] }, encoding: { y: { datum: 0 } } },
@@ -108,12 +115,12 @@ export const VEGA_TEMPLATES: Partial<Record<TemplateId, VegaTemplate>> = {
               field: "kind",
               type: "nominal",
               title: null,
-              scale: { domain: ["Actual", "Forecast"], range: ["var(--chart-1)", "var(--chart-2)"] },
+              scale: { domain: [chart(locale, "chart.actual"), chart(locale, "chart.forecast")], range: ["var(--chart-1)", "var(--chart-2)"] },
               legend: { orient: "top", direction: "horizontal" },
             },
-            strokeDash: { field: "kind", type: "nominal", legend: null, scale: { domain: ["Actual", "Forecast"], range: [[1, 0], [5, 4]] } },
+            strokeDash: { field: "kind", type: "nominal", legend: null, scale: { domain: [chart(locale, "chart.actual"), chart(locale, "chart.forecast")], range: [[1, 0], [5, 4]] } },
             tooltip: [
-              { field: "date", type: "temporal", title: "Date", format: "%a %d.%m." },
+              { field: "date", type: "temporal", title: chart(locale, "chart.date"), format: "%a %d.%m." },
               { field: "balance", title: "€", format: ",.2f" },
               { field: "kind", title: "" },
             ],
@@ -124,30 +131,30 @@ export const VEGA_TEMPLATES: Partial<Record<TemplateId, VegaTemplate>> = {
   },
 
   what_if: {
-    spec: (_b, r) => ({
+    spec: (_b, r, locale) => ({
       data: values(r),
       height: 170,
       mark: { type: "bar", cornerRadiusEnd: 3, color: "var(--chart-2)" },
       encoding: {
-        x: { field: "month", type: "ordinal", title: "Months from now", axis: { labelAngle: 0 } },
-        y: { field: "saved", type: "quantitative", title: "Saved, €", axis: eur },
+        x: { field: "month", type: "ordinal", title: chart(locale, "chart.monthsFromNow"), axis: { labelAngle: 0 } },
+        y: { field: "saved", type: "quantitative", title: chart(locale, "chart.saved"), axis: eur },
         tooltip: [
-          { field: "month", title: "Month" },
-          { field: "saved", title: "Saved so far, €", format: ",.0f" },
+          { field: "month", title: chart(locale, "chart.month") },
+          { field: "saved", title: chart(locale, "chart.savedSoFar"), format: ",.0f" },
         ],
       },
     }),
   },
 
   peer_compare: {
-    spec: (_b, r) => ({
+    spec: (_b, r, locale) => ({
       data: values(r),
       height: { step: 14 },
       mark: { type: "bar", cornerRadiusEnd: 3, cursor: "pointer" },
       encoding: {
         y: { field: "category", type: "nominal", title: null, axis: { labelLimit: 120 } },
         yOffset: { field: "who", type: "nominal" },
-        x: { field: "amount", type: "quantitative", title: "€ per month", axis: eur },
+        x: { field: "amount", type: "quantitative", title: chart(locale, "chart.perMonth"), axis: eur },
         color: {
           field: "who",
           type: "nominal",
@@ -156,9 +163,9 @@ export const VEGA_TEMPLATES: Partial<Record<TemplateId, VegaTemplate>> = {
           scale: { range: ["var(--chart-4)", "var(--chart-1)"] },
         },
         tooltip: [
-          { field: "category", title: "Category" },
+          { field: "category", title: chart(locale, "chart.category") },
           { field: "who", title: "" },
-          { field: "amount", title: "€/month", format: ",.0f" },
+          { field: "amount", title: chart(locale, "chart.perMonth"), format: ",.0f" },
         ],
       },
     }),
@@ -166,7 +173,7 @@ export const VEGA_TEMPLATES: Partial<Record<TemplateId, VegaTemplate>> = {
   },
 
   calendar_heatmap: {
-    spec: (_b, r) => ({
+    spec: (_b, r, locale) => ({
       data: { values: r.rows.map((row) => ({ ...row, iso: row.date })) },
       transform: [{ calculate: "toDate(datum.iso + 'T00:00:00')", as: "day" }],
       height: { step: 16 },
@@ -182,7 +189,7 @@ export const VEGA_TEMPLATES: Partial<Record<TemplateId, VegaTemplate>> = {
           legend: { orient: "top", gradientLength: 140 },
         },
         tooltip: [
-          { field: "iso", title: "Date" },
+          { field: "iso", title: chart(locale, "chart.date") },
           { field: "amount", title: "€", format: ",.2f" },
         ],
       },
@@ -191,7 +198,7 @@ export const VEGA_TEMPLATES: Partial<Record<TemplateId, VegaTemplate>> = {
   },
 
   goal_progress: {
-    spec: (_b, r) => ({
+    spec: (_b, r, locale) => ({
       data: values(r),
       height: 46,
       layer: [
@@ -201,9 +208,9 @@ export const VEGA_TEMPLATES: Partial<Record<TemplateId, VegaTemplate>> = {
       encoding: {
         x: { type: "quantitative", title: "€", axis: eur },
         tooltip: [
-          { field: "label", title: "Goal" },
-          { field: "saved", title: "Saved, €", format: ",.0f" },
-          { field: "target", title: "Target, €", format: ",.0f" },
+          { field: "label", title: chart(locale, "chart.goal") },
+          { field: "saved", title: chart(locale, "chart.saved"), format: ",.0f" },
+          { field: "target", title: chart(locale, "chart.target"), format: ",.0f" },
         ],
       },
     }),

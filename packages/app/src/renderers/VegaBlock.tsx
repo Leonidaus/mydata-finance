@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { TopLevelSpec } from "vega-lite";
 import type { Datum } from "../blocks/templates";
 import { theme } from "../theme";
+import { useI18n } from "../i18n";
 
 /** Replace "var(--token)" strings anywhere in a spec with the computed CSS value. */
 function resolveCssVars<T>(value: T, style: CSSStyleDeclaration): T {
@@ -45,6 +46,7 @@ interface Props {
 }
 
 export default function VegaBlock({ spec, onSelect, label }: Props) {
+  const { locale, t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const dark = useColorScheme();
@@ -78,7 +80,9 @@ export default function VegaBlock({ spec, onSelect, label }: Props) {
           logLevel: 1 /* errors only */,
           tooltip: { theme: dark ? "dark" : "light" },
           // Numbers as S-mobiili writes them: space for thousands, comma for decimals.
-          formatLocale: { decimal: ",", thousands: "\u00a0", grouping: [3], currency: ["", "\u00a0€"] },
+          formatLocale: locale === "fi"
+            ? { decimal: ",", thousands: "\u00a0", grouping: [3], currency: ["", "\u00a0€"] }
+            : { decimal: ".", thousands: ",", grouping: [3], currency: ["€", ""] },
         }).then((res) => {
           if (cancelled) return res.finalize();
           finalize = res.finalize;
@@ -93,8 +97,8 @@ export default function VegaBlock({ spec, onSelect, label }: Props) {
       cancelled = true;
       finalize?.();
     };
-  }, [spec, dark]);
+  }, [spec, dark, locale]);
 
-  if (error) return <p className="block-error">Could not draw this chart: {error}</p>;
+  if (error) return <p className="block-error">{t("chart.drawError", { error })}</p>;
   return <div ref={ref} className="vega" role="img" aria-label={label} />;
 }
