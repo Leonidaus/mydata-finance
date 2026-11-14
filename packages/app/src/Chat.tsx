@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { DEMO_PROMPTS } from "./agent/mockAgent";
+import type { ChatMode } from "./agent";
 import { errorMessage } from "./latest";
 
 type Message = { id: number; role: "user" | "assistant"; text: string };
@@ -18,10 +19,12 @@ interface Props {
   /** Changing this resets the conversation (e.g. when switching customer). */
   resetKey: string;
   /** Send a question from outside the chat (e.g. the dev gallery). A new `n` sends again. */
-  request?: { text: string; n: number } | null;
+  request?: { text: string; n: number; canned?: boolean } | null;
+  /** What answers typed questions: the backend's model, Gemini through the dev server, or keyword rules. */
+  mode: ChatMode;
 }
 
-export default function Chat({ onAsk, resetKey, request }: Props) {
+export default function Chat({ onAsk, resetKey, request, mode }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
@@ -61,7 +64,7 @@ export default function Chat({ onAsk, resetKey, request }: Props) {
   }
 
   useEffect(() => {
-    if (request) send(request.text, true);
+    if (request) send(request.text, request.canned ?? true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request?.n]);
 
@@ -81,7 +84,7 @@ export default function Chat({ onAsk, resetKey, request }: Props) {
           ))}
           {pending && (
             <div className="bubble bubble-assistant" role="status">
-              Thinking…
+              {mode === "mock" ? "Thinking…" : "Building your answer…"}
             </div>
           )}
         </div>
@@ -100,7 +103,11 @@ export default function Chat({ onAsk, resetKey, request }: Props) {
           Ask
         </button>
       </form>
-      <p className="chat-note">Demo coach: keyword-based until the AI model is connected.</p>
+      <p className="chat-note">
+        {mode === "mock"
+          ? "Demo coach: keyword-based. Set GEMINI_API_KEY (in .env for the backend, or packages/app/.env.local for dev mode) to use Gemini."
+          : "Typed questions go to Gemini, which never sees your figures. Chips are instant keyword answers."}
+      </p>
     </section>
   );
 }

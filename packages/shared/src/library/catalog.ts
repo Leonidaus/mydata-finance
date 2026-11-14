@@ -1,8 +1,10 @@
 /**
  * Ready-made block factories, one per template. The default dashboard and the stand-in agent
- * use these; the LLM tools (phase 2) will expose the same templates and arguments.
+ * use these, and the LLM reaches them through the component library (components.ts).
  */
-import { type Block, type Control, PERIODS, SPENDING_CATEGORIES } from "@mydata/shared";
+import type { Block, Control } from "../blocks";
+import { lookupMcc } from "../mcc";
+import { PERIODS, SPENDING_CATEGORIES } from "../engine/util";
 
 let seq = 0;
 const id = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${(seq++).toString(36)}`;
@@ -39,21 +41,29 @@ export const catalog = {
     ],
   }),
 
-  categoryBars: (opts: { period?: string; category?: string; by?: "category" | "merchant_type"; title?: string } = {}): Block => ({
-    id: id("bars"),
-    title: opts.title ?? (opts.category ? `${opts.category} by merchant type` : "Spending by category"),
-    explanation: opts.category
-      ? `All your card purchases in ${opts.category} for the chosen period, grouped by the type of merchant (merchant category code).`
-      : "All money going out for the chosen period, grouped by the category your bank assigned. Income and transfers to savings are left out.",
-    source: "own",
-    data: {
-      kind: "engine",
-      fn: "spendBy",
-      args: { period: opts.period ?? "last_month", by: opts.by ?? (opts.category ? "merchant_type" : "category"), category: opts.category ?? "" },
-    },
-    view: { kind: "template", template: "category_bars" },
-    controls: [periodControl, categoryControl(true)],
-  }),
+  categoryBars: (opts: { period?: string; category?: string; by?: "category" | "merchant_type"; mcc?: string; title?: string } = {}): Block => {
+    // One merchant type (e.g. taxis): the figure is for exactly that, so there is no category to switch.
+    const merchant = opts.mcc ? (lookupMcc(opts.mcc)?.label ?? opts.mcc) : undefined;
+    return {
+      id: id("bars"),
+      title: opts.title ?? (merchant ?? (opts.category ? `${opts.category} by merchant type` : "Spending by category")),
+      explanation: merchant
+        ? `All your card purchases at merchants of the type "${merchant}" for the chosen period (by merchant category code).`
+        : opts.category
+          ? `All your card purchases in ${opts.category} for the chosen period, grouped by the type of merchant (merchant category code).`
+          : "All money going out for the chosen period, grouped by the category your bank assigned. Income and transfers to savings are left out.",
+      source: "own",
+      data: {
+        kind: "engine",
+        fn: "spendBy",
+        args: opts.mcc
+          ? { period: opts.period ?? "last_month", mcc: opts.mcc }
+          : { period: opts.period ?? "last_month", by: opts.by ?? (opts.category ? "merchant_type" : "category"), category: opts.category ?? "" },
+      },
+      view: { kind: "template", template: "category_bars" },
+      controls: opts.mcc ? [periodControl] : [periodControl, categoryControl(true)],
+    };
+  },
 
   trend: (opts: { metric?: "spending" | "income" | "net" | "saving"; category?: string; months?: number } = {}): Block => ({
     id: id("trend"),
@@ -99,18 +109,20 @@ export const catalog = {
     view: { kind: "template", template: "balance_forecast" },
   }),
 
-  whatIf: (category = "Restaurants", cutPct = 20): Block => ({
-    id: id("whatif"),
-    title: `What if I cut ${category}?`,
-    explanation: `Your average monthly spending on ${category} over the last 12 months, times the cut you choose, added up month by month for a year.`,
-    source: "estimate",
-    data: { kind: "engine", fn: "whatIf", args: { category, cutPct } },
-    view: { kind: "template", template: "what_if" },
-    controls: [
-      categoryControl(false),
-      { kind: "slider", arg: "cutPct", label: "Cut by", min: 0, max: 100, step: 5, unit: "%" },
-    ],
-  }),
+  whatIf: (category = "Restaurants", cutPct = 20, mcc?: string): Block => {
+    // One merchant type (e.g. fast food) when `mcc` is given, otherwise a whole category.
+    const subject = mcc ? (lookupMcc(mcc)?.label ?? mcc) : category;
+    const slider: Control = { kind: "slider", arg: "cutPct", label: "Cut by", min: 0, max: 100, step: 5, unit: "%" };
+    return {
+      id: id("whatif"),
+      title: `What if I cut ${subject}?`,
+      explanation: `Your average monthly spending on ${subject} over the last 12 months, times the cut you choose, added up month by month for a year.`,
+      source: "estimate",
+      data: { kind: "engine", fn: "whatIf", args: mcc ? { mcc, cutPct } : { category, cutPct } },
+      view: { kind: "template", template: "what_if" },
+      controls: mcc ? [slider] : [categoryControl(false), slider],
+    };
+  },
 
   peers: (category = ""): Block => ({
     id: id("peers"),

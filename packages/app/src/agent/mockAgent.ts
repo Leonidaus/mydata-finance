@@ -5,6 +5,8 @@
  */
 import {
   type Block,
+  catalog,
+  custom,
   type DashboardOp,
   type EngineFn,
   type EngineResult,
@@ -13,8 +15,6 @@ import {
   SPENDING_CATEGORIES,
   type TemplateId,
 } from "@mydata/shared";
-import { custom } from "../blocks/custom";
-import { catalog } from "../catalog";
 import { formatEur } from "../format";
 
 export interface AgentReply {
