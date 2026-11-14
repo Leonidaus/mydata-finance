@@ -34,12 +34,13 @@ describe("speak", () => {
     await expect(speak("hello")).rejects.toBeInstanceOf(VoiceNotConfiguredError);
   });
 
-  it("omits languageCode for eleven_multilingual_v2", async () => {
+  it("uses the default Flash model and number normalization", async () => {
     await speak("hello");
     expect(ttsConvert.mock.calls[0][0]).toBe("4ZwDxrFaobUF5e1KlEM");
     const request = ttsConvert.mock.calls[0][1];
-    expect(request.modelId).toBe("eleven_multilingual_v2");
+    expect(request.modelId).toBe("eleven_flash_v2_5");
     expect(request.outputFormat).toBe("mp3_44100_128");
+    expect(request.applyTextNormalization).toBe("on");
     expect(request).not.toHaveProperty("languageCode");
   });
 

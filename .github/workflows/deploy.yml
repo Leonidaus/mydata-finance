@@ -57,6 +57,10 @@ jobs:
       # Keys for outside services. Each is optional: without one, that service stays off.
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+      # These are non-secret knobs. Repository variables may override the defaults.
+      ELEVENLABS_VOICE_ID: ${{ vars.ELEVENLABS_VOICE_ID || '4ZwDxrFaobUF5e1KlEM' }}
+      ELEVENLABS_TTS_MODEL_ID: ${{ vars.ELEVENLABS_TTS_MODEL_ID || 'eleven_flash_v2_5' }}
+      ELEVENLABS_STT_MODEL_ID: ${{ vars.ELEVENLABS_STT_MODEL_ID || 'scribe_v3' }}
       IMAGE: ${{ needs.image.outputs.image }}:${{ github.sha }}
     steps:
       - uses: actions/checkout@v7
@@ -79,12 +83,15 @@ jobs:
           {
             [ -n "$GEMINI_API_KEY" ] && printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY"
             [ -n "$ELEVENLABS_API_KEY" ] && printf 'ELEVENLABS_API_KEY=%s\n' "$ELEVENLABS_API_KEY"
+            printf 'ELEVENLABS_VOICE_ID=%s\n' "$ELEVENLABS_VOICE_ID"
+            printf 'ELEVENLABS_TTS_MODEL_ID=%s\n' "$ELEVENLABS_TTS_MODEL_ID"
+            printf 'ELEVENLABS_STT_MODEL_ID=%s\n' "$ELEVENLABS_STT_MODEL_ID"
             true
           } | ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new "$target" \
             "umask 077 && cat > /srv/mydata/keys.env"
 
           ssh -i ~/.ssh/deploy_key "$target" "install -d -o 1000 -g 1000 /srv/mydata/profiles"
-          scp -i ~/.ssh/deploy_key deploy/docker-compose.yml "$target:/srv/mydata/docker-compose.yml"
+          scp -i ~/.ssh/deploy_key deploy/docker-compose.yml deploy/Caddyfile "$target:/srv/mydata/"
 
           ssh -i ~/.ssh/deploy_key "$target" \
             "cd /srv/mydata && IMAGE='$IMAGE' docker compose pull app && IMAGE='$IMAGE' docker compose up -d && docker image prune -f"
