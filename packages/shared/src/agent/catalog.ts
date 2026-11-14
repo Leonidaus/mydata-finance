@@ -83,6 +83,22 @@ export const ENGINE_DOCS: Record<EngineFn, EngineDoc> = {
   },
 };
 
+/** The column names of each function's rows: what a custom view may read. Checked against the engine in the tests. */
+export const ENGINE_COLUMNS: Record<EngineFn, readonly string[]> = {
+  spendBy: ["key", "label", "amount", "count"],
+  monthlyTrend: ["month", "amount"],
+  baskets: ["basket", "label", "amount", "count"],
+  dailySpend: ["date", "amount"],
+  safeToSpend: ["term", "amount"],
+  safeToSave: ["term", "amount"],
+  balanceForecast: ["date", "balance", "kind"],
+  whatIf: ["month", "saved"],
+  peerCompare: ["category", "who", "amount"],
+  nationalCompare: ["category", "who", "amount", "difference"],
+  recurring: ["label", "category", "amount", "payments", "day", "months", "lastDate", "type"],
+  goalProgress: ["label", "saved", "target", "rate"],
+};
+
 /** Which engine functions each built-in template can draw. */
 export const TEMPLATE_FNS: Record<TemplateId, readonly EngineFn[]> = {
   stat: ["safeToSpend", "safeToSave"],
