@@ -58,4 +58,32 @@ describe("reply playback", () => {
     await expect(playback.play(new Blob(["mp3"]), () => false)).resolves.toBeUndefined();
     expect(source.start).not.toHaveBeenCalled();
   });
+
+  it("stops an audio element when narration is disabled while it is starting", async () => {
+    let start!: () => void;
+    const started = new Promise<void>((resolve) => {
+      start = resolve;
+    });
+    const element = {
+      onended: null as (() => void) | null,
+      onerror: null as (() => void) | null,
+      play: vi.fn(() => started),
+      pause: vi.fn(),
+    } as unknown as HTMLAudioElement;
+    const environment: PlaybackEnvironment = {
+      createAudio: vi.fn(() => element),
+      createObjectURL: vi.fn(() => "blob:reply"),
+      revokeObjectURL: vi.fn(),
+    };
+    const playback = new ReplyPlayback(environment);
+    let narrationEnabled = true;
+
+    const playing = playback.play(new Blob(["mp3"]), () => narrationEnabled);
+    narrationEnabled = false;
+    start();
+
+    await expect(playing).resolves.toBeUndefined();
+    expect(element.pause).toHaveBeenCalledOnce();
+    expect(environment.revokeObjectURL).toHaveBeenCalledWith("blob:reply");
+  });
 });
