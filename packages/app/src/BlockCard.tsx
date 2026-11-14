@@ -134,13 +134,19 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
 
   if (view.template === "stat") {
     const isMonthSummary = block.data.kind === "engine" && block.data.fn === "monthSoFar";
+    const isSafeToSpend = block.data.kind === "engine" && block.data.fn === "safeToSpend";
     const value = isMonthSummary ? monthSpend(result) : result.value ?? 0;
     return (
       <div className="stat">
         <p className="stat-value">{formatEur(value, locale)}</p>
         <ResultCaption caption={result.caption} className="stat-caption" />
         {isMonthSummary && <p className="stat-note">{t("card.monthNotAllowance")}</p>}
-        <CardContext block={block} result={result} onDrill={onDrill} calculation={<StatTerms rows={result.rows} />} />
+        <CardContext
+          block={block}
+          result={result}
+          onDrill={onDrill}
+          calculation={isSafeToSpend ? <SafeToSpendCalculation rows={result.rows} /> : <StatTerms rows={result.rows} />}
+        />
       </div>
     );
   }
@@ -257,13 +263,42 @@ function ResultCaption({ caption, className = "muted small card-scope" }: { capt
   return caption ? <p className={className}><strong>{t("card.scope")}:</strong> {caption}</p> : null;
 }
 
+function SafeToSpendCalculation({ rows }: { rows: EngineResult["rows"] }) {
+  const { t } = useI18n();
+  // Recorded and expected activity is shown before the subtotal. Precautions are planning
+  // allowances, rather than costs, so they remain in a separate disclosure.
+  const cut = rows.findIndex((row) => row.kind === "subtotal");
+  const summary = cut >= 0 ? rows.slice(0, cut + 1) : rows;
+  const detail = cut >= 0 ? rows.slice(cut + 1) : [];
+  return (
+    <>
+      <StatTerms rows={summary} />
+      {detail.length > 0 && (
+        <>
+          <p className="stat-note">{t("card.precautionNote")}</p>
+          <details className="stat-calc">
+            <summary>{t("card.calcToggle")}</summary>
+            <StatTerms rows={detail} />
+            <p className="muted small">{t("card.precautionPlanning")}</p>
+          </details>
+        </>
+      )}
+    </>
+  );
+}
+
 function StatTerms({ rows }: { rows: EngineResult["rows"] }) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   return (
     <ul className="stat-terms">
       {rows.map((r) => (
         <li key={String(r.term)}>
-          <span>{r.term}</span>
+          <span>
+            {r.term}
+            {typeof r.coveredByReserve === "number" && r.coveredByReserve > 0 && (
+              <span className="muted small"> · {t("card.coveredByReserve", { amount: formatEur(r.coveredByReserve, locale) })}</span>
+            )}
+          </span>
           <span className={(r.amount as number) < 0 ? "neg" : ""}>{formatEur(r.amount as number, locale)}</span>
         </li>
       ))}

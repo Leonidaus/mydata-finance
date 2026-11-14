@@ -49,9 +49,59 @@ describe.each(contexts)("engine on $label", ({ ctx }) => {
 
   it("safe-to-spend components add up", () => {
     const r = runEngine(ctx, "safeToSpend", { horizon: "until_payday" });
-    const parts = r.rows.slice(0, -1).map((x) => x.amount as number);
+    // Every row but the subtotal and the result is a term of the sum.
+    const parts = r.rows.filter((x) => x.kind !== "subtotal" && x.kind !== "result").map((x) => x.amount as number);
     close(sum(parts), r.rows.at(-1)!.amount as number);
+    expect(r.rows.at(-1)!.kind).toBe("result");
     expect(r.value).toBeGreaterThanOrEqual(0);
+  });
+
+  it("keeps precautions apart from costs: a subtotal after expected costs, then the allowances", () => {
+    const p = planUntilPayday(ctx);
+    const r = runEngine(ctx, "safeToSpend", { horizon: "until_payday" });
+    const kinds = r.rows.map((x) => x.kind);
+    const allowances = r.rows.filter((x) => x.kind === "precaution");
+    // Nothing is called a buffer or a margin among the costs any more.
+    for (const row of r.rows.filter((x) => x.kind === "expected")) expect(String(row.term)).not.toMatch(/unexpected|later payday|buffer|margin/i);
+    if (p.buffer + p.lateMargin > 0) {
+      // Recorded and expected amounts add up to the subtotal; the allowances come after it.
+      const cut = kinds.indexOf("subtotal");
+      expect(cut).toBeGreaterThan(0);
+      close(sum(r.rows.slice(0, cut).map((x) => x.amount as number)), r.rows[cut].amount as number);
+      close(r.rows[cut].amount as number, p.periodLeft);
+      expect(kinds.slice(cut + 1)).toEqual([...allowances.map(() => "precaution"), "result"]);
+      // Each allowance says how much of it the reserve covers, so nothing is counted twice.
+      for (const row of allowances) close((row.planned as number) - (row.coveredByReserve as number), -(row.amount as number));
+      close(sum(allowances.map((row) => row.planned as number)), p.buffer + p.lateMargin);
+      expect(r.assumptions!.join(" ")).toMatch(/planning allowance. It is not a bill, a payment or spending/);
+    } else {
+      expect(kinds).not.toContain("subtotal");
+      expect(allowances).toEqual([]);
+    }
+  });
+
+  it("says why a suggestion is low, and calls only a real shortfall a shortfall", () => {
+    // The same customer in four situations, by shifting every balance.
+    const shifted = (extra: number): EngineContext => ({ ...ctx, tx: ctx.tx.map((t) => ({ ...t, balance_after_eur: t.balance_after_eur + extra })) });
+    const captionAt = (c: EngineContext, reserve?: number) => runEngine(c, "safeToSpend", { horizon: "until_payday", ...(reserve !== undefined && { reserve }) }).caption!;
+    const p = planUntilPayday(ctx);
+    const costs = p.billsDue + p.essentialsDue + p.savingDue;
+    const noReserve = (balance: number) => shifted(balance - p.balance);
+
+    // Expected costs are more than the account holds: a real shortfall, with its size.
+    expect(captionAt(noReserve(costs - 300), 0)).toMatch(/^Expected bills and living costs until payday on .* come to 300 € more than is on the account\.$/);
+    // Expected costs fit, and only the precautions take the rest: no word of a shortfall.
+    if (p.buffer + p.lateMargin > 40) {
+      const tight = captionAt(noReserve(costs + 20), 0);
+      expect(tight).toMatch(/^Your expected costs fit within the available money\. The suggestion is to keep the remaining 20 € available for unexpected costs/);
+      expect(tight).not.toMatch(/exceed|short|overspend|run out|negative/i);
+    }
+    // This period's money is used and there is a reserve: it says where more would come from.
+    expect(captionAt(noReserve(costs + 5000), 5000)).toMatch(/^This pay period's money is used up or spoken for .* come out of the 5\s000 € you keep as savings\.$/);
+    // Room to spend: the plain everyday figure.
+    expect(captionAt(noReserve(costs + p.buffer + p.lateMargin + 700), 0)).toMatch(/^Until payday .* · about .* a day for everyday spending$/);
+    // The old wording is gone in every case.
+    for (const extra of [-100_000, -2000, 0, 2000, 100_000]) expect(captionAt(shifted(extra))).not.toMatch(/commitments exceed your balance/);
   });
 
   it("what-if scales with the cut", () => {
@@ -129,8 +179,7 @@ describe.each(contexts)("financial definitions on $label", ({ ctx }) => {
 
   it("never adds to the allowance through the late-salary margin", () => {
     const r = runEngine(ctx, "safeToSpend", { horizon: "until_payday" });
-    const margin = r.rows.find((x) => String(x.term).startsWith("Margin in case your salary arrives late"))!;
-    expect(margin.amount as number).toBeLessThanOrEqual(0);
+    for (const allowance of r.rows.filter((x) => x.kind === "precaution")) expect(allowance.amount as number).toBeLessThanOrEqual(0);
   });
 
   it("counts this pay period's money only: what was on the account before the last salary is a reserve", () => {
@@ -154,7 +203,10 @@ describe.each(contexts)("financial definitions on $label", ({ ctx }) => {
       expect(reserveRow).toBeUndefined();
     }
     // Safe to save still looks at the whole account: money not needed before payday is what could be saved.
-    close(runEngine(ctx, "safeToSave").rows[0].amount as number, p.available);
+    const save = runEngine(ctx, "safeToSave");
+    close(save.rows[0].amount as number, p.expectedLeft);
+    close(sum(save.rows.slice(0, -1).map((row) => row.amount as number)), save.rows.at(-1)!.amount as number);
+    close(sum(save.rows.filter((row) => row.term === "Money kept available for unexpected costs and a later payday").map((row) => row.amount as number)), -(p.buffer + p.lateMargin));
   });
 
   it("gives the same safe to spend whether the savings on the account are large or very large", () => {
@@ -360,7 +412,7 @@ describe.each(contexts)("financial definitions on $label", ({ ctx }) => {
     expect(none.rows.some((row) => /Reserve|Savings you keep/.test(String(row.term)))).toBe(false);
     if (inferred.balance > 200) {
       const some = runEngine(ctx, "safeToSpend", { horizon: "until_payday", reserve: 150 });
-      expect(some.rows[1]).toEqual({ term: "Savings you keep on this account", amount: -150 });
+      expect(some.rows[1]).toEqual({ term: "Savings you keep on this account", amount: -150, kind: "reserve" });
       expect(some.assumptions![0]).toMatch(/you said you keep on this account as savings/);
       // More than is on the account counts as all of it.
       const all = runEngine(ctx, "safeToSpend", { horizon: "until_payday", reserve: 10_000_000 });
@@ -380,7 +432,7 @@ describe.each(contexts)("financial definitions on $label", ({ ctx }) => {
     // A necessity may use the buffer on top of what is safe to spend.
     const bill = runEngine(ctx, "afford", { amount: 10, kind: "necessity" });
     close(bill.value!, safe + p.buffer - 10);
-    expect(bill.rows[1].term).toBe("Buffer for unexpected necessities");
+    expect(bill.rows[1].term).toBe("Money kept available for unexpected costs");
     // Far more than the account holds is a savings goal, never a purchase.
     const flat = runEngine(ctx, "afford", { amount: 250_000 });
     expect(flat.value!).toBeLessThan(0);
