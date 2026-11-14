@@ -117,6 +117,14 @@ export const ENGINE_DOCS: Record<EngineFn, EngineDoc> = {
     rows: "month (YYYY-MM), planned (€ cumulative), moved (€ cumulative, moved to savings), movedThisMonth (€), leftOnAccount (€ left that month without being moved), status (complete | in progress)",
     unit: "€ set aside so far",
   },
+  itemSpend: {
+    description:
+      "What is inside the shopping, from the receipts the user has photographed and linked to card payments: money per item sub-category (sweets, alcohol, ready meals, fuel, ...). " +
+      "Only payments with a receipt count, so the summary says how many receipts and what share of the spending they cover. Without period: since the first receipt. " +
+      "Optional subcategory for one kind of item; optional category for the bank category of the payments (e.g. Groceries).",
+    rows: "key (sub-category id), label, amount (€), count (lines bought), trips (receipts with it), share (% of the itemised total). Biggest first.",
+    unit: "€ itemised in total (or for the subcategory)",
+  },
   afford: {
     description:
       "Whether a one-off price fits: what is safe to spend until payday, minus amount (required, the price in euros). " +
@@ -147,12 +155,13 @@ export const ENGINE_COLUMNS: Record<EngineFn, readonly string[]> = {
   monthSoFar: ["term", "amount", "usualByNow"],
   goalReview: ["month", "planned", "moved", "movedThisMonth", "leftOnAccount", "status"],
   afford: ["term", "amount"],
+  itemSpend: ["key", "label", "amount", "count", "trips", "share"],
 };
 
 /** Which engine functions each built-in template can draw. */
 export const TEMPLATE_FNS: Record<TemplateId, readonly EngineFn[]> = {
   stat: ["safeToSpend", "safeToSave", "monthSoFar", "afford"],
-  category_bars: ["spendBy"],
+  category_bars: ["spendBy", "itemSpend"],
   trend_line: ["monthlyTrend"],
   baskets: ["baskets"],
   balance_forecast: ["balanceForecast"],

@@ -43,11 +43,13 @@ export const streamKey = (t: Transaction) => `${t.category}|${t.merchant_id ?? "
 /** A stream paid more often than this per month is treated as one monthly total, not one bill. */
 export const SINGLE_PAYMENT_MAX_PER_MONTH = 1.5;
 
-const cache = new WeakMap<EngineContext, Stream[]>();
+// Keyed by the transaction list, not the context: the backend hands each call a fresh context
+// with the customer's current receipts, around the same cached list.
+const cache = new WeakMap<readonly Transaction[], { today: string; streams: Stream[] }>();
 
 export function detectStreams(ctx: EngineContext): Stream[] {
-  const hit = cache.get(ctx);
-  if (hit) return hit;
+  const hit = cache.get(ctx.tx);
+  if (hit && hit.today === ctx.today) return hit.streams;
 
   const since = addMonths(startOfMonth(ctx.today), -12);
   const groups = new Map<string, Transaction[]>();
@@ -88,6 +90,6 @@ export function detectStreams(ctx: EngineContext): Stream[] {
     });
   }
   streams.sort((a, b) => b.monthlyAmount - a.monthlyAmount);
-  cache.set(ctx, streams);
+  cache.set(ctx.tx, { today: ctx.today, streams });
   return streams;
 }

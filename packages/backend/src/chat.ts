@@ -20,6 +20,7 @@ import {
   isChatImage,
   type Lookup,
   type PreferenceAccess,
+  type SaveReceipt,
   MAX_IMAGE_BASE64_CHARS,
   MAX_HISTORY_TURNS,
   MAX_QUESTION_CHARS,
@@ -168,6 +169,8 @@ export interface AnswerOptions {
   allowProtected?: readonly ProtectedCategory[];
   /** Lets the coach change the saved preferences when the user asks for it in the chat. */
   preferences?: PreferenceAccess;
+  /** Saves a receipt photo for the customer who is asking, and matches it to a payment. */
+  saveReceipt?: SaveReceipt;
   signal?: AbortSignal;
 }
 
@@ -195,6 +198,7 @@ export async function answerChat(model: ChatModel | ChatModels, request: ChatReq
       profile: options.profile,
       allowProtected: options.allowProtected,
       preferences: options.preferences,
+      saveReceipt: options.saveReceipt,
       image: request.image,
       language: request.language,
     },
