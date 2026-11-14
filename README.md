@@ -169,7 +169,7 @@ radar is SOK's, so S-Pankki may differ, and it has no AI entries at all.
 | Data prep | Python, standard library only | ADOPT |
 | Tests | Vitest | not listed; Jest is the ADOPT choice |
 | Deploy | One Docker container serving the API and the built app | ADOPT (Docker) |
-| AI | Not connected yet; the chat is a keyword mock | not on the radar |
+| AI | Gemini for the chat, called through the backend so the key stays on the server; a keyword mock when no key is set | not on the radar |
 
 Production path for the pitch, not for the weekend: Lambda or Fargate, Aurora,
 DynamoDB for sessions and pinned cards, Kinesis for proactive nudges, CDK, GitLab.
@@ -186,12 +186,12 @@ Settled:
 | Basket rules | One rule set, with groceries as a regular essential. See [Basket rules](#basket-rules). |
 | API style | Plain JSON routes, no GraphQL. |
 | Branches | Feature branches into `develop`; `main` only from `develop`. |
+| Model for the chat | Gemini. The model chooses which cards to build and never sees the customer's figures; the app fills the numbers in. |
 
 Still open:
 
 | Decision | Options | What decides it |
 |---|---|---|
-| Model for the chat | Claude through the Anthropic API, or an open-weight model (NVIDIA Nemotron, Verda) | Which API keys we have and which tech challenges we enter. Planned for 14 November. |
 | Interface language | Finnish first with an English toggle, or English only | Time left once the chat works. |
 | Tech challenges | Verda + Nemotron, ElevenLabs, Aiven, Oxylabs | Time left after the core demo. |
 | Safe-to-spend cushion | Spend down to zero (now), or always keep a fixed cushion | Many customers hold large balances; see [Backtest](#backtest). |
@@ -442,6 +442,7 @@ answers are cut off at the demo's "today", so later transactions never appear.
 | `POST /api/transactions` | The transactions behind an engine result: `{ customerId, filter, limit }` |
 | `POST /api/tts` | Text to speech: `{ text, languageCode? }` → MP3 audio (ElevenLabs, from `packages/voice`) |
 | `POST /api/stt` | Speech to text: an `audio` form file or a raw audio body → `{ text, languageCode }` |
+| `POST /gemini/v1beta/models/<model>:generateContent` | The chat's language model: forwarded to Google's Gemini API with the server's key |
 
 The spending endpoint takes `period` (`this_month`, `last_month`, `last_30_days`,
 `last_3_months`, `last_12_months`, `this_year`, `all`) or `from` and `to`, and the
@@ -453,10 +454,16 @@ optional filters `category`, `mcc` and `basket`. `groupBy` (`category`, `mcc`,
 curl 'http://localhost:8787/api/customers/CUST04488/spending?mcc=4121&period=last_month'
 ```
 
-The two voice routes need `ELEVENLABS_API_KEY`; put it in a `.env` file at the
-repository root (copy `.env.example`), which the backend reads at startup. Without the
-key they answer 503 and everything else works. Because they spend credits, they share
-a request budget (30 a minute, 400 an hour, across all callers) and answer 429 beyond it.
+The voice routes need `ELEVENLABS_API_KEY` and the chat route needs `GEMINI_API_KEY`.
+Put them in a `.env` file at the repository root (copy `.env.example`), which the
+backend reads at startup. Without a key the route answers 503 and everything else
+works; `/api/health` reports which services are on. Because these routes spend
+credits, each has a request budget across all callers (voice: 30 a minute, 400 an
+hour; chat: 30 a minute, 600 an hour) and answers 429 beyond it.
+
+The chat route forwards exactly one call, `generateContent` on a Gemini model, and
+adds the key on the server, so the key never reaches the browser. The app's chat
+agent sends the question and the card definitions to it, never the customer's figures.
 
 The engine endpoints run the finance engine from `packages/shared/src/engine` for
 any of the 5,100 customers: `spendBy`, `monthlyTrend`, `baskets`, `safeToSpend`,
