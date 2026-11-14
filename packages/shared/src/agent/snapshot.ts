@@ -3,6 +3,7 @@
  * that covers most questions, so that an answer usually takes one model call. Totals and rows
  * only; the transaction list never goes to the model.
  */
+import type { Block } from "../blocks";
 import { validateEngineArgs } from "../engine/args";
 import type { EngineFn, EngineResult } from "../engine/types";
 import { describeResult, requestLabel, resultNumbers } from "./figures";
@@ -19,6 +20,7 @@ export interface Figures {
 const SNAPSHOT: { title: string; fn: EngineFn; args: Record<string, unknown> }[] = [
   { title: "Safe to spend this week (estimate)", fn: "safeToSpend", args: { horizon: "week" } },
   { title: "Safe to spend until payday (estimate)", fn: "safeToSpend", args: { horizon: "until_payday" } },
+  { title: "This calendar month so far, next to the usual by the same day", fn: "monthSoFar", args: {} },
   { title: "ONE-OFF amount that could be moved to savings today. Not a monthly amount", fn: "safeToSave", args: {} },
   { title: "The three baskets, last 3 months", fn: "baskets", args: { period: "last_3_months" } },
   { title: "Spending by category, last full month", fn: "spendBy", args: { period: "last_month" } },
@@ -34,9 +36,16 @@ const SNAPSHOT_ROWS = 30;
 /** A looked-up result is cut to this many characters, so one broad lookup cannot crowd out the rest. */
 const MAX_LOOKUP_CHARS = 4000;
 
-export async function buildSnapshot(lookup: Lookup): Promise<Figures> {
+/**
+ * `blocks` is the dashboard: when the customer has said how much of the account is savings, that
+ * is on their safe-to-spend card, and the snapshot's figures use the same amount as the card.
+ */
+export async function buildSnapshot(lookup: Lookup, blocks: Block[] = []): Promise<Figures> {
+  const stated = blocks.flatMap((b) => (b.data.kind === "engine" && b.data.fn === "safeToSpend" && typeof b.data.args.reserve === "number" ? [b.data.args.reserve] : []))[0];
   const parts = await Promise.all(
-    SNAPSHOT.map(async ({ title, fn, args }) => {
+    SNAPSHOT.map(async (entry) => {
+      const { title, fn } = entry;
+      const args = fn === "safeToSpend" && stated !== undefined ? { ...entry.args, reserve: stated } : entry.args;
       try {
         const result = await lookup(fn, args);
         return { text: describeResult(`${title} = ${requestLabel(fn, args)}`, result, SNAPSHOT_ROWS), numbers: resultNumbers(result) };

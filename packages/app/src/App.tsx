@@ -36,8 +36,9 @@ const store = {
     }
   },
 };
-// v2: blocks carry `pinned`; older saved dashboards (no pins) are dropped for the new one-card default.
-const dashboardKey = (cid: string) => `mydata.dashboard.v2.${cid}`;
+// v2: blocks carry `pinned`; older saved dashboards (no pins) are dropped for the new default.
+// v3: the default first screen has two cards (safe to spend, this month so far).
+const dashboardKey = (cid: string) => `mydata.dashboard.v3.${cid}`;
 
 /**
  * Dev mode (?dev in the URL, or the Dev button) runs on the static demo fixtures with the engine in

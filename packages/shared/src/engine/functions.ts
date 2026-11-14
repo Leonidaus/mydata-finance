@@ -304,7 +304,11 @@ function reserveBeforeLastSalary(ctx: EngineContext): number {
   return 0;
 }
 
-function plan(ctx: EngineContext): Plan {
+/**
+ * `statedReserve` is how much of the account the customer says is savings. Without it the
+ * reserve is what was on the account before the last salary.
+ */
+function plan(ctx: EngineContext, statedReserve?: number): Plan {
   const balance = currentBalance(ctx);
   const { payday, latePayday } = nextPayday(ctx);
   const daysLeft = Math.max(1, daysBetween(ctx.today, payday));
@@ -337,7 +341,8 @@ function plan(ctx: EngineContext): Plan {
   const buffer = Math.max(irregularPerDay * daysLeft, typicalIrregularPurchase(ctx));
   const lateMargin = (essentialsPerDay + irregularPerDay) * Math.max(0, daysBetween(payday, latePayday));
   const available = balance - billsDue - essentialsDue - savingDue - buffer - lateMargin;
-  const reserve = reserveBeforeLastSalary(ctx);
+  // A stated reserve cannot be more than what is on the account.
+  const reserve = statedReserve === undefined ? reserveBeforeLastSalary(ctx) : Math.min(statedReserve, Math.max(0, balance));
   const bufferCharged = Math.max(0, buffer - reserve);
   const lateMarginCharged = Math.max(0, lateMargin - Math.max(0, reserve - buffer));
   return {
@@ -391,13 +396,14 @@ const covered = (full: number, charged: number, label: string) =>
   full > 0 && charged === 0 ? `${label}: covered by your reserve` : charged < full ? `${label}: partly covered by your reserve` : label;
 
 function safeToSpend(ctx: EngineContext, args: Record<string, unknown>): EngineResult {
-  const p = plan(ctx);
+  const stated = typeof args.reserve === "number";
+  const p = plan(ctx, stated ? (args.reserve as number) : undefined);
   const horizon = args.horizon === "until_payday" ? "until_payday" : "week";
   const perDay = p.spendable / p.daysLeft;
   const value = horizon === "week" ? Math.min(p.spendable, perDay * Math.min(7, p.daysLeft)) : p.spendable;
   const rows: Row[] = [
     { term: "Balance today", amount: round2(p.balance) },
-    ...(p.reserve > 0 ? [{ term: "Reserve from before your last salary", amount: round2(-p.reserve) }] : []),
+    ...(p.reserve > 0 ? [{ term: stated ? "Savings you keep on this account" : "Reserve from before your last salary", amount: round2(-p.reserve) }] : []),
     { term: "Bills due before payday", amount: round2(-p.billsDue) },
     { term: "Groceries and other essentials until payday", amount: round2(-p.essentialsDue) },
     { term: "Planned saving before payday", amount: round2(-p.savingDue) },
@@ -413,11 +419,13 @@ function safeToSpend(ctx: EngineContext, args: Record<string, unknown>): EngineR
       p.available <= 0
         ? `Nothing is safe to spend before payday on ${displayDate(p.payday)}: commitments exceed your balance.`
         : p.spendable <= 0
-          ? `This pay period's money is used up or spoken for until payday on ${displayDate(p.payday)}. Spending more would come out of the ${euros(p.reserve)} you had before your last salary.`
+          ? `This pay period's money is used up or spoken for until payday on ${displayDate(p.payday)}. Spending more would come out of the ${euros(p.reserve)} ${stated ? "you keep as savings" : "you had before your last salary"}.`
           : `${horizon === "week" ? "This week" : `Until payday ${displayDate(p.payday)}`} · about ${euros(perDay)} a day for everyday spending`,
     assumptions: [
-      p.reserve > 0
-        ? `Only this pay period's money counts. The ${euros(p.reserve)} that was on the account just before your last salary came in is treated as a reserve and left out: it is yours to use, but it is not this month's income. The reserve also stands in for the buffer and for a late salary, as far as it reaches, so those are not taken from this month's money.`
+      stated
+        ? `The ${euros(p.reserve)} you said you keep on this account as savings is left out. It also stands in for the buffer and for a late salary, as far as it reaches.`
+        : p.reserve > 0
+        ? `Only this pay period's money counts. The ${euros(p.reserve)} that was on the account just before your last salary came in is treated as a reserve and left out: it is yours to use, but it is not this month's income. The reserve also stands in for the buffer and for a late salary, as far as it reaches, so those are not taken from this month's money. If a different amount of this account is savings, tell the coach.`
         : "Nothing was left on the account before your last salary came in, so the whole balance is this pay period's money.",
       ...planAssumptions(ctx, p),
     ],
@@ -703,7 +711,9 @@ function goalPlan(ctx: EngineContext, args: Record<string, unknown>): EngineResu
 
   const monthsAt = (monthly: number) => (remaining === 0 ? 0 : monthly > 0 ? Math.ceil(remaining / monthly) : null);
   const baseline = monthsAt(pace);
-  const scenario = (name: string, monthly: number): Row => {
+  // Extra saving that comes from a spending cut is paid for by the cut: it leaves as much over as before.
+  const fundedByCut = args.extraFrom === "spending_cut" ? extra : 0;
+  const scenario = (name: string, monthly: number, funded = 0): Row => {
     const months = monthsAt(monthly);
     const reached = months === null ? null : monthLabel(monthOf(addMonths(thisMonth, months)));
     return {
@@ -712,13 +722,13 @@ function goalPlan(ctx: EngineContext, args: Record<string, unknown>): EngineResu
       months,
       reached,
       sooner: baseline !== null && months !== null ? baseline - months : null,
-      leftOver: round2(room - monthly),
-      fits: monthly <= room ? "yes" : "no",
+      leftOver: round2(room + funded - monthly),
+      fits: monthly <= room + funded ? "yes" : "no",
       summary: months === null ? "no date without a monthly amount" : `${euros(monthly)} a month · ${months} months · ${reached}`,
     };
   };
   const rows: Row[] = [scenario(chosen ? "Your plan" : "Current pace", pace)];
-  if (extra > 0) rows.push(scenario(`With ${euros(extra)} more a month`, pace + extra));
+  if (extra > 0) rows.push(scenario(`With ${euros(extra)} more a month`, pace + extra, fundedByCut));
   if (byMonths !== null) rows.push(scenario(`To get there in ${byMonths} months`, Math.ceil(remaining / byMonths)));
 
   const [first, ...others] = rows;
@@ -751,6 +761,8 @@ function goalPlan(ctx: EngineContext, args: Record<string, unknown>): EngineResu
       ...(tooMuch.length
         ? [`Not realistic at today's income and spending: ${tooMuch.map((row) => row.scenario).join("; ")}. A longer timeline, a smaller target or lower spending would be needed.`]
         : []),
+      ...(fundedByCut > 0 ? [`The extra ${euros(extra)} a month comes from spending less, so it does not reduce what is left over.`] : []),
+      ...(str(args.since) ? [`The plan was agreed in ${monthLabel(str(args.since) as string)}. goalReview with the same target, saved, monthly and since shows how it is going.`] : []),
       "This is planning information from the user's own figures, not advice, and it says nothing about a loan decision.",
     ],
     filter: { kind: "saving" },
@@ -797,6 +809,160 @@ function savingsOptions(ctx: EngineContext, args: Record<string, unknown>): Engi
   };
 }
 
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const netSaving = (t: Transaction) => (isSaving(t) ? out(t) : t.category === "Invest Withdraw" ? -t.tx_amount_eur : 0);
+
+/**
+ * The calendar month up to today: money in, money out by basket, what was moved to savings and
+ * what is left, next to what the customer has usually spent by the same day of the month.
+ */
+function monthSoFar(ctx: EngineContext): EngineResult {
+  const from = startOfMonth(ctx.today);
+  const day = dayOfMonth(ctx.today);
+  const byNow = (monthStart: string) => {
+    const lastDay = endOfMonth(monthStart);
+    const upTo = addDays(monthStart, day - 1);
+    return ctx.tx.filter((t) => inRange(t, monthStart, upTo < lastDay ? upTo : lastDay));
+  };
+  const spent = (rows: Transaction[], basket?: Basket) => sum(rows.filter((t) => isSpending(t) && (!basket || basketOf(t) === basket)).map(out));
+  const earned = (rows: Transaction[]) => sum(rows.filter(isIncome).map((t) => t.tx_amount_eur));
+  const moved = (rows: Transaction[]) => sum(rows.map(netSaving));
+
+  const now = byNow(from);
+  // The same days of the last three months, as far back as the history goes.
+  const earlier = [1, 2, 3].map((k) => addMonths(from, -k)).filter((m) => ctx.tx.length > 0 && ctx.tx[0].tx_date <= m).map(byNow);
+  // Each measure is called with the rows alone: `spent` takes a basket as its second argument.
+  const usual = (measure: (rows: Transaction[]) => number) => (earlier.length ? round2(sum(earlier.map((rows) => measure(rows))) / earlier.length) : null);
+
+  const income = earned(now);
+  const spending = spent(now);
+  const saving = moved(now);
+  const left = income - spending - saving;
+  const rows: Row[] = [
+    { term: "Money in so far", amount: round2(income), usualByNow: usual(earned) },
+    { term: BASKET_LABELS.regular, amount: round2(-spent(now, "regular")), usualByNow: usual((r) => -spent(r, "regular")) },
+    { term: BASKET_LABELS.irregular, amount: round2(-spent(now, "irregular")), usualByNow: usual((r) => -spent(r, "irregular")) },
+    { term: BASKET_LABELS.everyday, amount: round2(-spent(now, "everyday")), usualByNow: usual((r) => -spent(r, "everyday")) },
+    { term: "Moved to savings", amount: round2(-saving), usualByNow: usual((r) => -moved(r)) },
+    { term: "Left of this month's money so far", amount: round2(left), usualByNow: usual((r) => earned(r) - spent(r) - moved(r)) },
+  ];
+  const usualSpending = usual(spent);
+  const month = MONTH_NAMES[Number(ctx.today.slice(5, 7)) - 1];
+  const difference = usualSpending === null ? 0 : spending - usualSpending;
+  const compared =
+    usualSpending === null
+      ? `you have spent ${euros(spending)}`
+      : Math.abs(difference) < Math.max(20, usualSpending * 0.05)
+        ? `you have spent ${euros(spending)}, about the same as usual by day ${day}`
+        : `you have spent ${euros(spending)}, ${euros(Math.abs(difference))} ${difference > 0 ? "more" : "less"} than usual by day ${day}`;
+  return {
+    rows,
+    value: round2(left),
+    unit: "€",
+    caption:
+      income === 0
+        ? `${month} so far · nothing has come in yet, your salary is expected around ${displayDate(nextPayday(ctx).payday)} · ${compared}`
+        : `${month} so far · ${compared}`,
+    assumptions: [
+      `This is the calendar month from the 1st to today, day ${day}. "Usual" is the average of the same days in the last ${earlier.length || "0"} months.`,
+      "Money in is salary and other income. Transfers to savings and investments are not spending; they are shown on their own line.",
+      "What is left is money in minus money out so far, not the balance: it leaves out what was on the account before this month.",
+    ],
+    filter: { from, to: ctx.today, kind: "all" },
+  };
+}
+
+/**
+ * How a savings plan is going: what was moved to savings each month since the plan started, next
+ * to what the plan asked for, and when the target is reached at the agreed amount and at the pace
+ * so far. The month in progress is shown but not judged.
+ */
+function goalReview(ctx: EngineContext, args: Record<string, unknown>): EngineResult {
+  const target = num(args.target, NaN);
+  const monthly = num(args.monthly, NaN);
+  if (!Number.isFinite(target) || !Number.isFinite(monthly)) {
+    throw new EngineArgumentError("goalReview needs target and monthly: the plan's target and the amount agreed per month. Take them from the plan; do not guess.");
+  }
+  const saved = Math.min(num(args.saved, 0), target);
+  const thisMonth = startOfMonth(ctx.today);
+  // A plan cannot have started after today, and the review covers at most the last 24 months.
+  const asked = str(args.since) ? `${str(args.since)}-01` : thisMonth;
+  const earliest = addMonths(thisMonth, -24);
+  const since = asked > thisMonth ? thisMonth : asked < earliest ? earliest : asked;
+
+  let plannedTotal = 0;
+  let movedTotal = 0;
+  let movedComplete = 0;
+  let leftComplete = 0;
+  let completeMonths = 0;
+  const rows: Row[] = [];
+  for (let start = since; start <= thisMonth; start = addMonths(start, 1)) {
+    const inProgress = start === thisMonth;
+    const inMonth = ctx.tx.filter((t) => inRange(t, start, inProgress ? ctx.today : endOfMonth(start)));
+    const moved = sum(inMonth.map(netSaving));
+    const left = sum(inMonth.filter(isIncome).map((t) => t.tx_amount_eur)) - sum(inMonth.filter(isSpending).map(out)) - moved;
+    plannedTotal += monthly;
+    movedTotal += moved;
+    if (!inProgress) {
+      completeMonths++;
+      movedComplete += moved;
+      leftComplete += left;
+    }
+    rows.push({
+      month: monthOf(start),
+      planned: round2(plannedTotal),
+      moved: round2(movedTotal),
+      movedThisMonth: round2(moved),
+      leftOnAccount: round2(left),
+      status: inProgress ? "in progress" : "complete",
+    });
+  }
+
+  const plannedComplete = monthly * completeMonths;
+  const gap = movedComplete - plannedComplete;
+  const setAside = saved + Math.max(0, movedTotal);
+  const remaining = Math.max(0, target - setAside);
+  const reachedAt = (perMonth: number) => (remaining === 0 ? 0 : perMonth > 0 ? Math.ceil(remaining / perMonth) : null);
+  const dateAfter = (months: number | null) => (months === null ? null : monthLabel(monthOf(addMonths(thisMonth, months))));
+  const atPlan = reachedAt(monthly);
+  const pace = completeMonths > 0 ? movedComplete / completeMonths : null;
+  const atPace = pace === null ? null : reachedAt(pace);
+
+  const verdict =
+    completeMonths === 0
+      ? `The plan starts this month: ${euros(movedTotal)} moved to savings so far, ${euros(monthly)} planned for the month.`
+      : gap >= -1
+        ? `On plan: ${euros(movedComplete)} moved to savings in ${completeMonths} ${completeMonths === 1 ? "month" : "months"}, ${euros(plannedComplete)} planned.`
+        : `Behind plan by ${euros(-gap)}: ${euros(movedComplete)} moved to savings in ${completeMonths} ${completeMonths === 1 ? "month" : "months"}, ${euros(plannedComplete)} planned.`;
+  const notMoved =
+    completeMonths > 0 && gap < -1 && leftComplete > 1
+      ? ` Another ${euros(leftComplete)} was left on the account in those months without being moved.`
+      : "";
+  return {
+    rows,
+    value: round2(setAside),
+    unit: "€",
+    caption: `${verdict}${notMoved} ${euros(setAside)} of ${euros(target)} set aside.`,
+    assumptions: [
+      remaining === 0
+        ? "The target is reached."
+        : `${euros(remaining)} to go. At the agreed ${euros(monthly)} a month that is ${atPlan} months, around ${dateAfter(atPlan)}.` +
+          (pace !== null && completeMonths > 0
+            ? atPace === null
+              ? " At the pace so far, with nothing moved to savings, there is no date."
+              : ` At the pace so far, ${euros(pace)} a month, it is ${atPace} months, around ${dateAfter(atPace)}.`
+            : ""),
+      "Every transfer from this account to savings or investments counts towards the goal, minus withdrawals: the account cannot tell what a transfer is for.",
+      args.saved === undefined
+        ? "Nothing is counted as set aside before the plan started. Ask the user."
+        : `The ${euros(saved)} set aside before the plan started is what the user said.`,
+      "The month in progress is shown but not judged. No interest is counted.",
+      "Money left on the account is not counted as saved until it is moved; it is shown per month as leftOnAccount.",
+    ],
+    filter: { from: since, to: ctx.today, kind: "saving" },
+  };
+}
+
 /** A category that averages less than this a month is not worth suggesting. */
 const MIN_OPTION_PER_MONTH = 10;
 const MAX_OPTIONS = 5;
@@ -818,6 +984,8 @@ const FNS: Record<EngineFn, (ctx: EngineContext, args: Record<string, unknown>) 
   goalProgress,
   goalPlan,
   savingsOptions,
+  monthSoFar,
+  goalReview,
 };
 
 export function runEngine(ctx: EngineContext, fn: EngineFn, args: Record<string, unknown> = {}): EngineResult {
