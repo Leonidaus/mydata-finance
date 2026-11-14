@@ -21,7 +21,7 @@ const existing: Block = {
 
 /** Every component builds without arguments, except a plan and its review, which need the user's figures. */
 const exampleArgs = (component: string): Record<string, unknown> =>
-  component === "goal_plan" ? { target: 25000 } : component === "goal_review" ? { target: 25000, monthly: 400 } : {};
+  component === "goal_plan" ? { target: 25000 } : component === "can_afford" ? { amount: 349 } : component === "goal_review" ? { target: 25000, monthly: 400 } : {};
 
 const add = (over: Record<string, unknown> = {}): ToolCall => ({
   name: "add_block",
@@ -488,6 +488,82 @@ describe("runChat with the customer's figures", () => {
     return { requests, looked, ask };
   }
   const say = (text: string, extra: Record<string, unknown> = {}): ToolCall => ({ name: "reply", args: { text, ...extra } });
+
+  describe("with a photo", () => {
+    const image = { mimeType: "image/jpeg", data: "AAAA" };
+    const afford: EngineResult = {
+      rows: [{ term: "Safe to spend until payday (15.10.2026)", amount: 412 }, { term: "wireless headphones", amount: -349.9 }, { term: "Left until payday after this", amount: 62.1 }],
+      value: 62.1,
+      unit: "€",
+      caption: "Fits, but tightly: 62 € would be left until payday 15.10.2026.",
+    };
+    function photoHarness(read: Record<string, unknown>, ...answers: ToolCall[][]) {
+      const requests: ChatModelRequest[] = [];
+      const looked: string[] = [];
+      const model: ChatModel = {
+        async generate(req) {
+          requests.push(structuredClone(req));
+          if (req.tools[0].name === "photo_read") return { calls: [{ name: "photo_read", args: read }] };
+          return { calls: answers.shift() ?? [] };
+        },
+      };
+      const lookup: Lookup = (fn, args) => {
+        // The card's own figures are computed again when the reply is checked: one entry per distinct request.
+        if (fn === "afford" && !looked.includes(JSON.stringify(args))) looked.push(JSON.stringify(args));
+        const result = fn === "afford" ? afford : results[fn];
+        if (!result) throw new Error(`${fn} is not available here`);
+        return result;
+      };
+      // A photo sent without words asks whether it can be afforded.
+      const ask = (question = "") => runChat(model, { question, history: [], blocks: [], today: "2026-09-15", lookup, image });
+      const coach = () => requests.filter((r) => r.tools[0].name !== "photo_read");
+      return { requests, looked, ask, coach };
+    }
+
+    it("reads the price in a call of its own, has the engine check it, and always adds the card", async () => {
+      const { requests, looked, ask, coach } = photoHarness(
+        { item: 'wireless "headphones"\n', amount: 349.9, kind: "purchase" },
+        [say("I read 349,90 € for the wireless headphones. It fits, but only 62 € would be left until payday.")],
+      );
+      const out = await ask();
+      // The photo goes to the reading call only, which knows nothing about the customer.
+      const reading = requests.find((r) => r.tools[0].name === "photo_read")!;
+      expect(reading.turns).toEqual([{ role: "user", text: "Read this photo.", image }]);
+      expect(reading.system).not.toContain("SNAPSHOT");
+      expect(coach()).toHaveLength(1);
+      expect(JSON.stringify(coach()[0].turns)).not.toContain("AAAA");
+      expect(looked).toEqual(['{"amount":349.9,"label":"wireless headphones"}']);
+      expect(coach()[0].turns.at(-1)!.text).toMatch(/^Can I afford this\?\n\n\[PHOTO from the user: "wireless headphones", 349\.9 € \(purchase\)[\s\S]*LOOKED UP\nafford\([\s\S]*already on the dashboard/);
+      expect(out).toMatchObject({ checked: true, photo: { item: "wireless headphones", amount: 349.9, kind: "purchase", monthly: false } });
+      expect(out.ops).toMatchObject([{ op: "add_block", block: { id: "can-afford", data: { fn: "afford", args: { amount: 349.9 } } } }]);
+    });
+
+    it("answers any question about the photo: the figures are there, but no card is forced", async () => {
+      const { looked, ask, coach } = photoHarness({ item: "wireless headphones", amount: 349.9, kind: "purchase" }, [say("That would be everyday spending: something you choose. I read 349,90 € for the headphones.")]);
+      const out = await ask("Which basket would this be?");
+      expect(looked).toHaveLength(1);
+      expect(coach()[0].turns.at(-1)!.text).toMatch(/^Which basket would this be\?\n\n\[PHOTO from the user[\s\S]*LOOKED UP\nafford\([\s\S]*no card has been added/);
+      expect(out).toMatchObject({ checked: true, ops: [], photo: { amount: 349.9 } });
+    });
+
+    it("treats a bill as a necessity, and still rejects a number from nowhere", async () => {
+      const { looked, ask } = photoHarness({ item: "dentist's bill", amount: 280, kind: "bill" }, [say("You will have 999 € left.")], [say("You will have 999 € left.")]);
+      const out = await ask();
+      expect(looked).toEqual(['{"amount":280,"label":"dentist\'s bill","kind":"necessity"}']);
+      expect(out.checked).toBe(false);
+      expect(out.text).not.toContain("999");
+    });
+
+    it("does not check a photo without a price, a monthly price or a home as a purchase", async () => {
+      for (const read of [{ item: "a cat", kind: "other" }, { item: "flat for rent", amount: 1100, kind: "other", monthly: true }, { item: "two-room flat", amount: 285000, kind: "home" }]) {
+        const { looked, ask, coach } = photoHarness(read, [say("Tell me more.")]);
+        const out = await ask();
+        expect(looked).toEqual([]);
+        expect(out.ops).toEqual([]);
+        expect(coach()[0].turns.at(-1)!.text).toContain("[PHOTO from the user");
+      }
+    });
+  });
 
   it("gives the coach a snapshot, so a plain question is one model call with real figures", async () => {
     const { requests, ask } = harness([say("You spent 371,09 € on groceries, 74 % of the total.", { mood: "neutral", suggestions: ["Cut it by 10%"] })]);

@@ -40,6 +40,18 @@ export const COMPONENTS = {
     args: [],
     build: () => catalog.monthSoFar(),
   },
+  can_afford: {
+    description:
+      "Whether one price fits: safe to spend until payday minus the price, with what is left or missing. kind necessity for a cost the user could not plan for (a repair, a dentist's bill), which may use the buffer.",
+    examples: ["Can I afford 349 € headphones?", "I got a 280 € dentist's bill, can I pay it?"],
+    fn: "afford",
+    args: ["amount", "label", "kind", "reserve"],
+    build: (a) => {
+      const amount = n(a.amount);
+      if (amount === undefined) throw new EngineArgumentError("can_afford needs amount: the price in euros. Ask the user for it; do not guess.");
+      return catalog.afford({ amount, label: s(a.label), kind: a.kind === "necessity" ? "necessity" : undefined, reserve: n(a.reserve) });
+    },
+  },
   category_bars: {
     description:
       "Bars of spending by category, or within one category by merchant type. For a question about one kind of merchant " +

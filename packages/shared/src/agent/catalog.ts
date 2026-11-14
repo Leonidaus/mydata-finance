@@ -114,6 +114,14 @@ export const ENGINE_DOCS: Record<EngineFn, EngineDoc> = {
     rows: "month (YYYY-MM), planned (€ cumulative), moved (€ cumulative, moved to savings), movedThisMonth (€), leftOnAccount (€ left that month without being moved), status (complete | in progress)",
     unit: "€ set aside so far",
   },
+  afford: {
+    description:
+      "Whether a one-off price fits: what is safe to spend until payday, minus amount (required, the price in euros). " +
+      "kind necessity is for a cost the user could not plan for (a repair, a dentist's bill): it may also use the buffer for unexpected necessities. " +
+      "The summary says whether it fits, fits tightly, would come out of the reserve, or is a savings goal. label names the thing; reserve as for safeToSpend.",
+    rows: "term (text), amount (€; the price is negative). The last row is what is left, or what is missing when negative.",
+    unit: "€ left until payday after paying (negative: missing)",
+  },
 };
 
 /** The column names of each function's rows: what a custom view may read. Checked against the engine in the tests. */
@@ -134,11 +142,12 @@ export const ENGINE_COLUMNS: Record<EngineFn, readonly string[]> = {
   savingsOptions: ["category", "monthly", "saving", "perYear"],
   monthSoFar: ["term", "amount", "usualByNow"],
   goalReview: ["month", "planned", "moved", "movedThisMonth", "leftOnAccount", "status"],
+  afford: ["term", "amount"],
 };
 
 /** Which engine functions each built-in template can draw. */
 export const TEMPLATE_FNS: Record<TemplateId, readonly EngineFn[]> = {
-  stat: ["safeToSpend", "safeToSave", "monthSoFar"],
+  stat: ["safeToSpend", "safeToSave", "monthSoFar", "afford"],
   category_bars: ["spendBy"],
   trend_line: ["monthlyTrend"],
   baskets: ["baskets"],
