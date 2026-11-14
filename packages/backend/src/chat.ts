@@ -69,6 +69,7 @@ export interface ChatRequest {
   pendingUnprotect?: ProtectedCategory[];
   /** A photo sent with the message. With a photo the question may be empty: "can I afford this?" is then meant. */
   image?: ChatImage;
+  language?: "en" | "fi";
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -145,6 +146,8 @@ export function parseChatRequest(body: unknown): ChatRequest {
       question: body.question,
       history: readHistory(body.history),
       blocks: readBlocks(body.blocks),
+      // The app sends the language chosen in it. Without one, the coach follows the language of the question.
+      ...((body.language === "fi" || body.language === "en") && { language: body.language }),
       ...(body.allowProtected !== undefined && { allowProtected: parseCategoryList(body.allowProtected, "allowProtected") }),
       ...(body.pendingUnprotect !== undefined && { pendingUnprotect: parseCategoryList(body.pendingUnprotect, "pendingUnprotect") }),
     };
@@ -193,6 +196,7 @@ export async function answerChat(model: ChatModel | ChatModels, request: ChatReq
       allowProtected: options.allowProtected,
       preferences: options.preferences,
       image: request.image,
+      language: request.language,
     },
     options.signal,
   );

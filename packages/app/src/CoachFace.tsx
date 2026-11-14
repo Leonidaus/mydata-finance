@@ -1,14 +1,15 @@
 import type { Mood } from "@mydata/shared";
+import { useI18n } from "./i18n";
 
 /** The coach as it appears in the chat: a 20 euro note with a face that follows what it says. */
 export type Face = Mood | "thinking";
 
-const LABELS: Record<Face, string> = {
-  happy: "Your coach, smiling",
-  proud: "Your coach, proud of you",
-  concerned: "Your coach, concerned",
-  neutral: "Your coach",
-  thinking: "Your coach, thinking",
+const LABELS: Record<Face, "coach.face.happy" | "coach.face.proud" | "coach.face.concerned" | "coach.face.neutral" | "coach.face.thinking"> = {
+  happy: "coach.face.happy",
+  proud: "coach.face.proud",
+  concerned: "coach.face.concerned",
+  neutral: "coach.face.neutral",
+  thinking: "coach.face.thinking",
 };
 
 const INK = "#0b2a4a";
@@ -47,8 +48,9 @@ const MOUTHS: Record<Face, string> = {
 };
 
 export default function CoachFace({ face }: { face: Face }) {
+  const { t } = useI18n();
   return (
-    <svg className={`coach-face coach-${face}`} viewBox="0 0 44 28" role="img" aria-label={LABELS[face]}>
+    <svg className={`coach-face coach-${face}`} viewBox="0 0 44 28" role="img" aria-label={t(LABELS[face])}>
       <rect x="1" y="1" width="42" height="26" rx="5" fill="#cfe4f7" stroke="#3f7fbf" strokeWidth="1.5" />
       <text x="5" y="10" fontSize="7" fontWeight="700" fill="#2f6aa8">
         20
