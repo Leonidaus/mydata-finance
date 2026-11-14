@@ -219,6 +219,7 @@ body {
 }
 
 .badge-peer { background: var(--info-bg); color: var(--info-text); }
+.badge-public { background: var(--info-bg); color: var(--info-text); }
 .badge-estimate { background: var(--warning-bg); color: var(--warning-text); }
 
 .icon-btn {

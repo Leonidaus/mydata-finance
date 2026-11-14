@@ -5,6 +5,7 @@
  * explicit error. Silently falling back to a default would produce a confident answer
  * to a different question.
  */
+import { BENCHMARK_BASES, BENCHMARK_CATEGORY_NAMES } from "../benchmark/statfin";
 import { MCC_CODES } from "../mcc";
 import type { EngineFn } from "./types";
 import { PERIODS, SPENDING_CATEGORIES } from "./util";
@@ -19,7 +20,8 @@ export class EngineArgumentError extends Error {
 
 type ArgSpec =
   | { type: "enum"; values: readonly string[] }
-  | { type: "category" }
+  /** A spending category; `only` narrows it to the ones the function has figures for. */
+  | { type: "category"; only?: readonly string[] }
   /** A merchant category code that occurs in the data, e.g. "4121" for taxis. */
   | { type: "mcc" }
   | { type: "number"; min: number; max: number; integer?: boolean; exclusiveMin?: boolean }
@@ -46,6 +48,10 @@ export const ENGINE_ARG_SPECS: Record<EngineFn, Record<string, ArgSpec>> = {
   balanceForecast: {},
   whatIf: { category, mcc, cutPct: { type: "number", min: 0, max: 100 } },
   peerCompare: { category },
+  nationalCompare: {
+    category: { type: "category", only: BENCHMARK_CATEGORY_NAMES },
+    basis: { type: "enum", values: BENCHMARK_BASES },
+  },
   recurring: {},
   goalProgress: {
     target: { type: "number", min: 0, max: 100_000_000, exclusiveMin: true },
@@ -75,11 +81,13 @@ export function validateEngineArgs(fn: EngineFn, args: Record<string, unknown>):
           throw new EngineArgumentError(`${key} must be one of: ${spec.values.join(", ")}.`);
         }
         break;
-      case "category":
-        if (typeof value !== "string" || !(SPENDING_CATEGORIES as readonly string[]).includes(value)) {
-          throw new EngineArgumentError(`${key} must be one of: ${SPENDING_CATEGORIES.join(", ")}.`);
+      case "category": {
+        const allowed: readonly string[] = spec.only ?? SPENDING_CATEGORIES;
+        if (typeof value !== "string" || !allowed.includes(value)) {
+          throw new EngineArgumentError(`${key} must be one of: ${allowed.join(", ")}.`);
         }
         break;
+      }
       case "mcc":
         if (typeof value !== "string" || !Object.hasOwn(MCC_CODES, value)) {
           throw new EngineArgumentError(`${key} must be a merchant type code from the list, e.g. "4121" for taxis.`);

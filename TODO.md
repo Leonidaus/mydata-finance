@@ -28,7 +28,7 @@ database, and meant to be exposed to the language model as tools.
 - [x] Precompute cohort averages and percentiles (age band, postal area) from the full dataset in the Python prep step
 - [x] Compare the user's spending against their age band (`peerCompare`)
 - [ ] Use the postal-area cohorts and percentiles in the app
-- [ ] Add Statistics Finland household spending figures
+- [x] Add Statistics Finland household spending figures (`nationalCompare`, the "You vs Finland" card)
 
 ## 5. Chat with a language model
 - [ ] Server chat endpoint with the engine functions as tools (provider to be chosen)

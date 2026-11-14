@@ -6,7 +6,7 @@ import { describe, it } from "vitest";
 import type { ChatModel, ChatModelRequest, ToolCall } from "@mydata/shared";
 import { createApp } from "./app";
 import { createServerGeminiModel } from "./chat";
-import { numberReadings, questionLanguage, unbackedNumbers } from "./explain";
+import { describeFacts, numberReadings, questionLanguage, unbackedNumbers } from "./explain";
 import { DatabaseSync } from "node:sqlite";
 import { resolveFromInvocationDir, wrapDatabase } from "./db";
 import { resolvePeriod } from "./finance/period";
@@ -190,6 +190,23 @@ describe("finance engine routes", () => {
       { category: "Groceries", who: "You", amount: 80 },
       { category: "Groceries", who: "Peers 25-34", amount: 400 },
     ]);
+  });
+
+  it("compares with Statistics Finland through the same endpoint, with the source in the assumptions", async () => {
+    const { status, body } = await post<EngineBody & { assumptions: string[]; caption: string }>("/api/data", {
+      customerId: "CUST00001",
+      data: { kind: "engine", fn: "nationalCompare", args: { category: "Groceries" } },
+    });
+    assert.equal(status, 200);
+    assert.deepEqual(body.rows.map((row) => [row.category, row.who]), [["Groceries", "You"], ["Groceries", "Finland 25-34"]]);
+    assert.equal(body.rows[0].amount, 80);
+    assert.match(body.caption, /Statistics Finland, 2022 survey in today's prices/);
+    assert.match(body.assumptions[0], /Source: Statistics Finland/);
+    const unmapped = await post<{ error: string }>("/api/data", {
+      customerId: "CUST00001",
+      data: { kind: "engine", fn: "nationalCompare", args: { category: "Travel" } },
+    });
+    assert.equal(unmapped.status, 400);
   });
 
   it("returns the transactions behind a result, newest first and never after today", async () => {
@@ -524,6 +541,21 @@ describe("number check for explanations", () => {
     assert.deepEqual(numberReadings("1,913"), [1913, 1.913]);
     assert.deepEqual(numberReadings("227.57"), [22757, 227.57]);
     assert.deepEqual(numberReadings("20"), [20]);
+  });
+
+  it("gives shares of a total for a breakdown, but not for a side-by-side comparison", () => {
+    const block = (fn: "spendBy" | "nationalCompare") =>
+      ({ id: "c", title: "Card", explanation: "", source: "own", data: { kind: "engine", fn, args: {} }, view: { kind: "template", template: "stat" } }) as const;
+    const breakdown = describeFacts({
+      block: block("spendBy"),
+      result: { rows: [{ key: "Groceries", label: "Groceries", amount: 300 }, { key: "Travel", label: "Travel", amount: 100 }] },
+    });
+    assert.match(breakdown, /share of this card's total=75%/);
+    const comparison = describeFacts({
+      block: block("nationalCompare"),
+      result: { rows: [{ category: "Housing", who: "You", amount: 1700 }, { category: "Housing", who: "Finland 45-54", amount: 655 }] },
+    });
+    assert.doesNotMatch(comparison, /share of/);
   });
 
   it("accepts figures as given or rounded, in either format, and rejects everything else", () => {
