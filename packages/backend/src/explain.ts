@@ -104,7 +104,8 @@ const explainPrompt = (today: string, language: "fi" | "en") => `You are the mon
 - First answer the question with the key figure. Then say what it means for this person: the biggest part, how the parts compare, whether money is tight, or one concrete thing they could look at next. Be specific to these figures, kind and practical. No generic advice, no moralising.
 - Use only numbers that appear in the figures. Do not calculate: no sums, differences or percentages of your own.
 - A "share of this card's total" is that row's part of the card's total and nothing else: not a share of income, of the balance or of another card.
-- Write amounts with the euro sign and the precision given, as ${language === "fi" ? "1 234,56 €" : "€1,234.56"}.
+- Write amounts the way this bank's app does, also in English: 1 234,56 € (space for thousands, comma for decimals, euro sign after). Keep the precision given.
+- Write dates as given, like 15.10.2026.
 - If a figure is an estimate, say so in a few words. The assumptions tell you what it rests on.
 - This is information about their own money, not financial advice: do not recommend products, investments or loans.
 - Today is ${today}.
@@ -119,6 +120,7 @@ const REPLY_TOOL = {
 
 /** Whole numbers this small are counts, days and months, unless they are written as money or a percentage. */
 const ALWAYS_ALLOWED_UP_TO = 31;
+const DATE = /\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\.\d{1,2}\.(?:\d{4}\b)?/g;
 const MONEY_OR_PERCENT_BEFORE = /€\s?$/;
 const MONEY_OR_PERCENT_AFTER = /^\s?(€|%|eur\b|euro)/i;
 
@@ -136,11 +138,13 @@ export function unbackedNumbers(text: string, sources: number[]): string[] {
     }
   }
   const unbacked: string[] = [];
-  for (const match of text.matchAll(NUMBER)) {
+  // Dates are not figures: "15.10.2026", "15.10." and "2026-10-15" are left out of the check.
+  const withoutDates = text.replace(DATE, (date) => " ".repeat(date.length));
+  for (const match of withoutDates.matchAll(NUMBER)) {
     const token = match[0];
     const start = match.index;
     // An amount or a percentage is a figure however small it is: "€22 per visit" must be backed.
-    const isFigure = MONEY_OR_PERCENT_BEFORE.test(text.slice(0, start)) || MONEY_OR_PERCENT_AFTER.test(text.slice(start + token.length));
+    const isFigure = MONEY_OR_PERCENT_BEFORE.test(withoutDates.slice(0, start)) || MONEY_OR_PERCENT_AFTER.test(withoutDates.slice(start + token.length));
     const backed = numberReadings(token).some(
       (n) =>
         allowed.has(round(n, 2)) ||
