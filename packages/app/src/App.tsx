@@ -1,5 +1,4 @@
 import {
-  applyOps,
   type Block,
   type Dashboard,
   defaultDashboard,
@@ -17,6 +16,7 @@ import Chat, { type CoachState } from "./Chat";
 import CoachingSettings from "./CoachingSettings";
 import CoachFace from "./CoachFace";
 import DevGallery from "./DevGallery";
+import { applyDashboardOps, uniqueWidgetTypes } from "./dashboard";
 import { apiBase, DataSourceContext, dataSource, fixtureSource, loadIndex } from "./data";
 import { formatDate, formatEur } from "./format";
 import { useLatest } from "./latest";
@@ -40,8 +40,9 @@ const store = {
     }
   },
 };
-// v2: blocks carry `pinned`; older saved dashboards (no pins) are dropped for the new one-card default.
-const dashboardKey = (cid: string) => `mydata.dashboard.v2.${cid}`;
+// v2: blocks carry `pinned`; older saved dashboards (no pins) are dropped for the new default.
+// v3: the default first screen has two cards (safe to spend, this month so far).
+const dashboardKey = (cid: string) => `mydata.dashboard.v3.${cid}`;
 const coachingPromptKey = (cid: string) => `mydata.coachingPrompt.v1.${cid}`;
 const profileClient = createProfileClient(apiBase);
 
@@ -74,7 +75,7 @@ function loadBlocks(cid: string): Block[] {
   const raw = store.get(dashboardKey(cid));
   if (raw) {
     try {
-      return JSON.parse(raw) as Block[];
+      return uniqueWidgetTypes((JSON.parse(raw) as Block[]).filter((block) => !block.id.startsWith("city-") && block.title !== "Your spending city"));
     } catch {
       /* fall through to the default */
     }
@@ -171,13 +172,10 @@ export default function App() {
     };
     const reply = await (canned ? cannedReply : askAgent)(question, ctx);
     if (shownCustomer.current === askedFor) setCoach({ mood: reply.mood ?? null, suggestions: reply.suggestions ?? [] });
-    const after = applyOps({ customerId: askedFor, blocks }, reply.ops).blocks;
+    const after = applyDashboardOps({ customerId: askedFor, blocks }, reply.ops).blocks;
     if (reply.ops.length) {
-      // The new answer replaces the previous unpinned one; pinned blocks and blocks this reply touched stay.
-      const touched = new Set(reply.ops.map((o) => (o.op === "add_block" ? o.block.id : o.id)));
-      updateBlocks(askedFor, (prev) =>
-        applyOps({ customerId: askedFor, blocks: prev }, reply.ops).blocks.filter((b) => b.pinned || touched.has(b.id)),
-      );
+      // Keep older cards on the dashboard; add_block with an existing id still updates that card.
+      updateBlocks(askedFor, (prev) => applyDashboardOps({ customerId: askedFor, blocks: prev }, reply.ops).blocks);
       if (shownCustomer.current === askedFor) document.querySelector(".dashboard")?.scrollTo({ top: 0, behavior: "smooth" });
     }
     history.current.turns = [...history.current.turns, { role: "user" as const, text: question }, { role: "assistant" as const, text: reply.text }].slice(-10);
@@ -213,7 +211,7 @@ export default function App() {
 
   const addBlock = (block: Block) => {
     if (!customerId) return;
-    updateBlocks(customerId, (prev) => applyOps({ customerId, blocks: prev }, [{ op: "add_block", block: { ...block, pinned: true }, index: 0 }]).blocks);
+    updateBlocks(customerId, (prev) => applyDashboardOps({ customerId, blocks: prev }, [{ op: "add_block", block: { ...block, pinned: true }, index: 0 }]).blocks);
     setGallery(false);
   };
 
