@@ -90,6 +90,8 @@ export const ENGINE_ARG_SPECS: Record<EngineFn, Record<string, ArgSpec>> = {
     label: { type: "text", maxLength: 80 },
     /** A purchase the customer chooses, or a necessity they could not plan for (which may use the buffer). */
     kind: { type: "enum", values: ["everyday", "necessity"] },
+    /** "estimate" when the amount is a guess at a typical price, not one the user gave or the app read. The result says so. */
+    price: { type: "enum", values: ["exact", "estimate"] },
     /** As for safeToSpend: how much of the account the customer says is savings. */
     reserve: { type: "number", min: 0, max: 100_000_000 },
   },

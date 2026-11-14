@@ -118,7 +118,8 @@ export const ENGINE_DOCS: Record<EngineFn, EngineDoc> = {
     description:
       "Whether a one-off price fits: what is safe to spend until payday, minus amount (required, the price in euros). " +
       "kind necessity is for a cost the user could not plan for (a repair, a dentist's bill): it may also use the buffer for unexpected necessities. " +
-      "The summary says whether it fits, fits tightly, would come out of the reserve, or is a savings goal. label names the thing; reserve as for safeToSpend.",
+      "The summary says whether it fits, fits tightly, would come out of the reserve, or is a savings goal. label names the thing; reserve as for safeToSpend. " +
+      "price estimate when the amount is your own estimate of a typical price and not one the user gave or the app read: the result then says it is an estimate.",
     rows: "term (text), amount (€; the price is negative). The last row is what is left, or what is missing when negative.",
     unit: "€ left until payday after paying (negative: missing)",
   },
