@@ -57,7 +57,7 @@ export interface Block {
   controls?: Control[];
   /** Set when the card came from the component library, so the model can be told which one it is. */
   component?: string;
-  /** Pinned blocks stay on the dashboard. An unpinned block is the latest answer and is replaced by the next one. */
+  /** Mark a block as pinned for the coach's context. All dashboard blocks remain until removed. */
   pinned?: boolean;
 }
 
