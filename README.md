@@ -78,9 +78,11 @@ What should set us apart from a chat box on top of a pie chart:
 
 What came of it:
 
-- The equation is the safe-to-spend card. The engine also holds back groceries and
-  other essentials until payday and a margin for a late salary; see
-  [Backtest](#backtest) for why.
+- The equation is the safe-to-spend card, with one change: it starts from this pay
+  period's money, not from the whole balance. What was on the account before the
+  last salary is a reserve and is left out, so savings on the account do not turn
+  into "safe to spend 5,000 € this week". The engine also holds back groceries and
+  other essentials until payday; see [Backtest](#backtest) for why.
 - 1, 2 and 4 are built.
 - 3 became a savings plan towards any goal, with saving for a home as the main
   example (see [Saving towards a goal](#saving-towards-a-goal)). The coach explains
@@ -202,6 +204,7 @@ Settled:
 | Basket rules | One rule set, with groceries as a regular essential. See [Basket rules](#basket-rules). |
 | API style | Plain JSON routes, no GraphQL. |
 | Branches | Feature branches into `develop`; `main` only from `develop`. |
+| What counts as safe to spend | This pay period's money only. What was on the account before the last salary is a reserve: shown, not counted, and it covers the buffer and a late salary first. See [Basket rules](#basket-rules). |
 | Model for the chat | Gemini, run by the backend. The model gets a snapshot of the customer's figures from the finance engine, answers in words and adds a card when a picture helps. It never sees the transaction list and does no arithmetic, and a reply with a number that is not in its figures is not passed on. |
 
 Still open:
@@ -211,7 +214,6 @@ Still open:
 | Interface language | Finnish first with an English toggle, or English only | Time left once the chat works. |
 | Tech challenges | Which to submit. The voice mode (ElevenLabs) is built and the demo runs on Verda; Nemotron, Aiven and Oxylabs are not started | Time left after the core demo. |
 | Coaching styles | One coach with a style the user picks (encouraging, direct, exploratory), or one fixed style as now | Time; see [TODO.md](TODO.md). |
-| Safe-to-spend cushion | Spend down to zero (now), or always keep a fixed cushion | Many customers hold large balances; see [Backtest](#backtest). |
 
 ## Tech challenges worth entering
 
@@ -483,12 +485,22 @@ Related definitions, used the same way everywhere:
   monthly summary also has `balanceChange`, which includes those transfers.
 - **Monthly averages and peer benchmarks** cover the last 12 complete months before
   the demo's today. Peers are the synthetic customers in the dataset, by age band.
-- **Safe to spend** is the balance minus bills still due before payday, groceries
-  and other regular essentials at the recent daily rate, the usual saving transfer,
-  a buffer for unexpected necessities (at least one typical such purchase) and a
-  margin in case the salary arrives late. What is left is for everyday spending.
-- **Safe to save** is what would remain at payday at the usual pace of everyday
-  spending, minus a cushion of one month of regular essentials.
+- **Safe to spend** is what is left of this pay period's money. It starts from the
+  balance and takes off:
+  - the reserve: what was on the account just before the last salary came in. The
+    data has one account per customer and no savings account, so this is how money
+    saved up earlier is told apart from this month's income;
+  - bills still due before payday, groceries and other regular essentials at the
+    recent daily rate, and the usual saving transfer;
+  - a buffer for unexpected necessities (at least one typical such purchase) and a
+    margin in case the salary arrives late, but only the part the reserve does not
+    cover. Precautions are what a reserve is for.
+
+  What is left is for everyday spending. A customer with 20,000 € saved and one with
+  nothing saved get the same figure if their month looks the same.
+- **Safe to save** looks at the whole account, reserve included: what would remain at
+  payday at the usual pace of everyday spending, minus a cushion of one month of
+  regular essentials.
 
 ## Backtest
 
@@ -505,9 +517,10 @@ Result on all 5,100 customers (168,133 cases):
 | Balance just before the next salary | median error €381 (12% of a salary); 90% of cases within €1,552 |
 | Bills due before payday | median error €57; 90% within €198 |
 | Payday date | exact in 71% of cases, within two days in 80% |
-| Customers whose everyday spending stayed within the amount shown | 92% |
-| Of those, went below zero before the salary anyway | 1.5% |
-| If the whole amount shown had been spent: balance below zero | 20% of cases |
+| Cases where an amount was shown as safe to spend | 70%; median amount until payday €816 |
+| Customers whose everyday spending stayed within the amount shown | 71% |
+| Of those, went below zero before the salary anyway | 1.2% |
+| If the whole amount shown had been spent: balance below zero | 2.3% of cases |
 
 What it taught us, and what changed because of it:
 
@@ -518,11 +531,20 @@ What it taught us, and what changed because of it:
   days in 69% of cases and spending the whole amount would have overdrawn in 45%.
 - **Unexpected necessities are lumpy.** A monthly average does not cover a single
   €500 purchase, so the buffer is now at least one typical such purchase.
-- **The amount is an estimate, not a guarantee.** Spending all of it would still end
-  below zero in one case in five, mostly when the salary is late or a large purchase
-  lands. The app should present it with its assumptions, which the engine returns.
-- **Many customers hold large balances**, so the median amount shown is about
-  €4,700. A version that also keeps a fixed cushion may suit those customers better.
+- **Many customers hold large balances.** Half of them have more than two months of
+  spending on the account. Counting the whole balance, the median amount shown was
+  about €4,700, far more than anyone spends in a pay period, and spending all of it
+  would have ended below zero in one case in five. Safe to spend now counts this pay
+  period's money only and treats what was there before the last salary as a reserve.
+  The median amount shown is €816, and spending all of it would overdraw in 2.3% of
+  cases.
+- **The amount is now a limit people actually reach.** In 29% of the cases where an
+  amount was shown, the customer spent more than it on everyday things, which means
+  they dipped into the reserve. In 30% of all cases nothing was shown as safe to
+  spend: this period's money was already used or spoken for. That matches the data,
+  where about a quarter of customers spend more than they earn.
+- **The amount is an estimate, not a guarantee.** The app presents it with its
+  assumptions, which the engine returns.
 
 ## Backend
 
@@ -551,7 +573,8 @@ answers are cut off at the demo's "today", so later transactions never appear.
 | `POST /api/transactions` | The transactions behind an engine result: `{ customerId, filter, limit }` |
 | `POST /api/tts` | Text to speech: `{ text, languageCode? }` → MP3 audio (ElevenLabs, from `packages/voice`) |
 | `POST /api/stt` | Speech to text: an `audio` form file or a raw audio body → `{ text, languageCode }` |
-| `POST /api/chat` | The coach: `{ customerId, question, history, blocks }` → `{ text, ops, mood, suggestions, checked, rejected, picks }` |
+| `GET/PATCH /api/customers/:id/profile` | Stored coaching style and protected spending categories |
+| `POST /api/chat` | The coach: `{ customerId, question, history, blocks, allowProtected? }` → `{ text, ops, mood, suggestions, checked, answeredBy, rejected, picks, blocked }` |
 
 The spending endpoint takes `period` (`this_month`, `last_month`, `last_30_days`,
 `last_3_months`, `last_12_months`, `this_year`, `all`) or `from` and `to`, and the
@@ -585,9 +608,9 @@ Gemini with its own key. An answer is usually one model call:
    merchant type, a what-if), it first calls `lookup`, which runs one engine function
    and returns the result to the model, at most twice per answer.
 3. **Checks.** Every tool call is validated (engine arguments, card definitions,
-   custom views) and sent back once if something is wrong. Every number in the reply
-   must be one the coach was shown, as given or rounded; the coach is told not to
-   calculate. A reply that fails is sent back once, together with the figures of the
+   custom views) and sent back once if something is wrong. Every number in the reply,
+   years included, must be one the coach was shown, as given or rounded; the coach is
+   told not to calculate. A reply that fails is sent back once, together with the figures of the
    cards it built. If it fails again, a standard sentence with a `{{cardId.value}}`
    placeholder goes out instead, and the answer has `checked: false`.
 
@@ -599,8 +622,49 @@ app and load nothing from the network.
 The caller cannot supply instructions, pick the model or reach Gemini directly. The
 whole conversation logic is in `packages/shared/src/agent` (`chat.ts` for the steps
 above, `snapshot.ts`, `figures.ts` for the number check, `viewChecks.ts`); the
-backend adds the model and the engine for the customer who is asking. `GEMINI_MODEL`
-may list several models, comma-separated; the next is tried when one is overloaded.
+backend adds the model and the engine for the customer who is asking.
+
+Coaching preferences are stored separately in a small writable SQLite database. A customer can
+choose an encouraging, direct or exploratory style and categories to keep as-is. The server applies
+those category protections to savings and what-if lookups, including cards; `allowProtected` only
+shows one protected category in one chat answer and never changes the stored profile. This demo API
+has no authentication, so profile routes are intentionally open like the rest of the demo API.
+
+Two models share the work. A fast one (`GEMINI_MODEL`) answers most turns in about
+two seconds. A stronger one (`GEMINI_STRONG_MODEL`) takes the turns that gain from
+it, in six to nine seconds:
+
+- turns the fast model hands over: advice and assessments ("how could I save
+  more?"), goals and plans, charts the library does not have;
+- every turn that touches the planning functions (`goalPlan`, `savingsOptions`) or a
+  plan on the dashboard, whether or not the fast model handed it over;
+- second tries, when the fast model's answer was rejected or failed the number check.
+
+If the stronger model fails, the fast one answers after all.
+`GEMINI_STRONG_MODEL=off` runs the fast model alone.
+
+Each setting may list several models, comma-separated; the next is tried when one
+is overloaded. A name may carry a thinking level after a colon. The defaults are
+`gemini-3.5-flash-lite,gemini-3.8-flash:low` for the fast model and the same two in
+the other order for the stronger one, chosen from one run of the chat evaluation per
+model (11 questions, one customer, 14 Nov 2026):
+
+| Model | Answers right | Seconds per answer (median, longest) |
+|---|---|---|
+| `gemini-3.5-flash-lite` | 11 of 11 | 2.3, 4.6 |
+| `gemini-3.1-flash-lite` | 9 of 11 | 2.1, 3.6 |
+| `gemini-3.6-flash:minimal` | 9 of 11 | 4.1, 7.6 |
+| `gemini-3.8-flash:low` | 11 of 11 | 6.0, 7.9 |
+| `gemini-3.8-flash` | 11 of 11 | 17.1, 23.8 |
+| `gemini-4-hydrogen:low` | 11 of 11 | 7.5, 12.8 |
+| `gemini-4-hydrogen` | 11 of 11 | 14.1, 21.3 |
+
+The larger models write fuller coaching: they name the amounts and notice, for
+example, that a customer spends more than comes in. With their default thinking
+they are too slow for a chat, which is why a level is set. Gemini 4 Argon and Carbon
+were not tried. With the two models together, the same evaluation passes 11 of 11:
+nine questions answered by the fast model and two (the savings plan and "how could I
+save more?") by the stronger one.
 
 `npm run eval:chat -w @mydata/backend` asks the challenge's questions with the real
 model and compares each answer with the engine: a card with the right function and

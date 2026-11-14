@@ -84,7 +84,8 @@ export function backtestCase(customer: Customer, tx: Transaction[], cutoff: stri
     if (basketOf(t) === "everyday") everydayActual -= t.tx_amount_eur;
     if (t.balance_after_eur < minBalanceActual) minBalanceActual = t.balance_after_eur;
   }
-  const allowance = Math.max(0, plan.available);
+  // The amount shown as safe to spend: this pay period's money, without the reserve from before the last salary.
+  const allowance = Math.max(0, plan.spendable);
   const salaries = tx.slice(0, known).filter((t) => t.category === "Salary").slice(-3).map((t) => t.tx_amount_eur);
   salaries.sort((a, b) => a - b);
 

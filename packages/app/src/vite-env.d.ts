@@ -4,7 +4,7 @@
 interface ImportMetaEnv {
   readonly VITE_DATA_SOURCE?: string;
   readonly VITE_API_BASE?: string;
-  /** Gemini model id for the chat, e.g. gemini-flash-latest. */
+  /** Gemini models for the chat in dev mode, comma-separated, e.g. gemini-3.5-flash-lite. */
   readonly VITE_GEMINI_MODEL?: string;
 }
 
