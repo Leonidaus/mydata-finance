@@ -140,6 +140,14 @@ export class ReplyPlayback {
     element.onerror = () => reject(new ReplyPlaybackError());
     try {
       await element.play();
+      // `play()` resolves asynchronously. The narration control may have been switched off
+      // while the browser was starting the element, before its handle could be returned to
+      // the caller and stopped there.
+      if (!canStart()) {
+        element.pause();
+        resolve();
+        return undefined;
+      }
     } catch (error) {
       // No handle has been returned yet, so settle this internal promise before surfacing the
       // failure through `play` itself.
