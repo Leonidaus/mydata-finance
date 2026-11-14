@@ -88,6 +88,12 @@ export interface Focus {
   title: string;
 }
 
+export interface VoiceControls {
+  available: boolean;
+  speechEnabled: boolean;
+  toggleSpeech: () => void;
+}
+
 interface Props {
   /** Answers a question. Resolves to the reply and the cards that go with it. */
   onAsk: (input: AskInput) => Promise<AskResult>;
@@ -112,11 +118,13 @@ interface Props {
   onFocus?: (focus: Focus | null) => void;
   /** Told when a conversation starts and when it is empty again. */
   onActive?: (active: boolean) => void;
+  /** Makes reply narration available from the app's top-bar controls. */
+  onVoiceControls?: (controls: VoiceControls | null) => void;
 }
 
 const noCards: Block[] = [];
 
-export default function Chat({ onAsk, customerId, today = "", request, mode, header, showLog = true, overview = noCards, onSave, onDrill, focus = null, onFocus, onActive }: Props) {
+export default function Chat({ onAsk, customerId, today = "", request, mode, header, showLog = true, overview = noCards, onSave, onDrill, focus = null, onFocus, onActive, onVoiceControls }: Props) {
   const { t, category: categoryName } = useI18n();
   // The conversation and the customer it is with are one value, so the messages always belong to that customer.
   const [conv, setConv] = useState(() => ({ customerId, messages: loadConversation(customerId) }));
@@ -137,6 +145,10 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
   const live = useRef({ customerId, messages, focus });
   live.current = { customerId, messages, focus };
   const voice = useVoice(voiceClient, (text) => sendOwn(text));
+  useEffect(() => {
+    onVoiceControls?.({ available: voice.available, speechEnabled: voice.speechEnabled, toggleSpeech: voice.toggleSpeech });
+    return () => onVoiceControls?.(null);
+  }, [onVoiceControls, voice.available, voice.speechEnabled, voice.toggleSpeech]);
   const starterSuggestions = [
     { label: t("chat.starter.spending"), question: t("chat.starter.spendingQuestion") },
     { label: t("chat.starter.month"), question: t("chat.starter.monthQuestion") },
