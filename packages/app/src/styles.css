@@ -280,6 +280,8 @@ button.topbar-icon:focus-visible { background: var(--green-100); }
 .badge-peer { background: var(--info-bg); color: var(--info-text); }
 .badge-public { background: var(--info-bg); color: var(--info-text); }
 .badge-estimate { background: var(--warning-bg); color: var(--warning-text); }
+.card-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.badge-status { background: var(--surface-weak); color: var(--muted); }
 
 .icon-btn {
   font-size: 1.3rem;
@@ -342,16 +344,14 @@ button.topbar-icon:focus-visible { background: var(--green-100); }
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--green-700);
-  background: none;
-  border: none;
   padding: 0;
   margin-top: 6px;
-  cursor: pointer;
 }
 
 :root[data-theme="dark"] .stat-value { color: var(--chart-1); }
 
 .stat-caption { margin: 2px 0 8px; color: var(--muted); }
+.stat-note { margin: 0 0 8px; color: var(--muted); font-size: 0.85rem; }
 
 .stat-terms {
   list-style: none;
@@ -398,17 +398,29 @@ button.topbar-icon:focus-visible { background: var(--green-100); }
 .list tbody tr { cursor: pointer; }
 .list .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
-/* How was this made */
-.how { margin-top: 8px; font-size: 0.85rem; }
+/* Scope, method and evidence shared by every kind of card. */
+.card-context { margin-top: 8px; }
+.card-scope { margin: 8px 0 0; color: var(--muted); font-size: 0.8rem; }
+.how { margin-top: 4px; font-size: 0.85rem; }
 .how summary { cursor: pointer; color: var(--green-700); font-weight: 600; padding: 6px 0; }
-.how pre {
-  background: var(--bg);
-  border-radius: 8px;
-  padding: 8px;
-  font-size: 0.72rem;
-  overflow-x: auto;
-  max-height: 200px;
+.how > p { margin: 0 0 8px; line-height: 1.45; }
+.how h4 { margin: 12px 0 4px; font-size: 0.85rem; }
+.card-assumptions { margin: 0; padding-left: 20px; }
+.card-assumptions li { margin: 5px 0; line-height: 1.4; }
+.how .stat-terms { margin-top: 6px; }
+.evidence-btn {
+  margin-top: 8px;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--green-700);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
 }
+.evidence-btn:hover { text-decoration: underline; }
+.drawer-evidence { margin: 6px 0 0; line-height: 1.35; }
 
 /* Chat (stacked under the dashboard) */
 .chat {
@@ -418,10 +430,11 @@ button.topbar-icon:focus-visible { background: var(--green-100); }
   flex-direction: column;
   flex: 0 0 auto;
   margin-top: auto;
-  height: 42dvh;
-  min-height: min(320px, 45dvh);
+  height: 22dvh;
+  min-height: min(160px, 22dvh);
   max-height: 80dvh;
 }
+.chat.chat-active { height: 42dvh; min-height: min(320px, 45dvh); }
 
 .chat-panel-controls {
   position: relative;

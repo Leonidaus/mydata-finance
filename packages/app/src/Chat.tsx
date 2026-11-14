@@ -1,5 +1,4 @@
 import { type ChangeEvent, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
-import { DEMO_PROMPTS } from "./agent/mockAgent";
 import type { ChatImage, Mood, PhotoRead, ProtectedCategory } from "@mydata/shared";
 import type { ChatMode } from "./agent";
 import CoachFace from "./CoachFace";
@@ -47,17 +46,9 @@ function UserBubble({ message }: { message: Message }) {
   );
 }
 
-/** A few of each kind, so the chips show templates, custom charts and widgets. */
-const SUGGESTIONS = [
-  ...DEMO_PROMPTS[0].prompts.slice(0, 4),
-  ...DEMO_PROMPTS[1].prompts.slice(0, 2),
-  ...DEMO_PROMPTS[2].prompts,
-  ...DEMO_PROMPTS[0].prompts.slice(4, 6),
-];
-
 const voiceClient = createVoiceClient(apiBase);
-const MIN_CHAT_HEIGHT = 320;
-const MIN_CHAT_VIEWPORT = 0.45;
+const MIN_CHAT_HEIGHT = 160;
+const MIN_CHAT_VIEWPORT = 0.22;
 
 function minimumChatHeight() {
   return Math.min(MIN_CHAT_HEIGHT, window.innerHeight * MIN_CHAT_VIEWPORT);
@@ -136,6 +127,11 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
   const conversation = useRef(0);
   const pendingRef = useRef(false);
   const voice = useVoice(voiceClient, (text) => sendOwn(text));
+  const starterSuggestions = [
+    { label: t("chat.starter.spending"), question: t("chat.starter.spendingQuestion") },
+    { label: t("chat.starter.month"), question: t("chat.starter.monthQuestion") },
+    { label: t("chat.starter.goal"), question: t("chat.starter.goalQuestion") },
+  ];
 
   useEffect(() => {
     conversation.current++;
@@ -267,7 +263,7 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
   }
 
   return (
-    <section className="chat" aria-label={t("chat.label")} style={chatHeight !== null ? { height: chatHeight } : undefined}>
+    <section className={`chat${messages.length > 0 ? " chat-active" : ""}`} aria-label={t("chat.label")} style={chatHeight !== null ? { height: chatHeight } : undefined}>
       <div className="chat-panel-controls">
         <button
           className="chat-resize"
@@ -364,9 +360,9 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
         <details className="suggestions-panel" open>
           <summary>{t("chat.suggestedTitle")}</summary>
           <ChipRow className="suggestions" label={t("chat.suggestedQuestions")}>
-            {SUGGESTIONS.map((s) => (
-              <button key={s} type="button" className="chip" onClick={() => send(s, true)} disabled={pending}>
-                {s}
+            {starterSuggestions.map((suggestion) => (
+              <button key={suggestion.question} type="button" className="chip" onClick={() => send(suggestion.question, true)} disabled={pending}>
+                {suggestion.label}
               </button>
             ))}
           </ChipRow>
