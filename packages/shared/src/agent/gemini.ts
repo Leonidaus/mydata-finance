@@ -32,13 +32,19 @@ export interface GeminiOptions {
  */
 export const DEFAULT_GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash:low"];
 
+/**
+ * The stronger model that takes over the turns the fast one hands on (see chat.ts), with the fast
+ * one as its stand-in when it is overloaded: a quicker answer beats none.
+ */
+export const DEFAULT_STRONG_GEMINI_MODELS = ["gemini-3.8-flash:low", "gemini-3.5-flash-lite"];
+
 /** "a, b" → ["a", "b"]; empty or missing → the defaults. */
-export function parseGeminiModels(value: string | undefined): string[] {
+export function parseGeminiModels(value: string | undefined, defaults: string[] = DEFAULT_GEMINI_MODELS): string[] {
   const models = (value ?? "")
     .split(",")
     .map((m) => m.trim())
     .filter(Boolean);
-  return models.length ? models : DEFAULT_GEMINI_MODELS;
+  return models.length ? models : defaults;
 }
 
 /** Overloaded, rate-limited or briefly broken: worth another try. */
