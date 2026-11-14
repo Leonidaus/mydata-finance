@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { BENCHMARK_CATEGORY_NAMES } from "../benchmark/statfin";
 import { applyOps, type Block } from "../blocks";
 import { contextFromFixture, type FixtureBundle, type FixtureIndex } from "./fixture";
 import { EngineArgumentError } from "./args";
@@ -171,6 +172,34 @@ describe.each(contexts)("financial definitions on $label", ({ ctx }) => {
 
     expect(() => runEngine(ctx, "spendBy", { mcc: "9999" })).toThrow(EngineArgumentError);
     expect(() => runEngine(ctx, "spendBy", { mcc: "4121", category: "Groceries" })).toThrow(/belongs to Transportation/);
+  });
+
+  it("compares with Statistics Finland per category, and says where the figures come from", () => {
+    const r = runEngine(ctx, "nationalCompare");
+    expect(r.rows.map((row) => row.category)).toEqual(BENCHMARK_CATEGORY_NAMES.flatMap((c) => [c, c]));
+    for (let i = 0; i < r.rows.length; i += 2) {
+      const [you, finland] = [r.rows[i], r.rows[i + 1]];
+      expect(you.who).toBe("You");
+      expect(String(finland.who)).toMatch(/^Finland \d/);
+      close(you.difference as number, (you.amount as number) - (finland.amount as number));
+      // The "You" figure is the same monthly average the peer comparison shows.
+      const peer = runEngine(ctx, "peerCompare", { category: you.category }).rows.find((row) => row.who === "You");
+      expect(you.amount).toBe(peer?.amount ?? 0);
+    }
+    expect(r.assumptions!.join(" ")).toMatch(/Statistics Finland.*2022.*consumer price index/);
+    expect(r.assumptions!.join(" ")).toMatch(/synthetic/);
+  });
+
+  it("compares with one adult by default and with a whole household on request", () => {
+    const one = runEngine(ctx, "nationalCompare", { category: "Groceries" });
+    const all = runEngine(ctx, "nationalCompare", { category: "Groceries", basis: "household" });
+    expect(one.rows).toHaveLength(2);
+    expect(all.rows[1].amount as number).toBeGreaterThan(one.rows[1].amount as number);
+    expect(one.caption).toMatch(/one adult/);
+    expect(all.caption).toMatch(/household/);
+    // A category without a national counterpart is an error, not an empty chart.
+    expect(() => runEngine(ctx, "nationalCompare", { category: "Travel" })).toThrow(EngineArgumentError);
+    expect(() => runEngine(ctx, "nationalCompare", { basis: "family" })).toThrow(/one_adult, household/);
   });
 
   it("peer comparison covers the same 12 months on both sides", () => {

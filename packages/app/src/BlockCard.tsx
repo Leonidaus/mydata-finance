@@ -12,6 +12,7 @@ import VegaBlock from "./renderers/VegaBlock";
 const SOURCE_LABELS: Record<Block["source"], string> = {
   own: "Your data",
   peer: "Peer average",
+  public: "Statistics Finland",
   estimate: "Estimate",
 };
 

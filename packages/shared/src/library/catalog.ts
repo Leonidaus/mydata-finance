@@ -2,6 +2,7 @@
  * Ready-made block factories, one per template. The default dashboard and the stand-in agent
  * use these, and the LLM reaches them through the component library (components.ts).
  */
+import { BENCHMARK_CATEGORY_NAMES } from "../benchmark/statfin";
 import type { Block, Control } from "../blocks";
 import { lookupMcc } from "../mcc";
 import { PERIODS, SPENDING_CATEGORIES } from "../engine/util";
@@ -133,6 +134,33 @@ export const catalog = {
     data: { kind: "engine", fn: "peerCompare", args: { category } },
     view: { kind: "template", template: "peer_compare" },
     controls: [categoryControl(true)],
+  }),
+
+  national: (category = "", basis: "one_adult" | "household" = "one_adult"): Block => ({
+    id: id("finland"),
+    title: "You vs Finland",
+    explanation:
+      "Your monthly average over the last 12 months next to what people in Finland in your age group spend, from Statistics Finland's 2022 consumption survey raised to today's prices with the consumer price index. The categories match only roughly.",
+    source: "public",
+    data: { kind: "engine", fn: "nationalCompare", args: { category, basis } },
+    view: { kind: "template", template: "peer_compare" },
+    controls: [
+      {
+        kind: "select",
+        arg: "basis",
+        label: "Compare with",
+        options: [
+          { value: "one_adult", label: "One adult" },
+          { value: "household", label: "A whole household" },
+        ],
+      },
+      {
+        kind: "select",
+        arg: "category",
+        label: "Category",
+        options: [{ value: "", label: "All compared categories" }, ...BENCHMARK_CATEGORY_NAMES.map((c) => ({ value: c, label: c }))],
+      },
+    ],
   }),
 
   calendar: (period = "last_3_months"): Block => ({
