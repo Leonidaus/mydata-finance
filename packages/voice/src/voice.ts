@@ -48,8 +48,8 @@ export async function speak(text: string, options: SpeakOptions = {}): Promise<R
     // multilingual_v2 infers the language from the text and does not accept languageCode.
     // When no language is set, omit it so other models auto-detect too.
     ...(modelId !== "eleven_multilingual_v2" && languageCode ? { languageCode } : {}),
-    // Flash skips number normalization by default, which mangles currency amounts.
-    ...(modelId === "eleven_flash_v2_5" ? { applyTextNormalization: "on" as const } : {}),
+    // Do not force Flash normalization: ElevenLabs restricts that option on some plans.
+    // Omitting it lets the provider apply its supported default for the selected model.
   });
 }
 
