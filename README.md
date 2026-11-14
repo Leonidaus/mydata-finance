@@ -262,11 +262,14 @@ Until the repository's default branch is changed to `develop`, GitHub proposes
 
 Current layout from the first skeleton. If we go with Next.js, `packages/app`
 becomes the Next.js app and `packages/backend` the finance engine and AI layer.
+`packages/voice` is the ElevenLabs voice service (TTS/STT); its handlers can be
+re-exported as Next.js route handlers (`@mydata/voice`).
 
 ```
 packages/
   app/       # Vite + React web app, mobile-first
   backend/   # Finance API: Node + TypeScript server over the SQLite database
+  voice/     # Voice service: ElevenLabs text-to-speech and speech-to-text handlers
   infra/     # Infrastructure code (empty for now)
   shared/    # Dataset schema + shared types (the single source of truth)
 data/
