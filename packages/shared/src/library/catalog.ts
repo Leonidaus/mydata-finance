@@ -1,8 +1,9 @@
 /**
  * Ready-made block factories, one per template. The default dashboard and the stand-in agent
- * use these; the LLM tools (phase 2) will expose the same templates and arguments.
+ * use these, and the LLM reaches them through the component library (components.ts).
  */
-import { type Block, type Control, PERIODS, SPENDING_CATEGORIES } from "@mydata/shared";
+import type { Block, Control } from "../blocks";
+import { PERIODS, SPENDING_CATEGORIES } from "../engine/util";
 
 let seq = 0;
 const id = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${(seq++).toString(36)}`;

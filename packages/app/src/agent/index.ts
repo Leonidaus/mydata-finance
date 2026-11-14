@@ -28,5 +28,9 @@ export async function askAgent(question: string, ctx: AgentContext): Promise<Age
   if (!geminiAvailable) return respond(question, ctx.blocks, ctx.run);
   const out = await runChat(gemini, { question, history: ctx.history, blocks: ctx.blocks, today: ctx.today });
   if (out.rejected.length) console.warn("Gemini tool calls rejected:", out.rejected);
+  for (const p of out.picks) {
+    if (p.via === "library") console.info(`[agent] ${p.blockId}: library component ${p.component}`);
+    else console.info(`[agent] ${p.blockId}: custom ${p.view}${p.why ? ` (why: ${p.why})` : ""}`);
+  }
   return { text: out.text, ops: out.ops };
 }

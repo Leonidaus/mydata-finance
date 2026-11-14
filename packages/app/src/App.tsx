@@ -1,8 +1,16 @@
-import { applyOps, type Block, type Dashboard, type EngineResult, fillPlaceholders, placeholderBlockIds, type TxFilter } from "@mydata/shared";
+import {
+  applyOps,
+  type Block,
+  type Dashboard,
+  defaultDashboard,
+  type EngineResult,
+  fillPlaceholders,
+  placeholderBlockIds,
+  type TxFilter,
+} from "@mydata/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { askAgent, cannedReply, type RunEngine } from "./agent";
 import BlockCard from "./BlockCard";
-import { defaultDashboard } from "./catalog";
 import Chat from "./Chat";
 import DevGallery from "./DevGallery";
 import { DataSourceContext, dataSource, fixtureSource, loadIndex } from "./data";

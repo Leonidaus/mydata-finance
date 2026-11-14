@@ -6,17 +6,22 @@
 import { type Block, type BlockView, type Control, type DashboardOp, TEMPLATE_IDS, type TemplateId } from "../blocks";
 import { ENGINE_ARG_SPECS, validateEngineArgs } from "../engine/args";
 import { ENGINE_FNS, type EngineFn } from "../engine/types";
+import { buildComponent, COMPONENT_IDS, type ComponentId, isComponentId } from "../library/components";
 import { TEMPLATE_FNS } from "./catalog";
 import type { ToolCall } from "./tools";
 
 export const MAX_VIEW_CHARS = 30_000;
 const ID_RE = /^[a-z][a-z0-9-]{0,47}$/;
 
+/** How each added card was made, for debugging which questions still get custom views. */
+export type CardPick = { blockId: string; via: "library"; component: ComponentId } | { blockId: string; via: "custom"; view: BlockView["kind"]; why?: string };
+
 export interface ParsedReply {
   ops: DashboardOp[];
   /** The reply text, with placeholders still in it. */
   text: string | null;
   errors: string[];
+  picks: CardPick[];
 }
 
 class CallError extends Error {}
@@ -122,15 +127,33 @@ function addBlock(a: Record<string, unknown>): Block {
   const source = a.source;
   if (source !== "own" && source !== "peer" && source !== "estimate") fail('source must be "own", "peer" or "estimate".');
   const ctrls = controls(a.controls, fn);
+  const v = view(a, fn);
+  if (v.kind !== "template") {
+    str(a.why_custom, "why_custom (why no library component fits; otherwise call use_component)", 300);
+  }
   return {
     id: id(a.id),
     title: str(a.title, "title", 80),
     explanation: str(a.explanation, "explanation", 600),
     source: source as Block["source"],
     data: { kind: "engine", fn, args: engineArgs(fn, a.args) },
-    view: view(a, fn),
+    view: v,
     ...(ctrls ? { controls: ctrls } : {}),
   };
+}
+
+function useComponent(a: Record<string, unknown>): { block: Block; component: ComponentId } {
+  const bid = id(a.id);
+  const component = a.component;
+  if (!isComponentId(component)) return fail(`component must be one of: ${COMPONENT_IDS.join(", ")}.`);
+  if (a.args !== undefined && !isRecord(a.args)) fail("args must be an object.");
+  let block: Block;
+  try {
+    block = buildComponent(component, (a.args as Record<string, unknown> | undefined) ?? {});
+  } catch (e) {
+    return fail(`args for ${component}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  return { block: { ...block, id: bid, ...(a.title !== undefined ? { title: str(a.title, "title", 80) } : {}) }, component };
 }
 
 function updateBlock(a: Record<string, unknown>, existing: Block): DashboardOp {
@@ -161,6 +184,7 @@ function updateBlock(a: Record<string, unknown>, existing: Block): DashboardOp {
 export function parseToolCalls(calls: ToolCall[], current: Block[]): ParsedReply {
   const ops: DashboardOp[] = [];
   const errors: string[] = [];
+  const picks: CardPick[] = [];
   let text: string | null = null;
   // Ids known so far: the dashboard plus cards added earlier in this answer.
   const known = new Map(current.map((b) => [b.id, b]));
@@ -169,10 +193,18 @@ export function parseToolCalls(calls: ToolCall[], current: Block[]): ParsedReply
     const a = isRecord(call.args) ? call.args : {};
     try {
       switch (call.name) {
+        case "use_component": {
+          const { block, component } = useComponent(a);
+          known.set(block.id, block);
+          ops.push({ op: "add_block", block, index: 0 });
+          picks.push({ blockId: block.id, via: "library", component });
+          break;
+        }
         case "add_block": {
           const block = addBlock(a);
           known.set(block.id, block);
           ops.push({ op: "add_block", block, index: 0 });
+          picks.push({ blockId: block.id, via: "custom", view: block.view.kind, ...(typeof a.why_custom === "string" ? { why: a.why_custom } : {}) });
           break;
         }
         case "update_block": {
@@ -207,5 +239,5 @@ export function parseToolCalls(calls: ToolCall[], current: Block[]): ParsedReply
       errors.push(`${call.name}${typeof a.id === "string" ? ` (${a.id})` : ""}: ${e.message}`);
     }
   }
-  return { ops, text, errors };
+  return { ops, text, errors, picks };
 }

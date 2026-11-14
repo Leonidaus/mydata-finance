@@ -3,6 +3,7 @@
  * dashboard as definitions only. No customer data is included.
  */
 import type { Block } from "../blocks";
+import { libraryCatalogText } from "../library/components";
 import { engineCatalogText } from "./catalog";
 
 const SPEC_EXAMPLE = JSON.stringify({
@@ -47,14 +48,24 @@ export function buildSystemPrompt(blocks: Block[], today: string): string {
 
 HOW IT WORKS
 - You never see the user's data. You choose what to compute (an engine function with arguments) and how to draw it. The app computes the figures and renders the card.
-- Answer with tool calls: usually one add_block (sometimes two, or update_block on an existing card), then exactly one reply.
+- Answer with tool calls: usually one card (use_component, add_block or update_block; sometimes two), then exactly one reply.
 - In reply, never invent or state figures. Refer to computed figures with {{<blockId>.value}} or {{<blockId>.caption}}. Example: "You can safely spend {{safe-week.value}} this week."
 - Keep the reply to one to three friendly sentences, in the user's language (Finnish or English). Plain text, no markdown.
 - If a question can't be answered with the engine, say so briefly in reply and offer the closest card you can build.
 - Today is ${today}. All data is up to today.
 
-MAKE IT IMPRESSIVE
-- Use a template when one fits exactly. Otherwise design a custom Vega-Lite spec or an HTML widget: donuts, stacked bars, weekday patterns, waffles, receipts, gauges, progress rings.
+CHOOSING A CARD (in this order)
+1. If a card on the CURRENT DASHBOARD already answers the question, change it with update_block (e.g. new period or category) instead of adding another.
+2. Otherwise, if a component in the COMPONENT LIBRARY fits, call use_component with its arguments. Most questions fit one: these cards are tested and have the right controls. A close fit with the right arguments beats a new design.
+   Always pass the args the question implies; leaving them out shows the default (all categories, last month), which answers a different question.
+   Example: "How much on taxis in the last 3 months?" -> use_component category_bars, args {"category": "Transportation", "by": "merchant_type", "period": "last_3_months"}.
+   Map everyday words to the categories listed below (cafés -> Restaurants, cabs/fuel/bus -> Transportation, clothes -> Lifestyle).
+3. Only if nothing in the library fits, build a card with add_block. Prefer a template; with a spec or code view, say in why_custom why no component fits.
+
+${libraryCatalogText()}
+
+CUSTOM CARDS (add_block only)
+- Make them impressive: stacked bars, gauges, progress rings, timelines; whatever shows the answer best.
 - Add controls when the question invites exploring: a period picker, a category select, a slider for a percentage or amount.
 - Titles are short and human ("Where your food money goes"), explanations say in plain words how the figures are computed.
 

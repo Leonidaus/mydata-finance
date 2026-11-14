@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Block } from "../blocks";
+import { buildComponent, COMPONENT_IDS } from "../library/components";
 import { type ChatModel, type ChatModelRequest, runChat } from "./chat";
 import { fillPlaceholders, placeholderBlockIds } from "./placeholders";
 import { buildSystemPrompt } from "./prompt";
@@ -51,11 +52,43 @@ describe("parseToolCalls", () => {
   });
 
   it("parses Vega-Lite specs given as JSON strings and checks code widgets", () => {
-    const spec = add({ view_kind: "spec", spec: JSON.stringify({ mark: "bar" }), template: undefined });
-    const badCode = add({ id: "w", view_kind: "code", code: "<div>no data</div>" });
+    const spec = add({ view_kind: "spec", spec: JSON.stringify({ mark: "bar" }), template: undefined, why_custom: "No bar-per-month component." });
+    const badCode = add({ id: "w", view_kind: "code", code: "<div>no data</div>", why_custom: "x" });
     const r = parseToolCalls([spec, badCode], []);
     expect(r.ops[0]).toMatchObject({ block: { view: { kind: "spec", spec: { mark: "bar" } } } });
     expect(r.errors[0]).toMatch(/mydata.onData/);
+  });
+
+  it("asks why a custom view was needed", () => {
+    const r = parseToolCalls([add({ view_kind: "spec", spec: JSON.stringify({ mark: "bar" }), template: undefined })], []);
+    expect(r.ops).toEqual([]);
+    expect(r.errors[0]).toMatch(/why_custom/);
+  });
+
+  it("builds library components with the factory's view and controls", () => {
+    const r = parseToolCalls(
+      [{ name: "use_component", args: { id: "taxi", component: "category_bars", args: { period: "last_month", category: "Transportation" }, title: "Taxis" } }],
+      [],
+    );
+    expect(r.errors).toEqual([]);
+    const { id: _a, title: _b, ...expected } = buildComponent("category_bars", { period: "last_month", category: "Transportation" });
+    expect(r.ops).toEqual([{ op: "add_block", index: 0, block: { ...expected, id: "taxi", title: "Taxis" } }]);
+    expect(r.picks).toEqual([{ blockId: "taxi", via: "library", component: "category_bars" }]);
+  });
+
+  it("rejects unknown components and arguments the component doesn't take", () => {
+    const r = parseToolCalls(
+      [
+        { name: "use_component", args: { id: "a", component: "pie_of_doom" } },
+        { name: "use_component", args: { id: "b", component: "spending_donut", args: { category: "Groceries" } } },
+        { name: "use_component", args: { id: "c", component: "what_if", args: { cutPct: 500 } } },
+      ],
+      [],
+    );
+    expect(r.ops).toEqual([]);
+    expect(r.errors[0]).toMatch(/component must be one of: .*safe_to_spend/);
+    expect(r.errors[1]).toMatch(/spending_donut does not take "category". Allowed: period/);
+    expect(r.errors[2]).toMatch(/cutPct/);
   });
 
   it("checks controls against the function's arguments", () => {
@@ -122,5 +155,13 @@ describe("runChat", () => {
     const prompt = buildSystemPrompt([existing], "2026-09-15");
     expect(prompt).toContain('id safe-week: "Safe to spend" = safeToSpend({"horizon":"week"})');
     expect(prompt).not.toMatch(/customer_id|CUST\d/);
+  });
+
+  it("lists every library component in the prompt, and each builds with defaults", () => {
+    const prompt = buildSystemPrompt([], "2026-09-15");
+    for (const c of COMPONENT_IDS) {
+      expect(prompt).toContain(`- ${c}:`);
+      expect(buildComponent(c).data.kind).toBe("engine");
+    }
   });
 });
