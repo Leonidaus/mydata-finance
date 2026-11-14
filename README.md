@@ -5,10 +5,11 @@ Junction 2026. People ask questions about their own banking data and get answers
 they can inspect, in the spirit of MyData: their data, their questions, not charts
 the bank picked for them.
 
-> **Status: working prototype.** The app, the finance engine, the database build and
-> the API exist and are tested. The chat still uses keyword rules, not a language
-> model. See [Where things stand](#where-things-stand) for what is done and what is
-> next.
+> **Status: working prototype, deployed.** The app, the finance engine, the database
+> build, the API and the coach (a language model that answers from the engine's
+> figures, with every number checked) exist and are tested. See
+> [Where things stand](#where-things-stand) for what is done, and [TODO.md](TODO.md)
+> for what is next and how it maps to the judging criteria.
 
 ## The challenge in one paragraph
 
@@ -74,6 +75,20 @@ What should set us apart from a chat box on top of a pie chart:
 5. **"What kind of spender am I?" from real cohorts.** Cluster the 5,100 customers
    and show percentiles against the same age band and postal area.
 6. **Finnish first, in plain language**, with an English toggle.
+
+What came of it:
+
+- The equation is the safe-to-spend card. The engine also holds back groceries and
+  other essentials until payday and a margin for a late salary; see
+  [Backtest](#backtest) for why.
+- 1, 2 and 4 are built.
+- 3 became a savings plan towards any goal, with saving for a home as the main
+  example (see [Saving towards a goal](#saving-towards-a-goal)). The coach explains
+  what matters for a mortgage but does not judge whether a loan would be granted.
+- 5 is answered from the three baskets and from comparisons by age band, with other
+  customers and with Statistics Finland. Customers are not clustered.
+- 6: the coach answers in Finnish when asked in Finnish. The interface itself is
+  still in English.
 
 ## Stretch goal: multi-bank view
 
@@ -168,8 +183,9 @@ radar is SOK's, so S-Pankki may differ, and it has no AI entries at all.
 | Database | One SQLite file with all customers, built by Python | not listed; Aurora would be the ADOPT choice in production |
 | Data prep | Python, standard library only | ADOPT |
 | Tests | Vitest | not listed; Jest is the ADOPT choice |
-| Deploy | One Docker container serving the API and the built app | ADOPT (Docker) |
-| AI | Gemini for the chat, run by the backend (prompt, key and validation stay on the server); a keyword mock when no key is set | not on the radar |
+| Deploy | One Docker container serving the API and the built app, behind Caddy on a Verda instance | ADOPT (Docker) |
+| AI | Gemini for the coach, run by the backend (prompt, key and checks stay on the server); keyword rules when no key is set | not on the radar |
+| Voice | ElevenLabs text to speech and speech to text, called by the backend | not on the radar |
 
 Production path for the pitch, not for the weekend: Lambda or Fargate, Aurora,
 DynamoDB for sessions and pinned cards, Kinesis for proactive nudges, CDK, GitLab.
@@ -193,7 +209,8 @@ Still open:
 | Decision | Options | What decides it |
 |---|---|---|
 | Interface language | Finnish first with an English toggle, or English only | Time left once the chat works. |
-| Tech challenges | Verda + Nemotron, ElevenLabs, Aiven, Oxylabs | Time left after the core demo. |
+| Tech challenges | Which to submit. The voice mode (ElevenLabs) is built and the demo runs on Verda; Nemotron, Aiven and Oxylabs are not started | Time left after the core demo. |
+| Coaching styles | One coach with a style the user picks (encouraging, direct, exploratory), or one fixed style as now | Time; see [TODO.md](TODO.md). |
 | Safe-to-spend cushion | Spend down to zero (now), or always keep a fixed cushion | Many customers hold large balances; see [Backtest](#backtest). |
 
 ## Tech challenges worth entering
@@ -202,14 +219,16 @@ Side challenges can be combined with the S-Pankki challenge. Shortlist:
 
 | Challenge | Prize | Fit |
 |---|---|---|
-| Verda Compute | $10,000 in credits | Their brief names "open-weight models for a banking coach" as an example. Inference in Europe plus the 5,100-customer backtest as a batch job. |
+| Verda Compute | $10,000 in credits | Their brief names "open-weight models for a banking coach" as an example. The demo is hosted on a Verda instance. Still possible: inference in Europe and the 5,100-customer backtest as a batch job. |
 | NVIDIA Nemotron | 2 × RTX 5080 | The model reads images and documents: photograph a bill or a flat listing and ask "can I afford this?". Free hosted API, about 40 requests a minute. |
-| ElevenLabs | Earbuds | A voice mode: the coach speaks its answers. Low effort. |
+| ElevenLabs | Earbuds | Built: a voice mode in the chat. The coach speaks its answers and listens for the next question. |
 | Aiven | €1,000 / €750 / €500 | Aiven PostgreSQL as our database. |
 | Oxylabs | €1,000 voucher + credits | One live, cited lookup, such as today's Euribor in the mortgage what-if. |
 
-To check at the booths: whether Verda's inference API serves Nemotron (one
-integration would then cover both), and how ElevenLabs sounds in Finnish.
+Checked: in Finnish the default ElevenLabs model misreads amounts (228 came out as
+"222"); `ELEVENLABS_TTS_MODEL_ID=eleven_flash_v2_5` with
+`ELEVENLABS_TTS_LANGUAGE_CODE=fi` reads them correctly. Not checked: whether Verda's
+inference API serves Nemotron, in which case one integration would cover both.
 
 ## Where things stand
 
@@ -219,20 +238,25 @@ Done:
   5,100 customers.
 - Finance engine with fourteen functions, including safe to spend, safe to save,
   what-if, forecast, peer comparison, a comparison with Statistics Finland's
-  figures, goal progress and a savings plan towards a goal. Every result carries a filter for
-  the transactions behind it, and estimates carry their assumptions.
+  figures, goal progress and a savings plan towards a goal. Every result carries a
+  filter for the transactions behind it, and estimates carry their assumptions.
 - API over the database: the engine for any customer, plus spending and summaries.
-- App with configurable cards, charts and transaction drill-downs.
-- A backtest of the forecast and safe to spend on all customers.
+- The coach: a language model behind `POST /api/chat` that gets the engine's figures
+  for the customer, answers in words in the user's language, adds a card when a
+  picture helps, and can take a savings goal from a target to a plan. Every number
+  in a reply is checked against the figures it was shown. See [Backend](#backend).
+- App in the look of S-mobiili: configurable cards, charts and animated widgets,
+  drill-down to the transactions behind every figure, the coach's face and
+  suggested next steps, and a voice mode.
+- A backtest of the forecast and safe to spend on all customers, and an evaluation
+  of the coach's answers against the engine with the real model.
+- CI on every pull request, and deployment to a host with HTTPS on every push to
+  `main`.
 
-Next, in order:
-
-1. Connect a language model to the chat: a server endpoint that lets the model call
-   the engine functions as tools. The engine already checks every argument.
-2. Add an app card for safe to save.
-3. Deploy (see [Deploy](#deploy)) and test the whole flow on a phone.
-4. Stretch: mortgage readiness, the multi-bank view, a voice mode, read-only SQL
-   exploration.
+What is next, in order and against the judging criteria, is in [TODO.md](TODO.md).
+The first items there: release the coach and goal planning to the live demo, two
+fixes to the savings plan, a test on a real phone, coaching styles, a Finnish
+interface, and the demo script.
 
 Not planned for the hackathon: authentication, per-customer access control and
 restricting which origins may call the API. See [Demo boundary](#demo-boundary).
@@ -266,23 +290,24 @@ the Deploy workflow automatically.
 
 ## Repo layout
 
-Current layout from the first skeleton. If we go with Next.js, `packages/app`
-becomes the Next.js app and `packages/backend` the finance engine and AI layer.
-`packages/voice` is the ElevenLabs voice service (TTS/STT); its handlers can be
-re-exported as Next.js route handlers (`@mydata/voice`).
+An npm workspace. The finance engine and the coach live in `packages/shared`, so the
+app (on its fixture customers) and the backend (on the database) run the same code.
 
 ```
 packages/
-  app/       # Vite + React web app, mobile-first
-  backend/   # Finance API: Node + TypeScript server over the SQLite database
-  voice/     # Voice service: ElevenLabs text-to-speech and speech-to-text handlers
+  app/       # Vite + React web app, mobile-first: cards, chat, voice, widgets
+  backend/   # Finance API over the SQLite database; runs the coach and the voice routes
+  shared/    # Dataset schema, finance engine, the coach (prompt, tools, checks), card library
+  voice/     # ElevenLabs text-to-speech and speech-to-text handlers
   infra/     # Infrastructure code (empty for now)
-  shared/    # Dataset schema + shared types (the single source of truth)
 data/
   raw/       # Local source CSVs (gitignored; see "Data" below)
   out/       # Generated databases (gitignored)
   prep/      # Python: CSV → application database, or a per-customer bundle;
              # fetch_statfin.py refreshes the Statistics Finland snapshot
+deploy/      # Compose file and setup steps for the demo host
+docs/        # The implementation review and what was done about it
+.github/     # CI and deploy workflows
 ```
 
 ## Data
@@ -603,8 +628,8 @@ curl 'http://localhost:8787/api/customers/CUST03004/engine/whatIf?category=Resta
 
 SQL data requests (`kind: "sql"`) are not supported yet and answer 501.
 
-The functions behind the endpoints take plain objects and return plain JSON, so
-they can be given to the model as tools unchanged.
+The functions behind the endpoints take plain objects and return plain JSON. The
+coach uses the same functions for its snapshot and its lookups.
 
 ## Deploy
 
@@ -679,6 +704,18 @@ npm run typecheck    # type-checks shared, app and backend
 npm run build        # production build of the app
 npm test             # finance engine, backend and app data-layer tests (vitest)
 ```
+
+### The coach in development
+
+- With `GEMINI_API_KEY` in `.env` at the repository root, the backend answers typed
+  questions with the model. Without a key the chat falls back to keyword rules, and
+  the suggested-question chips always use those.
+- `VITE_DATA_SOURCE=fixtures` with a key in `packages/app/.env.local` runs the coach
+  without the backend: the Vite dev server forwards the model calls and adds the key.
+- `?dev` in the address opens the component gallery with every card and widget on
+  static data.
+- The app is light on every device, like S-mobiili, whatever the device is set to.
+  `?theme=dark` in the address shows the dark palette.
 
 ### Data source modes
 
