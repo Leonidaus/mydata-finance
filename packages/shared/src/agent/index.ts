@@ -2,6 +2,7 @@ export * from "./catalog";
 export * from "./chat";
 export * from "./figures";
 export * from "./placeholders";
+export * from "./preferences";
 export * from "./prompt";
 export * from "./snapshot";
 export * from "./tools";

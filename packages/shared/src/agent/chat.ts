@@ -20,6 +20,7 @@ import { applyOps, type Block, type DashboardOp } from "../blocks";
 import { ENGINE_FNS, type EngineFn, type EngineResult } from "../engine/types";
 import { describeResult, numbersIn, questionLanguage, requestLabel, resultNumbers, unbackedNumbers } from "./figures";
 import { placeholders } from "./placeholders";
+import { type PreferenceAccess, PREFERENCES_DECLARATION, PREFERENCES_TOOL, updatePreferences } from "./preferences";
 import { buildSystemPrompt } from "./prompt";
 import { buildSnapshot, type Figures, type Headline, type Lookup, runLookup } from "./snapshot";
 import {
@@ -80,6 +81,8 @@ export interface ChatInput {
   lookup?: Lookup;
   profile?: CoachingProfile;
   allowProtected?: readonly ProtectedCategory[];
+  /** Lets the coach change the saved coaching preferences when the user asks for it. Needs `profile`. */
+  preferences?: PreferenceAccess;
 }
 
 export interface ChatOutput {
@@ -101,6 +104,10 @@ export interface ChatOutput {
   checked: boolean;
   /** Which model wrote the answer: "strong" when the fast one handed the turn over. */
   answeredBy: "fast" | "strong";
+  /** The coaching profile as saved in this answer, when the coach changed it. */
+  profile?: CoachingProfile;
+  /** Categories the coach has to ask the user about before they can come off the keep-as-is list. */
+  proposedUnprotect: ProtectedCategory[];
 }
 
 /** The reply used when the model built a card but said nothing, and the card's figures are not known here. */
@@ -115,7 +122,10 @@ const MAX_LOOKUPS_PER_ROUND = 4;
 const MAX_CARD_FIGURES = 3;
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-const answerCalls = (res: ChatModelResponse) => res.calls.filter((c) => c.name !== LOOKUP_TOOL && c.name !== HAND_OVER_TOOL);
+const answerCalls = (res: ChatModelResponse) => res.calls.filter((c) => c.name !== LOOKUP_TOOL && c.name !== HAND_OVER_TOOL && c.name !== PREFERENCES_TOOL);
+
+/** How often one answer may change the preferences before it has to answer. */
+const MAX_PREFERENCE_ROUNDS = 2;
 
 /** The engine functions and library cards for planning towards a goal. A turn that uses them is one for the stronger model. */
 const PLANNING_FNS: readonly string[] = ["goalPlan", "savingsOptions", "goalReview"];
@@ -284,11 +294,18 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
   ];
   const { lookup } = input;
   const snapshot = lookup ? await buildSnapshot(lookup, input.blocks) : null;
-  const system = buildSystemPrompt(input.blocks, input.today, {
-    snapshot: snapshot?.text,
-    profile: input.profile,
-    allowProtected: input.allowProtected,
-  });
+  let profile = input.profile;
+  const preferences = profile ? input.preferences : undefined;
+  const systemFor = (current: CoachingProfile | undefined, pendingUnprotect: readonly ProtectedCategory[]) =>
+    buildSystemPrompt(input.blocks, input.today, {
+      snapshot: snapshot?.text,
+      profile: current,
+      allowProtected: input.allowProtected,
+      ...(preferences && { preferences: { pendingUnprotect } }),
+    });
+  let system = systemFor(profile, preferences?.pendingUnprotect ?? []);
+  let savedProfile: CoachingProfile | undefined;
+  const proposedUnprotect: ProtectedCategory[] = [];
   // Every number the reply may quote: what the coach was shown, and what was said in the conversation.
   const backed = [...(snapshot?.numbers ?? []), ...numbersIn(question), ...history.flatMap((t) => numbersIn(t.text)), ...numbersIn(input.today)];
 
@@ -298,10 +315,16 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
   let handedOver = false;
   let strongFailed = false;
   let res: ChatModelResponse;
-  for (let rounds = 0; ; ) {
+  for (let rounds = 0, preferenceRounds = 0; ; ) {
     const mayLookUp = lookup !== undefined && rounds < MAX_LOOKUP_ROUNDS;
     const mayHandOver = strong !== undefined && !handedOver;
-    const tools = [...(mayHandOver ? [HAND_OVER_DECLARATION] : []), ...(mayLookUp ? [LOOKUP_DECLARATION] : []), ...TOOL_DECLARATIONS];
+    const mayChangePreferences = preferences !== undefined && preferenceRounds < MAX_PREFERENCE_ROUNDS;
+    const tools = [
+      ...(mayHandOver ? [HAND_OVER_DECLARATION] : []),
+      ...(mayChangePreferences ? [PREFERENCES_DECLARATION] : []),
+      ...(mayLookUp ? [LOOKUP_DECLARATION] : []),
+      ...TOOL_DECLARATIONS,
+    ];
     try {
       res = await active.generate({ system, turns: turnsFor(said, active), tools }, signal);
     } catch (e) {
@@ -315,6 +338,19 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
     if (mayHandOver && strong && isForStrongModel(res.calls, input.blocks)) {
       active = strong;
       handedOver = true;
+      continue;
+    }
+    // A change to the preferences comes first: what the coach may look up and suggest depends on it.
+    const changes = res.calls.filter((c) => c.name === PREFERENCES_TOOL);
+    if (preferences && profile && mayChangePreferences && changes.length) {
+      const outcome = await updatePreferences(changes, profile, preferences);
+      preferenceRounds++;
+      profile = outcome.profile;
+      if (outcome.changed) savedProfile = outcome.profile;
+      for (const category of outcome.ask) if (!proposedUnprotect.includes(category)) proposedUnprotect.push(category);
+      // The question that was pending is settled once the list has changed.
+      system = systemFor(profile, outcome.changed ? [] : preferences.pendingUnprotect);
+      said.push(modelTurn(res, active), userTurn(`PREFERENCES\n${outcome.text}\n\nNow answer the user.`));
       continue;
     }
     const lookups = res.calls.filter((c) => c.name === LOOKUP_TOOL);
@@ -431,5 +467,7 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
     suggestions: parsed.suggestions,
     checked,
     answeredBy,
+    ...(savedProfile && { profile: savedProfile }),
+    proposedUnprotect,
   };
 }
