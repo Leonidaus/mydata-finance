@@ -274,8 +274,34 @@ interface Plan {
   latePayday: string;
   /** Essentials and buffer for the days between `payday` and `latePayday`, kept back in case the salary is late. */
   lateMargin: number;
-  /** What is left for everyday spending until payday. */
+  /** What the account could bear in everyday spending until payday: the balance less everything above. */
   available: number;
+  /**
+   * What was on the account just before the latest salary came in: money left from earlier pay
+   * periods. It is the customer's to use, but it is not this period's money, so safe to spend
+   * leaves it out. Never negative.
+   */
+  reserve: number;
+  /**
+   * The parts of `buffer` and `lateMargin` that the reserve does not cover and that therefore come out
+   * of this pay period's money. Precautions are what a reserve is for, so it pays for them first.
+   */
+  bufferCharged: number;
+  lateMarginCharged: number;
+  /**
+   * What is left of this pay period's money for everyday spending until payday: `available` less the
+   * part of `reserve` that is not standing in for the precautions.
+   */
+  spendable: number;
+}
+
+/** The balance just before the latest salary was booked, or 0 when there was none or the account was overdrawn. */
+function reserveBeforeLastSalary(ctx: EngineContext): number {
+  for (let i = ctx.tx.length - 1; i >= 0; i--) {
+    const t = ctx.tx[i];
+    if (t.category === "Salary" && t.tx_date <= ctx.today) return Math.max(0, t.balance_after_eur - t.tx_amount_eur);
+  }
+  return 0;
 }
 
 function plan(ctx: EngineContext): Plan {
@@ -310,6 +336,10 @@ function plan(ctx: EngineContext): Plan {
   // size of one typical such purchase, not only the monthly average spread over the days left.
   const buffer = Math.max(irregularPerDay * daysLeft, typicalIrregularPurchase(ctx));
   const lateMargin = (essentialsPerDay + irregularPerDay) * Math.max(0, daysBetween(payday, latePayday));
+  const available = balance - billsDue - essentialsDue - savingDue - buffer - lateMargin;
+  const reserve = reserveBeforeLastSalary(ctx);
+  const bufferCharged = Math.max(0, buffer - reserve);
+  const lateMarginCharged = Math.max(0, lateMargin - Math.max(0, reserve - buffer));
   return {
     balance,
     payday,
@@ -324,7 +354,11 @@ function plan(ctx: EngineContext): Plan {
     expectedIrregular: irregularPerDay * daysLeft,
     latePayday,
     lateMargin,
-    available: balance - billsDue - essentialsDue - savingDue - buffer - lateMargin,
+    available,
+    reserve,
+    bufferCharged,
+    lateMarginCharged,
+    spendable: balance - reserve - billsDue - essentialsDue - savingDue - bufferCharged - lateMarginCharged,
   };
 }
 
@@ -352,19 +386,24 @@ function planAssumptions(ctx: EngineContext, p: Plan): string[] {
   ];
 }
 
+/** The label of a precaution, saying so when the reserve pays for all or part of it. */
+const covered = (full: number, charged: number, label: string) =>
+  full > 0 && charged === 0 ? `${label}: covered by your reserve` : charged < full ? `${label}: partly covered by your reserve` : label;
+
 function safeToSpend(ctx: EngineContext, args: Record<string, unknown>): EngineResult {
   const p = plan(ctx);
   const horizon = args.horizon === "until_payday" ? "until_payday" : "week";
-  const perDay = p.available / p.daysLeft;
-  const value = horizon === "week" ? Math.min(p.available, perDay * Math.min(7, p.daysLeft)) : p.available;
+  const perDay = p.spendable / p.daysLeft;
+  const value = horizon === "week" ? Math.min(p.spendable, perDay * Math.min(7, p.daysLeft)) : p.spendable;
   const rows: Row[] = [
     { term: "Balance today", amount: round2(p.balance) },
+    ...(p.reserve > 0 ? [{ term: "Reserve from before your last salary", amount: round2(-p.reserve) }] : []),
     { term: "Bills due before payday", amount: round2(-p.billsDue) },
     { term: "Groceries and other essentials until payday", amount: round2(-p.essentialsDue) },
     { term: "Planned saving before payday", amount: round2(-p.savingDue) },
-    { term: "Buffer for unexpected necessities", amount: round2(-p.buffer) },
-    { term: "Margin in case your salary arrives late", amount: round2(-p.lateMargin) },
-    { term: `Safe to spend until payday (${displayDate(p.payday)})`, amount: round2(p.available) },
+    { term: covered(p.buffer, p.bufferCharged, "Buffer for unexpected necessities"), amount: round2(-p.bufferCharged) },
+    { term: covered(p.lateMargin, p.lateMarginCharged, "Margin in case your salary arrives late"), amount: round2(-p.lateMarginCharged) },
+    { term: `Safe to spend until payday (${displayDate(p.payday)})`, amount: round2(p.spendable) },
   ];
   return {
     rows,
@@ -373,8 +412,15 @@ function safeToSpend(ctx: EngineContext, args: Record<string, unknown>): EngineR
     caption:
       p.available <= 0
         ? `Nothing is safe to spend before payday on ${displayDate(p.payday)}: commitments exceed your balance.`
-        : `${horizon === "week" ? "This week" : `Until payday ${displayDate(p.payday)}`} · about ${euros(perDay)} a day for everyday spending`,
-    assumptions: planAssumptions(ctx, p),
+        : p.spendable <= 0
+          ? `This pay period's money is used up or spoken for until payday on ${displayDate(p.payday)}. Spending more would come out of the ${euros(p.reserve)} you had before your last salary.`
+          : `${horizon === "week" ? "This week" : `Until payday ${displayDate(p.payday)}`} · about ${euros(perDay)} a day for everyday spending`,
+    assumptions: [
+      p.reserve > 0
+        ? `Only this pay period's money counts. The ${euros(p.reserve)} that was on the account just before your last salary came in is treated as a reserve and left out: it is yours to use, but it is not this month's income. The reserve also stands in for the buffer and for a late salary, as far as it reaches, so those are not taken from this month's money.`
+        : "Nothing was left on the account before your last salary came in, so the whole balance is this pay period's money.",
+      ...planAssumptions(ctx, p),
+    ],
     filter: { from: addDays(ctx.today, -29), to: ctx.today, kind: "all" },
   };
 }
@@ -398,7 +444,7 @@ function safeToSave(ctx: EngineContext): EngineResult {
       : `Over the last ${months} months you spent about ${euros(-surplus)} a month more than came in.`;
 
   const rows: Row[] = [
-    { term: `Safe to spend until payday (${displayDate(p.payday)})`, amount: round2(p.available) },
+    { term: `Free on the account until payday (${displayDate(p.payday)}), reserve included`, amount: round2(p.available) },
     { term: "Everyday spending at your usual pace", amount: round2(-everydayUntilPayday) },
     { term: "Cushion kept: one month of regular essentials", amount: round2(-cushion) },
     { term: left > 0 ? "Safe to move to savings now" : "Short of the cushion", amount: round2(left) },
@@ -412,6 +458,7 @@ function safeToSave(ctx: EngineContext): EngineResult {
         ? `You could move about ${euros(left)} to savings now and still keep a cushion. ${surplusText}`
         : `Nothing is safe to move right now: after your usual spending you would be below a one-month cushion. ${surplusText}`,
     assumptions: [
+      "This looks at the whole account, including money left from earlier pay periods: what is not needed before payday is what could be saved. Safe to spend counts this pay period's money only.",
       ...planAssumptions(ctx, p),
       `Everyday spending is assumed to continue at your average of the last 3 full months, about ${euros(p.everydayPerDay)} a day.`,
       `The cushion is one month of your regular essentials, about ${euros(cushion)}, kept in the account.`,

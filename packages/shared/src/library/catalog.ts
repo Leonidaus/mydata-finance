@@ -25,7 +25,7 @@ export const catalog = {
     id: id("safe"),
     title: horizon === "week" ? "Safe to spend this week" : "Safe to spend until payday",
     explanation:
-      "Your balance today, minus regular bills and planned saving still due before payday, minus a buffer for unexpected costs based on your last 12 months. The rest is spread evenly over the days until payday.",
+      "What is left of this pay period's money: your balance today, minus what was already on the account before your last salary (your reserve), minus bills, essentials and planned saving still due before payday, minus a buffer for unexpected costs. The rest is spread evenly over the days until payday.",
     source: "estimate",
     data: { kind: "engine", fn: "safeToSpend", args: { horizon } },
     view: { kind: "template", template: "stat" },
