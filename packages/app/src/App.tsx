@@ -267,8 +267,10 @@ export default function App() {
             aria-label={t("language.switch", { language: t(locale === "en" ? "language.finnish" : "language.english") })}
             title={t("language.switch", { language: t(locale === "en" ? "language.finnish" : "language.english") })}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
-              <path d="M4 5h16v11H9l-5 4z" />
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="9" />
+              <ellipse cx="12" cy="12" rx="4" ry="9" />
+              <path d="M12 3v18M3 12h18M4.5 7.5Q12 10 19.5 7.5M4.5 16.5Q12 14 19.5 16.5" />
             </svg>
             <span className="topbar-language-code" aria-hidden="true">{locale.toUpperCase()}</span>
           </button>
