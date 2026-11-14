@@ -17,7 +17,9 @@ permissions:
 
 jobs:
   image:
-    runs-on: craci
+    # On GitHub's runner, not CRACI: there `npm ci` inside the Docker build fails every time
+    # ("Exit handler never called!" after 70 s), although `npm ci` on the runner itself works.
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
       image: ${{ steps.name.outputs.image }}
