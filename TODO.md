@@ -17,7 +17,7 @@ Five criteria, 20% each. What we have for each, and where the gap is:
 |---|---|---|
 | Impact on financial literacy | Three baskets on every transaction with the rule behind it, safe to spend with its assumptions, what-if, a savings plan with dates, coaching rules in the prompt | The basket rule is not shown in the app; the interface is in English |
 | Originality of AI integration | A coach that answers in words from engine figures, with every number checked; cards and animated widgets built on request; voice mode | Coaching styles: the same question in three styles with identical figures would show the design well |
-| Clarity of the mobile experience | S-mobiili look, one pinned card, chat with face and next-step chips | Not tested on a real phone; no Finnish; no onboarding |
+| Clarity of the mobile experience | S-mobiili look, one conversation with the charts inside the answers, a small overview, face and next-step chips | Not tested on a real phone; no Finnish; no onboarding |
 | Feasibility | 224 tests, a backtest on 168,133 cases, a chat evaluation against the engine, one model call per answer, live deployment | Free-tier model quota (15 requests a minute) during the demo |
 | Potential to integrate into S-mobiili | S Group design tokens, a web app that can be embedded, provider-neutral model interface | A short integration note for the pitch: what is ours, what S-Pankki replaces |
 
@@ -160,14 +160,14 @@ Counts towards: financial literacy, originality of AI integration.
 - [x] `goalPlan`: months and date towards a target the user gave, saving more a
   month, meeting a deadline, and whether each fits what is left after spending
 - [x] `savingsOptions`: where everyday spending could be cut, without essentials
-- [x] The plan card stays pinned, with a slider for saving more
+- [x] The plan card is saved to the overview, with a slider for saving more
 - [x] The coach asks for the target and never invents one
 - [x] Funded changes in `goalPlan`
 - [x] Review of a plan: planned against really moved to savings, month by month,
   on plan or behind, and when the target is reached at the pace so far (`goalReview`)
-- [ ] A goal record stored separately from the dashboard: target and date, savings
+- [ ] A goal record stored separately from the overview: target and date, savings
   the user confirmed, agreed monthly amount, protected buffer, chosen changes and
-  their effects, assumptions, when it was agreed. Today the pinned card's arguments
+  their effects, assumptions, when it was agreed. Today the saved card's arguments
   are the only record
 - [ ] In the demo a new plan starts this month and has nothing to review, because
   "today" is fixed. With real data the review would fill in month by month
@@ -194,13 +194,18 @@ Counts towards: clarity of the mobile experience, potential to integrate into S-
 
 - [x] S-mobiili look: S Group colours, amounts as `7 320 €`, dates as `15.10.2026`
 - [x] Light on every device, like S-mobiili; dark only on request (`?theme=dark`)
-- [x] One pinned card by default; answers replace the previous unpinned card
+- [x] One conversation: each answer carries its own cards, and a follow-up gets an
+  updated copy while the earlier answer keeps its figures
+- [x] An overview of what the user keeps (the starting figures, the savings plan,
+  cards saved from an answer), folded into a bar during the conversation
+- [x] "Ask about this" on a card makes it the subject of the next question
 - [x] The coach's face and next-step chips; voice mode with continuous listening
 - [x] Animated widgets (savings jar, gauge, money flow, coins)
 - [ ] Real phone test (item 6 above)
 - [ ] Finnish-first interface with an English toggle. The coach already answers in
   Finnish; buttons, card titles, captions and assumptions are in English
-- [ ] The conversation is lost on reload; the dashboard is kept
+- [x] The conversation and the overview are kept on reload, in the browser and per
+  customer (photos are not kept, only what was read from them)
 - [ ] The suggested-question chips are instant keyword answers without the coach;
   decide whether they should go to the coach when a model is available
 - [ ] Voice with the new coach: longer replies and amounts read aloud

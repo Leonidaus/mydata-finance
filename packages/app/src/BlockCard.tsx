@@ -1,7 +1,8 @@
 import { type Block, type Control, type EngineResult, PERIOD_OPTIONS, type TxFilter } from "@mydata/shared";
-import { type ReactNode, useMemo } from "react";
+import { type ReactNode, useId, useMemo } from "react";
 import type { TopLevelSpec } from "vega-lite";
 import { type Datum, VEGA_TEMPLATES } from "./blocks/templates";
+import type { SavedState } from "./conversation";
 import { useDataSource } from "./data";
 import { formatEur } from "./format";
 import { useLatest } from "./latest";
@@ -16,15 +17,23 @@ interface Props {
   /** The demo's fixed "today", ISO date. */
   today: string;
   onChange: (patch: Partial<Block>) => void;
-  /** Omit to hide the remove button (e.g. in the dev gallery). */
+  /** Omit to hide the remove button (in an answer, in the dev gallery). */
   onRemove?: () => void;
-  /** Omit to hide the pin button. */
-  onPin?: () => void;
+  /** Saves the card to the overview, or takes it out again when it is saved as shown. Omit to hide the button. */
+  onSave?: () => void;
+  /** Whether the overview has this card, and has it as it is shown here. */
+  saved?: SavedState;
+  /** Makes this card the subject of the user's next question. Omit to hide the button. */
+  onAsk?: () => void;
+  /** Where the card sits: on its own (overview, gallery) or attached to one of the coach's answers. */
+  variant?: "card" | "answer";
   onDrill: (title: string, filter: TxFilter, evidenceNote?: string) => void;
 }
 
-export default function BlockCard({ block, customerId, today, onChange, onRemove, onPin, onDrill }: Props) {
+export default function BlockCard({ block, customerId, today, onChange, onRemove, onSave, saved = "no", onAsk, variant = "card", onDrill }: Props) {
   const { t } = useI18n();
+  // The same card can be on screen more than once (in two answers, or in an answer and the overview).
+  const titleId = useId();
   const source = useDataSource();
   // The answer is kept together with the block it was computed for, so that the two always match.
   const outcome = useLatest(
@@ -44,30 +53,17 @@ export default function BlockCard({ block, customerId, today, onChange, onRemove
   const title = displayTitle(block, t);
 
   return (
-    <article className="block" aria-labelledby={`${block.id}-title`}>
+    <article className={variant === "answer" ? "block block-answer" : "block"} aria-labelledby={titleId}>
       <header className="block-head">
         <div>
-          <h3 id={`${block.id}-title`}>{title}</h3>
+          <h3 id={titleId}>{title}</h3>
           <CardBadges source={block.source} />
         </div>
-        <div className="block-actions">
-          {onPin && (
-            <button
-              type="button"
-              className={`pin-btn${block.pinned ? " on" : ""}`}
-              onClick={onPin}
-              aria-pressed={!!block.pinned}
-              title={block.pinned ? t("card.unpinTitle") : t("card.pinTitle")}
-            >
-              {block.pinned ? t("card.pinned") : t("card.pin")}
-            </button>
-          )}
-          {onRemove && (
-            <button type="button" className="icon-btn" onClick={onRemove} aria-label={t("card.remove", { title: block.title })}>
-              ×
-            </button>
-          )}
-        </div>
+        {onRemove && (
+          <button type="button" className="icon-btn" onClick={onRemove} aria-label={t("card.remove", { title })}>
+            ×
+          </button>
+        )}
       </header>
 
       {block.controls && block.controls.length > 0 && (
@@ -88,6 +84,27 @@ export default function BlockCard({ block, customerId, today, onChange, onRemove
         <p className="muted" role="status">
           {t("card.loading")}
         </p>
+      )}
+
+      {(onAsk || onSave) && (
+        <footer className="card-actions">
+          {onAsk && (
+            <button type="button" className="card-action" onClick={onAsk}>
+              {t("card.ask")}
+            </button>
+          )}
+          {onSave && (
+            <button
+              type="button"
+              className={`card-action${saved === "saved" ? " on" : ""}`}
+              onClick={onSave}
+              aria-pressed={saved === "saved"}
+              title={saved === "saved" ? t("card.unsaveTitle") : saved === "changed" ? t("card.saveChangesTitle") : t("card.saveTitle")}
+            >
+              {saved === "saved" ? t("card.saved") : saved === "changed" ? t("card.saveChanges") : t("card.save")}
+            </button>
+          )}
+        </footer>
       )}
     </article>
   );
@@ -306,13 +323,14 @@ function StatTerms({ rows }: { rows: EngineResult["rows"] }) {
   );
 }
 
-function monthSpend(result: EngineResult): number {
+export function monthSpend(result: EngineResult): number {
   // `monthSoFar` returns income, the three spending baskets, saving and the remaining balance
   // in that order. The three baskets are the recorded spend; saving is deliberately excluded.
   return result.rows.slice(1, 4).reduce((total, row) => total - Number(row.amount), 0);
 }
 
-function displayTitle(block: Block, t: ReturnType<typeof useI18n>["t"]): string {
+/** A card's title as shown: the two starting cards are named by the app, in the user's language. */
+export function displayTitle(block: Block, t: ReturnType<typeof useI18n>["t"]): string {
   if (block.data.kind !== "engine") return block.title;
   if (block.data.fn === "safeToSpend") return block.data.args.horizon === "until_payday" ? t("card.safeTitlePayday") : t("card.safeTitleWeek");
   if (block.data.fn === "monthSoFar") return t("card.monthTitle");
