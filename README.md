@@ -78,9 +78,11 @@ What should set us apart from a chat box on top of a pie chart:
 
 What came of it:
 
-- The equation is the safe-to-spend card. The engine also holds back groceries and
-  other essentials until payday and a margin for a late salary; see
-  [Backtest](#backtest) for why.
+- The equation is the safe-to-spend card, with one change: it starts from this pay
+  period's money, not from the whole balance. What was on the account before the
+  last salary is a reserve and is left out, so savings on the account do not turn
+  into "safe to spend 5,000 € this week". The engine also holds back groceries and
+  other essentials until payday; see [Backtest](#backtest) for why.
 - 1, 2 and 4 are built.
 - 3 became a savings plan towards any goal, with saving for a home as the main
   example (see [Saving towards a goal](#saving-towards-a-goal)). The coach explains
@@ -202,6 +204,7 @@ Settled:
 | Basket rules | One rule set, with groceries as a regular essential. See [Basket rules](#basket-rules). |
 | API style | Plain JSON routes, no GraphQL. |
 | Branches | Feature branches into `develop`; `main` only from `develop`. |
+| What counts as safe to spend | This pay period's money only. What was on the account before the last salary is a reserve: shown, not counted, and it covers the buffer and a late salary first. See [Basket rules](#basket-rules). |
 | Model for the chat | Gemini, run by the backend. The model gets a snapshot of the customer's figures from the finance engine, answers in words and adds a card when a picture helps. It never sees the transaction list and does no arithmetic, and a reply with a number that is not in its figures is not passed on. |
 
 Still open:
@@ -211,7 +214,6 @@ Still open:
 | Interface language | Finnish first with an English toggle, or English only | Time left once the chat works. |
 | Tech challenges | Which to submit. The voice mode (ElevenLabs) is built and the demo runs on Verda; Nemotron, Aiven and Oxylabs are not started | Time left after the core demo. |
 | Coaching styles | One coach with a style the user picks (encouraging, direct, exploratory), or one fixed style as now | Time; see [TODO.md](TODO.md). |
-| Safe-to-spend cushion | Spend down to zero (now), or always keep a fixed cushion | Many customers hold large balances; see [Backtest](#backtest). |
 
 ## Tech challenges worth entering
 
@@ -483,12 +485,22 @@ Related definitions, used the same way everywhere:
   monthly summary also has `balanceChange`, which includes those transfers.
 - **Monthly averages and peer benchmarks** cover the last 12 complete months before
   the demo's today. Peers are the synthetic customers in the dataset, by age band.
-- **Safe to spend** is the balance minus bills still due before payday, groceries
-  and other regular essentials at the recent daily rate, the usual saving transfer,
-  a buffer for unexpected necessities (at least one typical such purchase) and a
-  margin in case the salary arrives late. What is left is for everyday spending.
-- **Safe to save** is what would remain at payday at the usual pace of everyday
-  spending, minus a cushion of one month of regular essentials.
+- **Safe to spend** is what is left of this pay period's money. It starts from the
+  balance and takes off:
+  - the reserve: what was on the account just before the last salary came in. The
+    data has one account per customer and no savings account, so this is how money
+    saved up earlier is told apart from this month's income;
+  - bills still due before payday, groceries and other regular essentials at the
+    recent daily rate, and the usual saving transfer;
+  - a buffer for unexpected necessities (at least one typical such purchase) and a
+    margin in case the salary arrives late, but only the part the reserve does not
+    cover. Precautions are what a reserve is for.
+
+  What is left is for everyday spending. A customer with 20,000 € saved and one with
+  nothing saved get the same figure if their month looks the same.
+- **Safe to save** looks at the whole account, reserve included: what would remain at
+  payday at the usual pace of everyday spending, minus a cushion of one month of
+  regular essentials.
 
 ## Backtest
 
@@ -505,9 +517,10 @@ Result on all 5,100 customers (168,133 cases):
 | Balance just before the next salary | median error €381 (12% of a salary); 90% of cases within €1,552 |
 | Bills due before payday | median error €57; 90% within €198 |
 | Payday date | exact in 71% of cases, within two days in 80% |
-| Customers whose everyday spending stayed within the amount shown | 92% |
-| Of those, went below zero before the salary anyway | 1.5% |
-| If the whole amount shown had been spent: balance below zero | 20% of cases |
+| Cases where an amount was shown as safe to spend | 70%; median amount until payday €816 |
+| Customers whose everyday spending stayed within the amount shown | 71% |
+| Of those, went below zero before the salary anyway | 1.2% |
+| If the whole amount shown had been spent: balance below zero | 2.3% of cases |
 
 What it taught us, and what changed because of it:
 
@@ -518,11 +531,20 @@ What it taught us, and what changed because of it:
   days in 69% of cases and spending the whole amount would have overdrawn in 45%.
 - **Unexpected necessities are lumpy.** A monthly average does not cover a single
   €500 purchase, so the buffer is now at least one typical such purchase.
-- **The amount is an estimate, not a guarantee.** Spending all of it would still end
-  below zero in one case in five, mostly when the salary is late or a large purchase
-  lands. The app should present it with its assumptions, which the engine returns.
-- **Many customers hold large balances**, so the median amount shown is about
-  €4,700. A version that also keeps a fixed cushion may suit those customers better.
+- **Many customers hold large balances.** Half of them have more than two months of
+  spending on the account. Counting the whole balance, the median amount shown was
+  about €4,700, far more than anyone spends in a pay period, and spending all of it
+  would have ended below zero in one case in five. Safe to spend now counts this pay
+  period's money only and treats what was there before the last salary as a reserve.
+  The median amount shown is €816, and spending all of it would overdraw in 2.3% of
+  cases.
+- **The amount is now a limit people actually reach.** In 29% of the cases where an
+  amount was shown, the customer spent more than it on everyday things, which means
+  they dipped into the reserve. In 30% of all cases nothing was shown as safe to
+  spend: this period's money was already used or spoken for. That matches the data,
+  where about a quarter of customers spend more than they earn.
+- **The amount is an estimate, not a guarantee.** The app presents it with its
+  assumptions, which the engine returns.
 
 ## Backend
 
