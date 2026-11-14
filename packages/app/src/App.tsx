@@ -5,7 +5,7 @@ import BlockCard from "./BlockCard";
 import { defaultDashboard } from "./catalog";
 import Chat from "./Chat";
 import DevGallery from "./DevGallery";
-import { dataSource, loadIndex } from "./data";
+import { DataSourceContext, dataSource, fixtureSource, loadIndex } from "./data";
 import { useLatest } from "./latest";
 import LoadError from "./LoadError";
 import TxDrawer from "./TxDrawer";
@@ -29,6 +29,11 @@ const store = {
 // v2: blocks carry `pinned`; older saved dashboards (no pins) are dropped for the new one-card default.
 const dashboardKey = (cid: string) => `mydata.dashboard.v2.${cid}`;
 
+/**
+ * Dev mode (?dev in the URL, or the Dev button) runs on the static demo fixtures with the engine in
+ * the browser, so components can be built and tested without the backend. Inside it, the gallery
+ * shows every component; leaving the gallery to try a block or prompt stays on static data.
+ */
 const devInUrl = () => new URLSearchParams(window.location.search).has("dev");
 /** The Dev button shows in `npm run dev`, or in a build opened with ?dev in the URL. */
 const devAvailable = import.meta.env.DEV || devInUrl();
@@ -59,16 +64,19 @@ export default function App() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [drill, setDrill] = useState<{ customerId: string; title: string; filter: TxFilter } | null>(null);
   const customerId = dashboard?.customerId ?? null;
-  // Keyed by customer: an answer for a customer who is no longer selected is never shown.
-  const customer = useLatest(customerId, (signal) => dataSource.customer(customerId ?? "", signal));
+  const [dev, setDev] = useState(devInUrl);
+  const [gallery, setGallery] = useState(devInUrl);
+  const source = dev ? fixtureSource : dataSource;
+  // Keyed by source and customer: an answer for a customer who is no longer selected is never shown.
+  const customer = useLatest(customerId && `${source.mode}:${customerId}`, (signal) => source.customer(customerId ?? "", signal));
   const info = customer.status === "ready" ? customer.data : null;
   const shownCustomer = useRef(customerId);
   shownCustomer.current = customerId;
-  const [dev, setDev] = useState(devInUrl);
   const [chatRequest, setChatRequest] = useState<{ text: string; n: number } | null>(null);
 
   const toggleDev = (on: boolean) => {
     setDev(on);
+    setGallery(on);
     setDevInUrl(on);
   };
 
@@ -102,7 +110,7 @@ export default function App() {
     // The whole answer is for the customer who asked, also if another one is selected before it is ready.
     const { customerId: askedFor, blocks } = dashboard;
     const reply = await (canned ? cannedReply : askAgent)(question, blocks, (fn, args = {}) =>
-      dataSource.runData(askedFor, { kind: "engine", fn, args }),
+      source.runData(askedFor, { kind: "engine", fn, args }),
     );
     if (reply.ops.length) {
       // The new answer replaces the previous unpinned one; pinned blocks and blocks this reply touched stay.
@@ -118,11 +126,11 @@ export default function App() {
   const addBlock = (block: Block) => {
     if (!customerId) return;
     updateBlocks(customerId, (prev) => applyOps({ customerId, blocks: prev }, [{ op: "add_block", block: { ...block, pinned: true }, index: 0 }]).blocks);
-    toggleDev(false);
+    setGallery(false);
   };
 
   const askFromGallery = (prompt: string) => {
-    toggleDev(false);
+    setGallery(false);
     setChatRequest((prev) => ({ text: prompt, n: (prev?.n ?? 0) + 1 }));
   };
 
@@ -135,91 +143,105 @@ export default function App() {
   const preset = indexData?.presets.find((p) => p.customer_id === customerId);
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden="true">€</span>
-          <span className="brand-name">MyData Finance</span>
-        </div>
-        {indexData && (
-          <div className="persona">
-            <select value={customerId ?? ""} onChange={(e) => selectCustomer(e.target.value)} aria-label="Whose data to show">
-              <optgroup label="Personas">
-                {indexData.presets.map((p) => (
-                  <option key={p.customer_id} value={p.customer_id}>
-                    {p.label}
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label="Other customers">
-                {indexData.pool.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </optgroup>
-            </select>
-            <button type="button" className="ghost-btn" onClick={pickRandom} title="Random customer">
-              Random
-            </button>
-            {devAvailable && (
-              <button type="button" className={`ghost-btn${dev ? " on" : ""}`} onClick={() => toggleDev(!dev)} aria-pressed={dev} title="Show every component">
-                Dev
-              </button>
-            )}
+    <DataSourceContext.Provider value={source}>
+      <div className="app">
+        <header className="topbar">
+          <div className="brand">
+            <span className="brand-mark" aria-hidden="true">€</span>
+            <span className="brand-name">MyData Finance</span>
           </div>
-        )}
-      </header>
+          {indexData && (
+            <div className="persona">
+              <select value={customerId ?? ""} onChange={(e) => selectCustomer(e.target.value)} aria-label="Whose data to show">
+                <optgroup label="Personas">
+                  {indexData.presets.map((p) => (
+                    <option key={p.customer_id} value={p.customer_id}>
+                      {p.label}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Other customers">
+                  {indexData.pool.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+              <button type="button" className="ghost-btn" onClick={pickRandom} title="Random customer">
+                Random
+              </button>
+              {devAvailable && (
+                <button
+                  type="button"
+                  className={`ghost-btn${dev ? " on" : ""}`}
+                  onClick={() => toggleDev(!dev)}
+                  aria-pressed={dev}
+                  title={dev ? "Leave dev mode and use the configured data source" : "Show every component, on static demo data"}
+                >
+                  Dev
+                </button>
+              )}
+              {dev && !gallery && (
+                <button type="button" className="ghost-btn" onClick={() => setGallery(true)} title="Back to the component gallery">
+                  Gallery
+                </button>
+              )}
+            </div>
+          )}
+        </header>
 
-      <main className="dashboard" aria-label={dev ? "Component gallery" : "Your dashboard"}>
-        {index.status === "error" && <LoadError error={index.error} retry={index.retry} />}
-        {customer.status === "error" && <LoadError error={customer.error} retry={customer.retry} />}
-        {info && (
-          <p className="intro muted small">
-            {preset ? `${preset.label} · ${preset.blurb}` : `Customer ${info.customerId}, age ${info.age}`} · data up to {info.today}
-          </p>
-        )}
-        {index.status !== "error" && customer.status === "loading" && (
-          <p className="muted" role="status">
-            Loading your data…
-          </p>
-        )}
-        {info && dashboard && dev && (
-          <DevGallery
-            customerId={dashboard.customerId}
-            today={info.today}
-            onAdd={addBlock}
-            onAsk={askFromGallery}
-            onDrill={(title, filter) => setDrill({ customerId: dashboard.customerId, title, filter })}
-          />
-        )}
-        {info &&
-          dashboard &&
-          !dev &&
-          dashboard.blocks.map((b) => (
-            <BlockCard
-              key={b.id}
-              block={b}
+        <main className="dashboard" aria-label={gallery ? "Component gallery" : "Your dashboard"}>
+          {index.status === "error" && <LoadError error={index.error} retry={index.retry} />}
+          {customer.status === "error" && <LoadError error={customer.error} retry={customer.retry} />}
+          {info && (
+            <p className="intro muted small">
+              {preset ? `${preset.label} · ${preset.blurb}` : `Customer ${info.customerId}, age ${info.age}`} · data up to {info.today}
+              {dev && " · static demo data"}
+            </p>
+          )}
+          {index.status !== "error" && customer.status === "loading" && (
+            <p className="muted" role="status">
+              Loading your data…
+            </p>
+          )}
+          {info && dashboard && gallery && (
+            <DevGallery
               customerId={dashboard.customerId}
               today={info.today}
-              onChange={(patch) => updateBlocks(dashboard.customerId, (prev) => prev.map((x) => (x.id === b.id ? { ...x, ...patch } : x)))}
-              onRemove={() => updateBlocks(dashboard.customerId, (prev) => prev.filter((x) => x.id !== b.id))}
-              onPin={() => updateBlocks(dashboard.customerId, (prev) => prev.map((x) => (x.id === b.id ? { ...x, pinned: !x.pinned } : x)))}
+              onAdd={addBlock}
+              onAsk={askFromGallery}
               onDrill={(title, filter) => setDrill({ customerId: dashboard.customerId, title, filter })}
             />
-          ))}
-        {info && dashboard && !dev && (
-          <button type="button" className="ghost-btn reset" onClick={() => updateBlocks(dashboard.customerId, () => defaultDashboard())}>
-            Reset dashboard
-          </button>
+          )}
+          {info &&
+            dashboard &&
+            !gallery &&
+            dashboard.blocks.map((b) => (
+              <BlockCard
+                key={b.id}
+                block={b}
+                customerId={dashboard.customerId}
+                today={info.today}
+                onChange={(patch) => updateBlocks(dashboard.customerId, (prev) => prev.map((x) => (x.id === b.id ? { ...x, ...patch } : x)))}
+                onRemove={() => updateBlocks(dashboard.customerId, (prev) => prev.filter((x) => x.id !== b.id))}
+                onPin={() => updateBlocks(dashboard.customerId, (prev) => prev.map((x) => (x.id === b.id ? { ...x, pinned: !x.pinned } : x)))}
+                onDrill={(title, filter) => setDrill({ customerId: dashboard.customerId, title, filter })}
+              />
+            ))}
+          {info && dashboard && !gallery && (
+            <button type="button" className="ghost-btn reset" onClick={() => updateBlocks(dashboard.customerId, () => defaultDashboard())}>
+              Reset dashboard
+            </button>
+          )}
+        </main>
+
+        <Chat onAsk={ask} resetKey={customerId ?? ""} request={chatRequest} />
+
+        {drill && drill.customerId === customerId && (
+          <TxDrawer customerId={drill.customerId} title={drill.title} filter={drill.filter} onClose={() => setDrill(null)} />
         )}
-      </main>
-
-      <Chat onAsk={ask} resetKey={customerId ?? ""} request={chatRequest} />
-
-      {drill && drill.customerId === customerId && (
-        <TxDrawer customerId={drill.customerId} title={drill.title} filter={drill.filter} onClose={() => setDrill(null)} />
-      )}
-    </div>
+      </div>
+    </DataSourceContext.Provider>
   );
 }

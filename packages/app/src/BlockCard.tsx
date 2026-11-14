@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import type { TopLevelSpec } from "vega-lite";
 import { type Datum, VEGA_TEMPLATES } from "./blocks/templates";
 import { PERIOD_OPTIONS } from "./catalog";
-import { dataSource } from "./data";
+import { useDataSource } from "./data";
 import { formatEur } from "./format";
 import { useLatest } from "./latest";
 import LoadError from "./LoadError";
@@ -30,11 +30,12 @@ interface Props {
 }
 
 export default function BlockCard({ block, customerId, today, onChange, onRemove, onPin, onDrill }: Props) {
+  const source = useDataSource();
   // The answer is kept together with the block it was computed for, so that the two always match.
   const outcome = useLatest(
-    JSON.stringify([customerId, block.data]),
-    async (signal) => ({ block, result: await dataSource.runData(customerId, block.data, signal) }),
-    customerId,
+    JSON.stringify([source.mode, customerId, block.data]),
+    async (signal) => ({ block, result: await source.runData(customerId, block.data, signal) }),
+    `${source.mode}:${customerId}`,
   );
   // While new figures load after a control change, the previous ones stay visible but marked as updating.
   const updating = outcome.status === "loading" && outcome.previous !== undefined;
