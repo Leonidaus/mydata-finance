@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   image:
-    runs-on: ubuntu-latest
+    runs-on: craci
     timeout-minutes: 20
     outputs:
       image: ${{ steps.name.outputs.image }}
