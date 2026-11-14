@@ -2,25 +2,23 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { errorMessage } from "../latest";
 import type { VoiceClient } from "./client";
-
-interface PlayingAudio {
-  element: HTMLAudioElement;
-  url: string;
-}
+import { ReplyPlayback, ReplyPlaybackError, type PlayingAudio } from "./playback";
 
 export function useVoice(client: VoiceClient, onQuestion: (text: string) => void) {
   const { locale, t } = useI18n();
   const [available, setAvailable] = useState(false);
   const [enabled, setEnabled] = useState(false);
+  const [speechEnabled, setSpeechEnabled] = useState(false);
   const [recording, setRecording] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const enabledRef = useRef(false);
+  const speechEnabledRef = useRef(false);
   const paused = useRef(false);
   const starting = useRef(false);
   const question = useRef(onQuestion);
   const playing = useRef<PlayingAudio | null>(null);
-  const finishPlayback = useRef<(() => void) | null>(null);
+  const playback = useRef(new ReplyPlayback());
   const speechVersion = useRef(0);
   const recorder = useRef<MediaRecorder | null>(null);
   const stream = useRef<MediaStream | null>(null);
@@ -47,12 +45,8 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
   }, []);
 
   const clearAudio = useCallback(() => {
-    playing.current?.element.pause();
-    if (playing.current) URL.revokeObjectURL(playing.current.url);
+    playing.current?.stop();
     playing.current = null;
-    const finish = finishPlayback.current;
-    finishPlayback.current = null;
-    finish?.();
   }, []);
 
   const stopSpeaking = useCallback(() => {
@@ -109,11 +103,26 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
       enabledRef.current = true;
       paused.current = false;
       setEnabled(true);
+      speechEnabledRef.current = true;
+      setSpeechEnabled(true);
+      playback.current.unlock();
       setError(null);
       setProcessing(false);
       startCapture.current();
     }
   }, [stopSpeaking, stopCapture]);
+
+  const toggleSpeech = useCallback(() => {
+    const next = !speechEnabledRef.current;
+    speechEnabledRef.current = next;
+    setSpeechEnabled(next);
+    if (next) {
+      playback.current.unlock();
+      setError(null);
+    } else {
+      stopSpeaking();
+    }
+  }, [stopSpeaking]);
 
   useEffect(
     () => () => {
@@ -127,30 +136,22 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
 
   const speak = useCallback(
     async (text: string) => {
-      if (!enabledRef.current || !text.trim()) return;
+      if (!speechEnabledRef.current || !text.trim()) return;
       pause();
       stopSpeaking();
       const version = speechVersion.current;
       setError(null);
-      let element: HTMLAudioElement | null = null;
       try {
         const blob = await client.speak(text, locale);
-        if (!enabledRef.current || version !== speechVersion.current) return;
-        const url = URL.createObjectURL(blob);
-        element = new Audio(url);
-        playing.current = { element, url };
-        const ended = new Promise<void>((resolve) => {
-          finishPlayback.current = resolve;
-        });
-        element.onended = clearAudio;
-        element.onerror = () => {
-          if (enabledRef.current && version === speechVersion.current) setError(t("chat.voicePlaybackError"));
-          clearAudio();
-        };
-        await element.play();
-        await ended;
+        const next = await playback.current.play(blob, () => speechEnabledRef.current && version === speechVersion.current);
+        if (!next) return;
+        playing.current = next;
+        await next.finished;
+        if (playing.current === next) playing.current = null;
       } catch (cause: unknown) {
-        if (enabledRef.current && version === speechVersion.current) setError(errorMessage(cause));
+        if (speechEnabledRef.current && version === speechVersion.current) {
+          setError(cause instanceof ReplyPlaybackError ? t("chat.voicePlaybackError") : errorMessage(cause));
+        }
         clearAudio();
       } finally {
         if (enabledRef.current && version === speechVersion.current) resume();
@@ -248,5 +249,5 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
     };
   }, [beginCapture]);
 
-  return { available, enabled, recording, processing, error, toggle, speak, pause, resume, reset };
+  return { available, enabled, speechEnabled, recording, processing, error, toggle, toggleSpeech, speak, pause, resume, reset };
 }
