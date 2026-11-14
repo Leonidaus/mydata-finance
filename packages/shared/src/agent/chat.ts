@@ -19,10 +19,12 @@
 import { applyOps, type Block, type DashboardOp } from "../blocks";
 import { ENGINE_FNS, type EngineFn, type EngineResult } from "../engine/types";
 import { describeResult, numbersIn, questionLanguage, requestLabel, resultNumbers, unbackedNumbers } from "./figures";
+import { catalog } from "../library/catalog";
+import { type ChatImage, type PhotoRead, photoQuestion, readPhoto } from "./photo";
 import { placeholders } from "./placeholders";
 import { type PreferenceAccess, PREFERENCES_DECLARATION, PREFERENCES_TOOL, updatePreferences } from "./preferences";
 import { buildSystemPrompt } from "./prompt";
-import { buildSnapshot, type Figures, type Headline, type Lookup, runLookup, usedMerchantTypes } from "./snapshot";
+import { buildSnapshot, type Figures, type Headline, type Lookup, runLookup, statedReserve, usedMerchantTypes } from "./snapshot";
 import {
   HAND_OVER_DECLARATION,
   HAND_OVER_TOOL,
@@ -42,6 +44,8 @@ export interface ChatTurn {
   role: "user" | "model";
   text?: string;
   raw?: unknown;
+  /** A picture with the text. Only the photo-reading step sends one (see photo.ts). */
+  image?: ChatImage;
 }
 
 export interface ChatModelRequest {
@@ -83,6 +87,11 @@ export interface ChatInput {
   allowProtected?: readonly ProtectedCategory[];
   /** Lets the coach change the saved coaching preferences when the user asks for it. Needs `profile`. */
   preferences?: PreferenceAccess;
+  /**
+   * A photo sent with the message: something with a price on it. The user may ask anything about
+   * it; with no words at all (an empty `question`), "can I afford this?" is meant.
+   */
+  image?: ChatImage;
 }
 
 export interface ChatOutput {
@@ -108,6 +117,8 @@ export interface ChatOutput {
   profile?: CoachingProfile;
   /** Categories the coach has to ask the user about before they can come off the keep-as-is list. */
   proposedUnprotect: ProtectedCategory[];
+  /** What was read from the photo sent with the question, for the app to show and to keep in the conversation. */
+  photo?: PhotoRead;
 }
 
 /** The reply used when the model built a card but said nothing, and the card's figures are not known here. */
@@ -286,14 +297,44 @@ async function repair(call: () => Promise<ChatModelResponse>, signal?: AbortSign
 
 export async function runChat(models: ChatModel | ChatModels, input: ChatInput, signal?: AbortSignal): Promise<ChatOutput> {
   const { fast, strong } = "generate" in models ? { fast: models, strong: undefined } : models;
-  const question = input.question.trim().slice(0, MAX_QUESTION_CHARS);
+  const asked = input.question.trim().slice(0, MAX_QUESTION_CHARS);
   const history = input.history.slice(-MAX_HISTORY_TURNS);
+  const { lookup } = input;
+  // A photo is read first, by a call that sees the picture and nothing else. The coach gets the reading as text.
+  const [photo, snapshot, merchantTypes] = await Promise.all([
+    input.image ? readPhoto(fast, input.image, signal) : undefined,
+    lookup ? buildSnapshot(lookup, input.blocks) : null,
+    // The merchant types this customer has paid at, named to the coach next to the ones the data is known to contain.
+    lookup ? usedMerchantTypes(lookup) : [],
+  ]);
+  const question = photo ? photoQuestion(asked, photo) : asked;
+  // A photo with no words asks "can I afford this?". With words, the user asks what they like about it.
+  const photoOnly = photo !== undefined && asked === "";
+  // A one-off price is checked by the engine straight away, so an answer about affording it needs no extra round.
+  let affordCard: Block | null = null;
+  let affordFigures: Figures | null = null;
+  if (photo && photo.amount !== null && !photo.monthly && photo.kind !== "home" && lookup) {
+    const reserve = statedReserve(input.blocks);
+    const block = catalog.afford({ amount: photo.amount, label: photo.item || undefined, kind: photo.kind === "bill" ? "necessity" : undefined, reserve });
+    if (block.data.kind === "engine") {
+      const found = await runLookup(lookup, "afford", block.data.args);
+      if (found.numbers.length) {
+        affordCard = block;
+        affordFigures = found;
+      }
+    }
+  }
   const said: Said[] = [
     ...history.map((t): Said => ({ turn: { role: t.role === "assistant" ? "model" : "user", text: t.text } })),
-    userTurn(question),
+    userTurn(
+      affordFigures
+        ? `${question}\n\nLOOKED UP\n${affordFigures.text}\n\n` +
+            (photoOnly
+              ? `The card "${affordCard?.title}" (id ${affordCard?.id}) with these figures is already on the dashboard.`
+              : "These figures are here in case the user asks whether the price fits. Answer what they asked; no card has been added.")
+        : question,
+    ),
   ];
-  const { lookup } = input;
-  const [snapshot, merchantTypes] = lookup ? await Promise.all([buildSnapshot(lookup, input.blocks), usedMerchantTypes(lookup)]) : [null, []];
   let profile = input.profile;
   const preferences = profile ? input.preferences : undefined;
   const systemFor = (current: CoachingProfile | undefined, pendingUnprotect: readonly ProtectedCategory[]) =>
@@ -308,7 +349,13 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
   let savedProfile: CoachingProfile | undefined;
   const proposedUnprotect: ProtectedCategory[] = [];
   // Every number the reply may quote: what the coach was shown, and what was said in the conversation.
-  const backed = [...(snapshot?.numbers ?? []), ...numbersIn(question), ...history.flatMap((t) => numbersIn(t.text)), ...numbersIn(input.today)];
+  const backed = [
+    ...(snapshot?.numbers ?? []),
+    ...(affordFigures?.numbers ?? []),
+    ...numbersIn(question),
+    ...history.flatMap((t) => numbersIn(t.text)),
+    ...numbersIn(input.today),
+  ];
 
   // 1. The answer, after at most MAX_LOOKUP_ROUNDS rounds of looking figures up. The fast model
   // starts, and may hand the turn over to the stronger one once.
@@ -392,6 +439,11 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
     }
   }
 
+  // For a photo sent without words, the card goes on the dashboard whether or not the coach built one.
+  if (photoOnly && affordCard && !parsed.ops.some((op) => op.op === "add_block" && op.block.data.kind === "engine" && op.block.data.fn === "afford")) {
+    parsed = { ...parsed, ops: [{ op: "add_block", block: affordCard }, ...parsed.ops] };
+  }
+
   // 3. The reply must be there, quote only numbers the coach was shown, and use only placeholders the app can fill.
   const after = applyOps({ customerId: "", blocks: input.blocks }, parsed.ops).blocks;
   const cards = await builtCards(lookup, input.blocks, parsed.ops);
@@ -470,5 +522,6 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
     answeredBy,
     ...(savedProfile && { profile: savedProfile }),
     proposedUnprotect,
+    ...(photo && { photo }),
   };
 }

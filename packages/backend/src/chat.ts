@@ -9,14 +9,18 @@
  */
 import {
   type Block,
+  type ChatImage,
   type ChatModel,
   type ChatModels,
   type ChatOutput,
   createGeminiModel,
   DEFAULT_STRONG_GEMINI_MODELS,
   ENGINE_FNS,
+  IMAGE_MIME_TYPES,
+  isChatImage,
   type Lookup,
   type PreferenceAccess,
+  MAX_IMAGE_BASE64_CHARS,
   MAX_HISTORY_TURNS,
   MAX_QUESTION_CHARS,
   type CoachingProfile,
@@ -63,6 +67,8 @@ export interface ChatRequest {
   allowProtected?: ProtectedCategory[];
   /** Categories the previous answer asked the user about taking off the keep-as-is list. */
   pendingUnprotect?: ProtectedCategory[];
+  /** A photo sent with the message. With a photo the question may be empty: "can I afford this?" is then meant. */
+  image?: ChatImage;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -122,7 +128,11 @@ function readHistory(value: unknown): ChatRequest["history"] {
 export function parseChatRequest(body: unknown): ChatRequest {
   if (!isRecord(body)) throw new ChatRequestError("Body must be a JSON object");
   if (typeof body.customerId !== "string") throw new ChatRequestError("customerId is required");
-  if (typeof body.question !== "string" || body.question.trim() === "") {
+  if (body.image !== undefined && !isChatImage(body.image)) {
+    throw new ChatRequestError(`image must be { mimeType, data }: a ${IMAGE_MIME_TYPES.join(", ")} picture as base64, at most ${MAX_IMAGE_BASE64_CHARS / 1_000_000} million characters`);
+  }
+  // A photo may be sent without words.
+  if (typeof body.question !== "string" || (body.question.trim() === "" && body.image === undefined)) {
     throw new ChatRequestError("question must be a non-empty text");
   }
   if (body.question.length > MAX_QUESTION_CHARS) {
@@ -130,6 +140,7 @@ export function parseChatRequest(body: unknown): ChatRequest {
   }
   try {
     return {
+      ...(body.image !== undefined && { image: { mimeType: body.image.mimeType, data: body.image.data } }),
       customerId: body.customerId,
       question: body.question,
       history: readHistory(body.history),
@@ -181,6 +192,7 @@ export async function answerChat(model: ChatModel | ChatModels, request: ChatReq
       profile: options.profile,
       allowProtected: options.allowProtected,
       preferences: options.preferences,
+      image: request.image,
     },
     options.signal,
   );

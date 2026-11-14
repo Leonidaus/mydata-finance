@@ -60,6 +60,7 @@ const sleep = (ms: number, signal?: AbortSignal) =>
 
 interface Part {
   text?: string;
+  inlineData?: { mimeType: string; data: string };
   functionCall?: { name: string; args?: Record<string, unknown> };
 }
 interface Content {
@@ -76,7 +77,11 @@ interface GeminiRequest {
   generationConfig: Record<string, unknown>;
 }
 
-const toContent = (t: ChatTurn): Content => (t.raw as Content | undefined) ?? { role: t.role, parts: [{ text: t.text ?? "" }] };
+const toContent = (t: ChatTurn): Content =>
+  (t.raw as Content | undefined) ?? {
+    role: t.role,
+    parts: [...(t.image ? [{ inlineData: { mimeType: t.image.mimeType, data: t.image.data } }] : []), { text: t.text ?? "" }],
+  };
 
 export function createGeminiModel(transport: GeminiTransport, options: GeminiOptions = {}): ChatModel {
   const models = options.models?.length ? options.models : DEFAULT_GEMINI_MODELS;
