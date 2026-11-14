@@ -5,6 +5,7 @@
 import { BENCHMARK_CATEGORY_NAMES } from "../benchmark/statfin";
 import type { Block, Control } from "../blocks";
 import { lookupMcc } from "../mcc";
+import { ITEM_SUBCATEGORY_LABELS, isItemSubcategory } from "../receipts/types";
 import { PERIODS, SPENDING_CATEGORIES } from "../engine/util";
 
 let seq = 0;
@@ -90,6 +91,21 @@ export const catalog = {
       controls: opts.mcc ? [periodControl] : [periodControl, categoryControl(true)],
     };
   },
+
+  /** What is in the shopping, per item sub-category, from linked receipts. */
+  itemBars: (opts: { period?: string; subcategory?: string; category?: string } = {}): Block => ({
+    id: id("items"),
+    title: isItemSubcategory(opts.subcategory) ? `${ITEM_SUBCATEGORY_LABELS[opts.subcategory]} on your receipts` : opts.category ? `What's in your ${opts.category} receipts` : "What's in your shopping",
+    explanation:
+      "Every line of the receipts you have photographed and linked to a card payment, grouped by kind of item. Payments without a receipt are not itemised, so this is a sample: the caption says how much of the spending it covers.",
+    source: "own",
+    data: {
+      kind: "engine",
+      fn: "itemSpend",
+      args: { ...(opts.period && { period: opts.period }), ...(opts.subcategory && { subcategory: opts.subcategory }), ...(opts.category && { category: opts.category }) },
+    },
+    view: { kind: "template", template: "category_bars" },
+  }),
 
   trend: (opts: { metric?: "spending" | "income" | "net" | "saving"; category?: string; months?: number } = {}): Block => ({
     id: id("trend"),

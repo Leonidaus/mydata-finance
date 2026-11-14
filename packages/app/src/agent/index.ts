@@ -66,6 +66,7 @@ function report(out: ChatOutput & { blocked?: ProtectedCategory[] }): AgentReply
     proposedUnprotect: out.proposedUnprotect,
     profileChanged: Boolean(out.profile),
     photo: out.photo,
+    receipt: out.receipt,
   };
 }
 

@@ -10,6 +10,7 @@ import LoadError from "./LoadError";
 import IframeBlock from "./renderers/IframeBlock";
 import VegaBlock from "./renderers/VegaBlock";
 import { useI18n } from "./i18n";
+import { useReceipts } from "./receipts";
 
 interface Props {
   block: Block;
@@ -35,9 +36,12 @@ export default function BlockCard({ block, customerId, today, onChange, onRemove
   // The same card can be on screen more than once (in two answers, or in an answer and the overview).
   const titleId = useId();
   const source = useDataSource();
+  // Item figures come from receipts, so they are fetched again when a receipt is linked or unlinked.
+  const receiptsVersion = useReceipts().version;
+  const fromReceipts = block.data.kind === "engine" && block.data.fn === "itemSpend";
   // The answer is kept together with the block it was computed for, so that the two always match.
   const outcome = useLatest(
-    JSON.stringify([source.mode, customerId, block.data]),
+    JSON.stringify([source.mode, customerId, block.data, fromReceipts ? receiptsVersion : 0]),
     async (signal) => ({ block, result: await source.runData(customerId, block.data, signal) }),
     `${source.mode}:${customerId}`,
   );
@@ -346,6 +350,7 @@ const isStr = (v: unknown, re: RegExp): v is string => typeof v === "string" && 
 
 function genericDrill(datum: Datum, block: Block): Partial<TxFilter> | null {
   const args = block.data.kind === "engine" ? block.data.args : {};
+  if (block.data.kind === "engine" && block.data.fn === "itemSpend" && typeof datum.key === "string" && datum.key) return { subcategory: datum.key };
   if (block.data.kind === "engine" && block.data.fn === "spendBy" && typeof datum.key === "string" && datum.key) {
     return args.by === "merchant_type" ? { mcc: datum.key } : { category: datum.key };
   }

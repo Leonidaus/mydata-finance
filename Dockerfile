@@ -30,6 +30,7 @@ ENV NODE_ENV=production \
     PORT=8787 \
     FINANCE_DB=/data/finance.sqlite \
     PROFILE_DB=/profiles/profiles.sqlite \
+    RECEIPT_DB=/profiles/receipts.sqlite \
     STATIC_DIR=/repo/packages/app/dist
 COPY --from=build /repo/package.json /repo/package-lock.json /repo/.npmrc /repo/tsconfig.base.json ./
 COPY --from=build /repo/node_modules node_modules

@@ -1,5 +1,5 @@
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
-import type { TransactionCategory } from "@mydata/shared";
+import { ITEM_SUBCATEGORY_LABELS, type ItemSubcategory, isItemSubcategory, type TransactionCategory } from "@mydata/shared";
 
 export const LOCALES = ["en", "fi"] as const;
 export type Locale = (typeof LOCALES)[number];
@@ -147,7 +147,7 @@ const en = {
   "chat.starter.monthQuestion": "How am I doing this month?",
   "chat.starter.goalQuestion": "Help me plan a savings goal",
   "chat.photoPlaceholder": "Ask about the photo…",
-  "chat.photoAdd": "Add a photo of a price, a bill or a listing to your message",
+  "chat.photoAdd": "Add a photo of a price, a bill, a receipt or a listing to your message",
   "chat.photoAddTitle": "Add a photo to your message",
   "chat.photoRetake": "Take another photo instead",
   "chat.photoSent": "The photo you sent",
@@ -158,6 +158,42 @@ const en = {
   "chat.photoEstimate": "No price in the photo. Estimate: {{item}}about {{price}}",
   "chat.photoMonthly": " a month",
   "chat.photoUnsupported": "I can only read photos when the language model is on. Tell me the price and I can check it.",
+  "receipt.label": "Receipt",
+  "receipt.items": "{{count}} items",
+  "receipt.linked": "Linked to your card payment",
+  "receipt.linkedAuto": "Linked automatically to your card payment",
+  "receipt.possible": "Is this the card payment?",
+  "receipt.confirm": "Yes, that's it",
+  "receipt.chooseAnother": "Choose another",
+  "receipt.notThis": "Not this payment",
+  "receipt.noneOfThese": "None of these",
+  "receipt.choose": "Which card payment was it?",
+  "receipt.noPayments": "No card payments near that date.",
+  "receipt.unmatched": "Not linked to a payment yet",
+  "receipt.reason.no_total": "I couldn't read the total.",
+  "receipt.reason.no_date": "I couldn't read the date.",
+  "receipt.reason.cash": "Paid in cash, so there is no card payment to link.",
+  "receipt.reason.after_data_end": "The receipt is dated after {{date}}, the last day of bank data in this demo.",
+  "receipt.reason.no_candidates": "No card payment matches its total and date.",
+  "receipt.mismatch": "The lines don't add up to the total, so some may be misread.",
+  "receipt.showItems": "Show items",
+  "receipt.hideItems": "Hide items",
+  "receipt.depositReturn": "Bottle return",
+  "receipt.delete": "Delete receipt",
+  "receipt.deleted": "Receipt deleted.",
+  "receipt.working": "Saving…",
+  "receipt.error": "That didn't work: {{error}}",
+  "receipt.unknownMerchant": "an unknown shop",
+  "receipt.replyLinked": "I saved the receipt from {{merchant}} ({{total}}, {{count}} items) and linked it to your card payment on {{date}}. You can now ask what's in your shopping.",
+  "receipt.replyPossible": "I saved the receipt from {{merchant}} ({{total}}, {{count}} items). Is this the card payment it belongs to?",
+  "receipt.replyUnmatched": "I saved the receipt from {{merchant}} ({{total}}, {{count}} items), but I couldn't link it to a card payment.",
+  "receipt.replyUnread": "I couldn't read that receipt. Try a sharper photo with the whole receipt in view.",
+  "receipts.title": "Receipts",
+  "receipts.empty": "No receipts yet. Photograph one with the camera button in the chat.",
+  "receipts.loading": "Loading receipts…",
+  "receipts.linkPayment": "Choose payment",
+  "drawer.showReceipt": "Show the receipt",
+  "drawer.hideReceipt": "Hide the receipt",
   "chat.unprotectYes": "Yes, stop keeping {{category}} as is",
   "chat.unprotectNo": "No, keep it",
   "chat.unprotectYesMessage": "Yes, take {{category}} off my keep-as-is list.",
@@ -173,6 +209,7 @@ const en = {
   "chart.drawError": "Could not draw this chart: {{error}}",
   "chart.what": "What",
   "chart.payments": "Payments",
+  "chart.items": "Items",
   "chart.month": "Month",
   "chart.basket": "Basket",
   "chart.share": "Share",
@@ -350,7 +387,7 @@ const fi: Record<keyof typeof en, string> = {
   "chat.starter.monthQuestion": "Miten minulla menee tässä kuussa?",
   "chat.starter.goalQuestion": "Auta minua suunnittelemaan säästötavoite",
   "chat.photoPlaceholder": "Kysy kuvasta…",
-  "chat.photoAdd": "Lisää viestiisi kuva hinnasta, laskusta tai ilmoituksesta",
+  "chat.photoAdd": "Lisää viestiisi kuva hinnasta, laskusta, kuitista tai ilmoituksesta",
   "chat.photoAddTitle": "Lisää kuva viestiisi",
   "chat.photoRetake": "Ota tilalle toinen kuva",
   "chat.photoSent": "Lähettämäsi kuva",
@@ -361,6 +398,42 @@ const fi: Record<keyof typeof en, string> = {
   "chat.photoEstimate": "Kuvassa ei ole hintaa. Arvio: {{item}}noin {{price}}",
   "chat.photoMonthly": " kuukaudessa",
   "chat.photoUnsupported": "Voin lukea kuvia vain, kun kielimalli on käytössä. Kerro hinta, niin voin tarkistaa sen.",
+  "receipt.label": "Kuitti",
+  "receipt.items": "{{count}} tuotetta",
+  "receipt.linked": "Yhdistetty korttimaksuusi",
+  "receipt.linkedAuto": "Yhdistetty automaattisesti korttimaksuusi",
+  "receipt.possible": "Onko tämä oikea korttimaksu?",
+  "receipt.confirm": "Kyllä, tämä",
+  "receipt.chooseAnother": "Valitse toinen",
+  "receipt.notThis": "Ei tämä maksu",
+  "receipt.noneOfThese": "Ei mikään näistä",
+  "receipt.choose": "Mikä korttimaksu se oli?",
+  "receipt.noPayments": "Päivän lähellä ei ole korttimaksuja.",
+  "receipt.unmatched": "Ei vielä yhdistetty maksuun",
+  "receipt.reason.no_total": "En saanut luettua loppusummaa.",
+  "receipt.reason.no_date": "En saanut luettua päivämäärää.",
+  "receipt.reason.cash": "Maksettu käteisellä, joten yhdistettävää korttimaksua ei ole.",
+  "receipt.reason.after_data_end": "Kuitti on päivätty {{date}} jälkeen, ja siihen päättyy tämän demon pankkidata.",
+  "receipt.reason.no_candidates": "Mikään korttimaksu ei vastaa sen summaa ja päivää.",
+  "receipt.mismatch": "Rivit eivät täsmää loppusummaan, joten osa voi olla luettu väärin.",
+  "receipt.showItems": "Näytä tuotteet",
+  "receipt.hideItems": "Piilota tuotteet",
+  "receipt.depositReturn": "Pullopalautus",
+  "receipt.delete": "Poista kuitti",
+  "receipt.deleted": "Kuitti poistettu.",
+  "receipt.working": "Tallennetaan…",
+  "receipt.error": "Ei onnistunut: {{error}}",
+  "receipt.unknownMerchant": "tuntematon kauppa",
+  "receipt.replyLinked": "Tallensin kuitin ({{merchant}}, {{total}}, {{count}} tuotetta) ja yhdistin sen korttimaksuusi {{date}}. Voit nyt kysyä, mitä ostoksissasi on.",
+  "receipt.replyPossible": "Tallensin kuitin ({{merchant}}, {{total}}, {{count}} tuotetta). Kuuluuko se tähän korttimaksuun?",
+  "receipt.replyUnmatched": "Tallensin kuitin ({{merchant}}, {{total}}, {{count}} tuotetta), mutta en löytänyt sille korttimaksua.",
+  "receipt.replyUnread": "En saanut kuittia luettua. Kokeile tarkempaa kuvaa, jossa koko kuitti näkyy.",
+  "receipts.title": "Kuitit",
+  "receipts.empty": "Ei vielä kuitteja. Ota kuva kuitista keskustelun kamerapainikkeella.",
+  "receipts.loading": "Ladataan kuitteja…",
+  "receipts.linkPayment": "Valitse maksu",
+  "drawer.showReceipt": "Näytä kuitti",
+  "drawer.hideReceipt": "Piilota kuitti",
   "chat.unprotectYes": "Kyllä, lopeta {{category}}-kulujen suojaaminen",
   "chat.unprotectNo": "Ei, pidä suojattuna",
   "chat.unprotectYesMessage": "Kyllä, poista {{category}} suojattujen listalta.",
@@ -376,6 +449,7 @@ const fi: Record<keyof typeof en, string> = {
   "chart.drawError": "Kaaviota ei voitu piirtää: {{error}}",
   "chart.what": "Mitä",
   "chart.payments": "Maksut",
+  "chart.items": "Tuotteita",
   "chart.month": "Kuukausi",
   "chart.basket": "Kori",
   "chart.share": "Osuus",
@@ -434,11 +508,24 @@ const categoryNames: Record<Locale, Record<TransactionCategory, string>> = {
   },
 };
 
+const subcategoryNames: Record<Locale, Record<ItemSubcategory, string>> = {
+  en: ITEM_SUBCATEGORY_LABELS,
+  fi: {
+    produce: "Hedelmät ja vihannekset", meat_fish: "Liha ja kala", dairy_eggs: "Maitotuotteet ja munat", bread_bakery: "Leipä ja leivonnaiset", pantry: "Kuivatuotteet", frozen: "Pakasteet", ready_meals: "Valmisruoat", snacks_sweets: "Herkut ja naposteltavat", soft_drinks: "Virvoitusjuomat", coffee_tea: "Kahvi ja tee", alcohol: "Alkoholi", tobacco: "Tupakka ja nikotiini",
+    meal: "Ruokailu ulkona", restaurant_drinks: "Juomat ulkona (alkoholittomat)", restaurant_alcohol: "Alkoholi ulkona", cafe_snack: "Kahvila ja välipalat",
+    household: "Kodin tarvikkeet", hygiene_beauty: "Hygienia ja kauneus", pharmacy: "Apteekki", baby: "Vauvatarvikkeet", pet: "Lemmikkitarvikkeet", clothing: "Vaatteet", electronics: "Elektroniikka", fuel: "Polttoaine", other: "Muut",
+  },
+};
+
+/** An item sub-category's name in `locale`; for use outside React (charts). */
+export const subcategoryLabel = (locale: Locale, value: string): string => (isItemSubcategory(value) ? subcategoryNames[locale][value] : value);
+
 interface LocaleContextValue {
   locale: Locale;
   setLocale: (locale: Locale) => void;
   t: (key: TranslationKey, values?: Values) => string;
   category: (value: TransactionCategory) => string;
+  subcategory: (value: string) => string;
 }
 
 const LocaleContext = createContext<LocaleContextValue>({
@@ -446,6 +533,7 @@ const LocaleContext = createContext<LocaleContextValue>({
   setLocale: () => undefined,
   t: (key, values) => translate("en", key, values),
   category: (value) => categoryNames.en[value],
+  subcategory: (value) => subcategoryLabel("en", value),
 });
 
 function initialLocale(): Locale {
@@ -470,7 +558,7 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
       // The selection still works for the current visit when persistent storage is unavailable.
     }
   }, [locale]);
-  const value = useMemo(() => ({ locale, setLocale, t: (key: TranslationKey, values?: Values) => translate(locale, key, values), category: (item: TransactionCategory) => categoryNames[locale][item] }), [locale]);
+  const value = useMemo(() => ({ locale, setLocale, t: (key: TranslationKey, values?: Values) => translate(locale, key, values), category: (item: TransactionCategory) => categoryNames[locale][item], subcategory: (item: string) => subcategoryLabel(locale, item) }), [locale]);
   return <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>;
 }
 

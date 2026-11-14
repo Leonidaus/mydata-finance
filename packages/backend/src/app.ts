@@ -10,6 +10,9 @@ import {
   TRANSACTION_CATEGORIES,
   type TransactionCategory,
   type TxFilter,
+  type ReceiptView,
+  nearbyPayments,
+  matchReceipt,
 } from "@mydata/shared";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { handleStt, handleTts } from "@mydata/voice";
@@ -19,14 +22,16 @@ import { HTTPException } from "hono/http-exception";
 import { answerChat, CHAT_TIMEOUT_MS, type ChatRequest, ChatRequestError, parseChatRequest } from "./chat";
 import type { FinanceDb } from "./db";
 import { getCustomer, listCustomers, monthlySummary } from "./finance/customers";
-import { isEngineFn, transactionsFor } from "./finance/engine";
+import { isEngineFn, loadEngineContext, transactionsFor } from "./finance/engine";
 import { ProtectedEngine } from "./finance/protected";
 import { isIsoDate, PERIOD_NAMES, resolvePeriod, type Period, type PeriodName } from "./finance/period";
 import { BASKETS, GROUP_BY, spending, type Basket, type GroupBy } from "./finance/spending";
 import { requestBudget, type RequestBudget } from "./rateLimit";
 import { MemoryProfileStore, type ProfileStore } from "./profiles";
+import { ReceiptConflictError, ReceiptStore, saveAndMatch } from "./receipts";
 
 const CUSTOMER_ID = /^CUST\d{5}$/;
+const RECEIPT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MCC = /^\d{4}$/;
 
 function badRequest(message: string): never {
@@ -61,7 +66,7 @@ function parsePeriod(query: Record<string, string>, today: string): Period {
   return { from, to };
 }
 
-const TX_FILTER_KEYS = ["from", "to", "kind", "category", "mcc", "basket", "month", "date"] as const;
+const TX_FILTER_KEYS = ["from", "to", "kind", "category", "mcc", "basket", "month", "date", "subcategory"] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -78,7 +83,8 @@ function parseTxFilter(value: unknown): TxFilter {
     if (typeof field !== "string") badRequest(`filter.${key} must be a string`);
     filter[key] = field;
   }
-  return filter as TxFilter;
+  if (value.withReceipt !== undefined && typeof value.withReceipt !== "boolean") badRequest("filter.withReceipt must be true or false");
+  return { ...(filter as TxFilter), ...(value.withReceipt === true && { withReceipt: true }) };
 }
 
 /** Query-string values for an engine call: whole or decimal numbers become numbers. */
@@ -108,6 +114,8 @@ export interface AppOptions {
   chatBudget?: RequestBudget;
   /** Customer coaching preferences; memory is the test and embedded-server default. */
   profiles?: ProfileStore;
+  /** Receipts customers have sent; in memory unless given. */
+  receipts?: ReceiptStore;
 }
 
 const DEFAULT_CHAT_BUDGET: RequestBudget = { perMinute: 20, perHour: 400 };
@@ -118,7 +126,9 @@ const MAX_STT_BYTES = 25 * 1024 * 1024;
 export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
   const app = new Hono();
   const profiles = options.profiles ?? new MemoryProfileStore();
-  const protectedEngine = new ProtectedEngine(db, profiles);
+  const receipts = options.receipts ?? new ReceiptStore();
+  const linkedReceipts = (id: string) => receipts.linked(id);
+  const protectedEngine = new ProtectedEngine(db, profiles, linkedReceipts);
 
   // The data is synthetic and the API read-only, so any origin may call it during the demo.
   app.use("/api/*", cors());
@@ -270,9 +280,69 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
     if (limit !== undefined && (typeof limit !== "number" || !Number.isInteger(limit) || limit < 0)) {
       badRequest("limit must be a whole number");
     }
-    const result = transactionsFor(db, id, parseTxFilter(body.filter), limit as number | undefined);
+    const result = transactionsFor(db, id, parseTxFilter(body.filter), limit as number | undefined, linkedReceipts);
     if (!result) throw new HTTPException(404, { message: "Customer not found" });
     return c.json(result);
+  });
+
+  // ---- receipts: read in the chat, listed, linked to a payment, unlinked, deleted ----
+
+  function receiptRoute(c: { req: { param(name: string): string } }) {
+    const id = customerId(c.req.param("id"));
+    if (!getCustomer(db, id)) throw new HTTPException(404, { message: "Customer not found" });
+    const rid = c.req.param("rid");
+    if (!RECEIPT_ID.test(rid)) badRequest("Receipt id must be a UUID");
+    const receipt = receipts.get(id, rid);
+    if (!receipt) throw new HTTPException(404, { message: "Receipt not found" });
+    return { id, rid, receipt };
+  }
+
+  /** A receipt with the payment it is linked to, for the app to show. */
+  function withPayment(id: string, receipt: ReceiptView | null): ReceiptView | null {
+    const t = receipt?.txId == null ? undefined : loadEngineContext(db, id)?.tx.find((x) => x.tx_id === receipt.txId);
+    if (!receipt || !t) return receipt;
+    return { ...receipt, payment: { txId: receipt.txId as number, date: t.tx_date, timestamp: t.tx_timestamp, amount: Math.round(-t.tx_amount_eur * 100) / 100, category: t.category, mcc: t.mcc_code, score: 0 } };
+  }
+
+  app.get("/api/customers/:id/receipts", (c) => {
+    const id = customerId(c.req.param("id"));
+    if (!getCustomer(db, id)) throw new HTTPException(404, { message: "Customer not found" });
+    return c.json({ receipts: receipts.list(id).map((r) => withPayment(id, r)) });
+  });
+
+  /** The payments a receipt may belong to: the matcher's candidates, and the others nearby to choose from. */
+  app.get("/api/customers/:id/receipts/:rid/candidates", (c) => {
+    const { id, receipt } = receiptRoute(c);
+    const tx = loadEngineContext(db, id)?.tx ?? [];
+    const linked = receipts.linkedTxIds(id);
+    if (receipt.txId !== null) linked.delete(receipt.txId);
+    return c.json({ match: matchReceipt(receipt, tx, db.today, linked), nearby: nearbyPayments(receipt, tx, linked) });
+  });
+
+  app.post("/api/customers/:id/receipts/:rid/confirm", async (c) => {
+    const { id, rid } = receiptRoute(c);
+    const body = await jsonBody(c.req.raw);
+    const txId = body.txId;
+    if (typeof txId !== "number" || !Number.isInteger(txId)) badRequest("txId must be a whole number");
+    const payment = loadEngineContext(db, id)?.tx.find((t) => t.tx_id === txId);
+    if (!payment || payment.transaction_type !== "purchase" || payment.tx_amount_eur >= 0) badRequest("txId must be one of this customer's card purchases");
+    try {
+      return c.json({ receipt: withPayment(id, receipts.link(id, rid, txId)) });
+    } catch (error) {
+      if (error instanceof ReceiptConflictError) throw new HTTPException(409, { message: error.message });
+      throw error;
+    }
+  });
+
+  app.post("/api/customers/:id/receipts/:rid/unlink", (c) => {
+    const { id, rid } = receiptRoute(c);
+    return c.json({ receipt: receipts.unlink(id, rid) });
+  });
+
+  app.delete("/api/customers/:id/receipts/:rid", (c) => {
+    const { id, rid } = receiptRoute(c);
+    receipts.delete(id, rid);
+    return c.json({ deleted: true });
   });
 
   // ---- voice: text to speech and speech to text (packages/voice, ElevenLabs) ----
@@ -322,6 +392,8 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
         },
         profile: profiles.get(id) ?? DEFAULT_PROFILE,
         allowProtected: request.allowProtected,
+        // A receipt photo is saved for this customer and matched to one of their payments.
+        saveReceipt: (read) => saveAndMatch(receipts, id, read, loadEngineContext(db, id)?.tx ?? [], db.today),
         // The coach may change the saved preferences when the user asks. Taking a category off the
         // keep-as-is list only goes through for categories the previous answer asked the user about.
         preferences: {
