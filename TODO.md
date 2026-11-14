@@ -130,7 +130,10 @@ Counts towards: financial literacy, feasibility.
 - [x] Backtest on all customers (`npm run backtest -w @mydata/backend`): median
   error 381 €, payday within two days in 80% of cases
 - [ ] A library card for safe to save (the coach can only state the figure today)
-- [ ] Decide whether safe to spend should always keep a fixed cushion
+- [x] Safe to spend counts this pay period's money only; what was on the account
+  before the last salary is a reserve that is shown but not counted
+- [ ] Let the user say how much of the account is savings, instead of inferring it
+  from the balance before the last salary
 
 ## What-if and savings goals
 

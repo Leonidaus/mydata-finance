@@ -6,9 +6,9 @@ import { applyOps, type Block } from "../blocks";
 import { contextFromFixture, type FixtureBundle, type FixtureIndex } from "./fixture";
 import { EngineArgumentError } from "./args";
 import { basketOf, classifyBasket } from "./baskets";
-import { filterTransactions, runEngine } from "./functions";
+import { filterTransactions, planUntilPayday, runEngine } from "./functions";
 import { ENGINE_COLUMNS } from "../agent/catalog";
-import { type Cohorts, ENGINE_FNS } from "./types";
+import { type Cohorts, ENGINE_FNS, type EngineContext } from "./types";
 import { resolvePeriod, sum } from "./util";
 
 const dir = fileURLToPath(new URL("../../../app/public/fixtures/", import.meta.url));
@@ -129,8 +129,49 @@ describe.each(contexts)("financial definitions on $label", ({ ctx }) => {
 
   it("never adds to the allowance through the late-salary margin", () => {
     const r = runEngine(ctx, "safeToSpend", { horizon: "until_payday" });
-    const margin = r.rows.find((x) => x.term === "Margin in case your salary arrives late")!;
+    const margin = r.rows.find((x) => String(x.term).startsWith("Margin in case your salary arrives late"))!;
     expect(margin.amount as number).toBeLessThanOrEqual(0);
+  });
+
+  it("counts this pay period's money only: what was on the account before the last salary is a reserve", () => {
+    const p = planUntilPayday(ctx);
+    const salary = ctx.tx.filter((t) => t.category === "Salary").at(-1)!;
+    const before = salary.balance_after_eur - salary.tx_amount_eur;
+    close(p.reserve, Math.max(0, before));
+    // The reserve pays for the precautions first; nothing else of it is counted.
+    const precautionsCovered = Math.min(p.reserve, p.buffer + p.lateMargin);
+    close(p.spendable, p.available - p.reserve + precautionsCovered);
+    expect(p.spendable).toBeLessThanOrEqual(p.available + 0.01);
+    close(p.bufferCharged + p.lateMarginCharged, p.buffer + p.lateMargin - precautionsCovered);
+
+    const r = runEngine(ctx, "safeToSpend", { horizon: "until_payday" });
+    close(r.rows.at(-1)!.amount as number, p.spendable);
+    const reserveRow = r.rows.find((x) => String(x.term).startsWith("Reserve"));
+    if (p.reserve > 0) {
+      close(reserveRow!.amount as number, -p.reserve);
+      expect(r.assumptions![0]).toMatch(/Only this pay period's money counts/);
+    } else {
+      expect(reserveRow).toBeUndefined();
+    }
+    // Safe to save still looks at the whole account: money not needed before payday is what could be saved.
+    close(runEngine(ctx, "safeToSave").rows[0].amount as number, p.available);
+  });
+
+  it("gives the same safe to spend whether the savings on the account are large or very large", () => {
+    // The same customer with 50 000 € and with 80 000 € more on the account all along.
+    const richer = (extra: number): EngineContext => ({ ...ctx, tx: ctx.tx.map((t) => ({ ...t, balance_after_eur: t.balance_after_eur + extra })) });
+    const [a, b] = [50_000, 80_000].map((extra) => runEngine(richer(extra), "safeToSpend", { horizon: "until_payday" }));
+    close(a.rows.at(-1)!.amount as number, b.rows.at(-1)!.amount as number);
+    expect(a.value).toBe(b.value);
+    // And it is this period's money: the last salary and what else came in, less what went out and what is still due.
+    const p = planUntilPayday(richer(50_000));
+    close(p.spendable, p.balance - p.reserve - p.billsDue - p.essentialsDue - p.savingDue);
+    expect(p.bufferCharged + p.lateMarginCharged).toBe(0);
+    // With nothing left over before the salary, the whole balance is this period's money and the precautions come out of it.
+    const lowest = Math.min(...ctx.tx.map((t) => t.balance_after_eur));
+    const broke = planUntilPayday(richer(-(lowest + 100_000)));
+    expect(broke.reserve).toBe(0);
+    close(broke.spendable, broke.available);
   });
 
   it("utilities count with their monthly total, not a single payment", () => {
