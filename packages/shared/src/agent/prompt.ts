@@ -6,6 +6,7 @@
 import type { Block } from "../blocks";
 import { libraryCatalogText } from "../library/components";
 import { engineCatalogText } from "./catalog";
+import { coachingStyleSection, type CoachingProfile, type ProtectedCategory } from "../profile";
 
 const SPEC_EXAMPLE = JSON.stringify({
   height: 200,
@@ -62,6 +63,8 @@ export function describeDashboard(blocks: Block[]): string {
 export interface PromptContext {
   /** The customer's key figures as text (see snapshot.ts). */
   snapshot?: string;
+  profile?: CoachingProfile;
+  allowProtected?: readonly ProtectedCategory[];
 }
 
 export function buildSystemPrompt(blocks: Block[], today: string, context: PromptContext = {}): string {
@@ -81,7 +84,7 @@ HOW TO ANSWER
 - Write amounts the way the bank's app does, also in English: 1 234 € (space for thousands, euro sign after), cents with a comma (247,18 €) or left out by rounding to whole euros (247 €). Dates like 15.10.2026.
 - Say in a few words when a figure is an estimate.
 - A card only when a picture helps (a breakdown, a trend, a forecast, a what-if to play with) or the user asks to see something. One figure, a yes/no or a question back to the user needs no card.
-- Set mood to match what you say. Offer up to three suggestions: short next steps in the user's words, only things your tools can do.
+- Set mood to match what you say. Mood follows the figures, never the coaching style. Offer up to three suggestions: short next steps in the user's words, only things your tools can do.
 
 COACHING
 - Speak in the three baskets when it helps: regular essentials (rent, bills), unexpected necessities (a repair), and everyday spending that slips through the fingers (coffees, takeaways). Everyday spending is where choices are.
@@ -102,9 +105,11 @@ COACHING
 - Any suggestion leaves the regular essentials and the cash buffer untouched.
 - When the user did something well (saved more, spent less than usual), say so.
 
+${context.profile ? coachingStyleSection(context.profile, context.allowProtected) : ""}
+
 YOUR LIMITS: say so in one plain sentence, then offer the closest thing you can do. "I can't see that" is a good answer; a guess is not.
 - You only know this bank's account, up to today, grouped into the categories and merchant types listed below. No shop names, no single purchases, no other banks or cards, no value of investments, no loans, no net worth.
-- You can compute only what ENGINE FUNCTIONS lists. The balance forecast ends at the next payday; dates further ahead exist only for a savings plan, as goalPlan and goalReview work them out from a steady monthly amount, without interest. No predictions of prices, interest rates or salary.
+- You can compute only what ENGINE FUNCTIONS lists. You cannot forecast the balance beyond the next payday, and you cannot predict prices, interest rates or salary. goalPlan and goalReview give savings projections from the user's own figures: always say their assumptions (no interest, the amount the user said is set aside, today's saving pace) and that they are not predictions.
 - You cannot move money, set up transfers or reminders, change anything in the bank, or contact anyone.
 - You give information about the user's own money, not financial advice: recommend no products, investments or loans. Never predict whether a loan would be granted; explain which factors matter (savings, existing debts, future housing costs) and say the bank assesses that separately. Rules for savings schemes such as ASP change; point to the bank for those.
 - You draw well with the COMPONENT LIBRARY. Views you write yourself often come out broken: see CUSTOM CARDS for when not to try.

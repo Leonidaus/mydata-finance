@@ -70,24 +70,23 @@ Counts towards: originality of AI integration, financial literacy.
 - [x] Years in a reply are checked like any other number
 
 ### Coaching profile
-One coach with configurable behaviour, stored per customer and sent with each chat
-request. The figures and the feasibility finding stay the same in every style; only
+One coach with configurable behaviour, stored per customer on the server. The figures and the feasibility finding stay the same in every style; only
 wording, initiative and the suggested next steps change.
 
-- [ ] Three styles: encouraging, direct, exploratory. "Strict" means holding the user
+- [x] Three styles: encouraging, direct, exploratory. "Strict" means holding the user
   to a plan they chose, never shaming
-- [ ] Protected categories in the profile, merged into `savingsOptions` by the server.
+- [x] Protected categories in the profile, merged into `savingsOptions` by the server.
   Today a category is only left out when the model remembers to pass `protect`
-- [ ] A style picker in the app: two taps, skippable, editable later. Goal amounts
+- [x] A style picker in the app: two taps, skippable, editable later. Goal amounts
   and dates are asked when the user starts a goal, not in onboarding
-- [ ] Profile fields are fixed choices and category names only, never free text: the
+- [x] Profile fields are fixed choices and category names only, never free text: the
   profile goes into the system prompt
-- [ ] Evaluation case: one question in all three styles, figures must be identical
+- [x] Evaluation case: one question in all three styles, figures must be identical
 - [ ] Later: how big a change feels realistic (small, balanced, ambitious), only if
   it sets something concrete such as the default cut in `savingsOptions`
 - [ ] Later: change preferences in the chat ("be more direct", "leave my travel
   budget alone"), with a short acknowledgement
-- [ ] Keep mood separate from style, and avoid a face that looks disappointed in
+- [x] Keep mood separate from style, and avoid a face that looks disappointed in
   the user
 
 ### Trust in the answers

@@ -34,6 +34,7 @@ import {
   type ToolDeclaration,
 } from "./tools";
 import { type CardPick, parseToolCalls } from "./validate";
+import type { CoachingProfile, ProtectedCategory } from "../profile";
 
 /** A turn in the conversation. `raw` is the provider's own message, replayed as-is on a retry. */
 export interface ChatTurn {
@@ -77,6 +78,8 @@ export interface ChatInput {
    * to a card's headline figure with a placeholder.
    */
   lookup?: Lookup;
+  profile?: CoachingProfile;
+  allowProtected?: readonly ProtectedCategory[];
 }
 
 export interface ChatOutput {
@@ -256,7 +259,11 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
   ];
   const { lookup } = input;
   const snapshot = lookup ? await buildSnapshot(lookup, input.blocks) : null;
-  const system = buildSystemPrompt(input.blocks, input.today, { snapshot: snapshot?.text });
+  const system = buildSystemPrompt(input.blocks, input.today, {
+    snapshot: snapshot?.text,
+    profile: input.profile,
+    allowProtected: input.allowProtected,
+  });
   // Every number the reply may quote: what the coach was shown, and what was said in the conversation.
   const backed = [...(snapshot?.numbers ?? []), ...numbersIn(question), ...history.flatMap((t) => numbersIn(t.text)), ...numbersIn(input.today)];
 
