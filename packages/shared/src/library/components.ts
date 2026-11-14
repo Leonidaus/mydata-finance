@@ -42,14 +42,14 @@ export const COMPONENTS = {
   },
   can_afford: {
     description:
-      "Whether one price fits: safe to spend until payday minus the price, with what is left or missing. kind necessity for a cost the user could not plan for (a repair, a dentist's bill), which may use the buffer.",
-    examples: ["Can I afford 349 € headphones?", "I got a 280 € dentist's bill, can I pay it?"],
+      "Whether one price fits: safe to spend until payday minus the price, with what is left or missing. kind necessity for a cost the user could not plan for (a repair, a dentist's bill), which may use the buffer. price estimate when the amount is your estimate of a typical price: the card then says so.",
+    examples: ["Can I afford 349 € headphones?", "I got a 280 € dentist's bill, can I pay it?", "Can I afford a new phone?"],
     fn: "afford",
-    args: ["amount", "label", "kind", "reserve"],
+    args: ["amount", "label", "kind", "reserve", "price"],
     build: (a) => {
       const amount = n(a.amount);
-      if (amount === undefined) throw new EngineArgumentError("can_afford needs amount: the price in euros. Ask the user for it; do not guess.");
-      return catalog.afford({ amount, label: s(a.label), kind: a.kind === "necessity" ? "necessity" : undefined, reserve: n(a.reserve) });
+      if (amount === undefined) throw new EngineArgumentError('can_afford needs amount: the price in euros, or your estimate of a typical price together with price "estimate".');
+      return catalog.afford({ amount, label: s(a.label), kind: a.kind === "necessity" ? "necessity" : undefined, reserve: n(a.reserve), price: a.price === "estimate" ? "estimate" : undefined });
     },
   },
   category_bars: {

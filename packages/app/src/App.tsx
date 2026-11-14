@@ -5,6 +5,7 @@ import {
   defaultDashboard,
   type EngineResult,
   fillPlaceholders,
+  MAX_HISTORY_TURNS,
   photoQuestion,
   placeholderBlockIds,
   type TxFilter,
@@ -192,7 +193,7 @@ export default function App() {
       updateBlocks(askedFor, (prev) => applyDashboardOps({ customerId: askedFor, blocks: prev }, reply.ops).blocks);
       if (shownCustomer.current === askedFor) document.querySelector(".dashboard")?.scrollTo({ top: 0, behavior: "smooth" });
     }
-    history.current.turns = [...history.current.turns, { role: "user" as const, text: reply.photo ? photoQuestion(question, reply.photo) : question }, { role: "assistant" as const, text: reply.text }].slice(-10);
+    history.current.turns = [...history.current.turns, { role: "user" as const, text: reply.photo ? photoQuestion(question, reply.photo) : question }, { role: "assistant" as const, text: reply.text }].slice(-MAX_HISTORY_TURNS);
 
     // Fill {{blockId.value}} / {{blockId.caption}} from the computed results, here in the browser.
     const results = new Map<string, EngineResult>();
