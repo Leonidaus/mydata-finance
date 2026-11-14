@@ -19,6 +19,12 @@ const SUGGESTIONS = [
 ];
 
 const voiceClient = createVoiceClient(apiBase);
+const MIN_CHAT_HEIGHT = 320;
+const MIN_CHAT_VIEWPORT = 0.45;
+
+function minimumChatHeight() {
+  return Math.min(MIN_CHAT_HEIGHT, window.innerHeight * MIN_CHAT_VIEWPORT);
+}
 
 /**
  * A single row of chips that scrolls sideways. Touch swipes it natively; a mouse wheel only
@@ -163,7 +169,7 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
 
   function resize(e: ReactPointerEvent<HTMLButtonElement>) {
     if (!resizeStart.current) return;
-    const minHeight = Math.min(190, window.innerHeight * 0.35);
+    const minHeight = minimumChatHeight();
     setChatHeight(Math.max(minHeight, Math.min(window.innerHeight * 0.8, resizeStart.current.height + resizeStart.current.y - e.clientY)));
   }
 
@@ -199,7 +205,7 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
               e.preventDefault();
               const currentHeight = e.currentTarget.parentElement?.parentElement?.getBoundingClientRect().height ?? 300;
               const delta = e.key === "ArrowUp" ? 32 : -32;
-              const minHeight = Math.min(190, window.innerHeight * 0.35);
+              const minHeight = minimumChatHeight();
               setChatHeight((height) => Math.max(minHeight, Math.min(window.innerHeight * 0.8, (height ?? currentHeight) + delta)));
             }
           }}
@@ -257,13 +263,16 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
       )}
       {/* Starter prompts only: they go away once the conversation has begun. */}
       {messages.length === 0 && (
-        <ChipRow className="suggestions" label="Suggested questions (answered instantly)">
-          {SUGGESTIONS.map((s) => (
-            <button key={s} type="button" className="chip" onClick={() => send(s, true)} disabled={pending}>
-              {s}
-            </button>
-          ))}
-        </ChipRow>
+        <details className="suggestions-panel" open>
+          <summary>Suggested questions</summary>
+          <ChipRow className="suggestions" label="Suggested questions (answered instantly)">
+            {SUGGESTIONS.map((s) => (
+              <button key={s} type="button" className="chip" onClick={() => send(s, true)} disabled={pending}>
+                {s}
+              </button>
+            ))}
+          </ChipRow>
+        </details>
       )}
 
       <form className="chat-input" onSubmit={onSubmit}>
