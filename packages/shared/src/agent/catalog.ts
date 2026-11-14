@@ -43,7 +43,8 @@ export const ENGINE_DOCS: Record<EngineFn, EngineDoc> = {
   safeToSpend: {
     description:
       "How much of this pay period's money is left to spend this week or until payday, after bills, essentials, saving and a buffer. " +
-      "Money that was on the account before the last salary is a reserve and is not counted, so a large balance does not make a large figure.",
+      "Money that was on the account before the last salary is a reserve and is not counted, so a large balance does not make a large figure. " +
+      "reserve: how much of the account the USER says is savings (0 when all of it is for spending); it replaces the reserve worked out from the last salary.",
     rows: "term (text), amount (€; negative terms are deductions). The last row is the result.",
     unit: "€",
   },
@@ -87,7 +88,7 @@ export const ENGINE_DOCS: Record<EngineFn, EngineDoc> = {
     description:
       "A plan towards a savings goal from figures the USER gives: months and date to reach target at a monthly amount, and whether that fits what is left over after spending. " +
       "target is required; saved is what the user says is already set aside (the account cannot tell); monthly defaults to the current saving pace; " +
-      "extra adds a row for saving that much more a month; byMonths adds a row with the monthly amount a deadline needs. No interest is assumed.",
+      "extra adds a row for saving that much more a month (extraFrom spending_cut when it comes from spending less, so the cut pays for it); byMonths adds a row with the monthly amount a deadline needs. No interest is assumed.",
     rows: "scenario, monthly (€/month), months (to go), reached (month/year), sooner (months earlier than the first row), leftOver (€/month still left after spending and this saving), fits (yes | no), summary (text)",
     unit: "€ still to save",
   },
@@ -97,6 +98,21 @@ export const ENGINE_DOCS: Record<EngineFn, EngineDoc> = {
       "Essentials are never included; protect lists the categories the user wants to keep. Rows do not overlap, so savings can be added.",
     rows: "category, monthly (€/month now), saving (€/month freed), perYear (€)",
     unit: "€/month freed in total",
+  },
+  monthSoFar: {
+    description:
+      "The calendar month up to today: money in, money out per basket, what was moved to savings and what is left, next to the usual by the same day of the month. " +
+      "For questions like how is this month going, am I spending more than usual, how do my income and spending balance.",
+    rows: "term (text), amount (€; negative is money out), usualByNow (€, the average of the same days in the last 3 months). The last row is what is left.",
+    unit: "€ left of this month's money so far",
+  },
+  goalReview: {
+    description:
+      "How a savings plan is going since it started: per month, what the plan asked for and what was really moved to savings, whether the user is on plan, " +
+      "and when the target is reached at the agreed amount and at the pace so far. target and monthly are required; saved is what was set aside before the plan; " +
+      "since is the month the plan started (YYYY-MM; this month when left out). Take them from the plan card or from the user.",
+    rows: "month (YYYY-MM), planned (€ cumulative), moved (€ cumulative, moved to savings), movedThisMonth (€), leftOnAccount (€ left that month without being moved), status (complete | in progress)",
+    unit: "€ set aside so far",
   },
 };
 
@@ -116,11 +132,13 @@ export const ENGINE_COLUMNS: Record<EngineFn, readonly string[]> = {
   goalProgress: ["label", "saved", "target", "rate"],
   goalPlan: ["scenario", "monthly", "months", "reached", "sooner", "leftOver", "fits", "summary"],
   savingsOptions: ["category", "monthly", "saving", "perYear"],
+  monthSoFar: ["term", "amount", "usualByNow"],
+  goalReview: ["month", "planned", "moved", "movedThisMonth", "leftOnAccount", "status"],
 };
 
 /** Which engine functions each built-in template can draw. */
 export const TEMPLATE_FNS: Record<TemplateId, readonly EngineFn[]> = {
-  stat: ["safeToSpend", "safeToSave"],
+  stat: ["safeToSpend", "safeToSave", "monthSoFar"],
   category_bars: ["spendBy"],
   trend_line: ["monthlyTrend"],
   baskets: ["baskets"],
@@ -140,6 +158,8 @@ function describeArg(spec: (typeof ENGINE_ARG_SPECS)[EngineFn][string]): string 
       return spec.only ? `one of ${spec.only.join(" | ")}` : `a spending category`;
     case "categories":
       return `a list of spending categories`;
+    case "month":
+      return `a month as YYYY-MM`;
     case "mcc":
       return `a merchant type code from MERCHANT TYPES; do not combine with category`;
     case "number":
