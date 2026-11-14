@@ -13,7 +13,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { askAgent, cannedReply, type ChatMode, chatMode, geminiAvailable, type RunEngine } from "./agent";
 import BlockCard, { displayTitle } from "./BlockCard";
-import Chat, { type Focus } from "./Chat";
+import Chat, { type Focus, type VoiceControls } from "./Chat";
 import CoachingSettings from "./CoachingSettings";
 import CoachFace from "./CoachFace";
 import { applyReply, type AskInput, type AskResult, contextBlocks, savedCard, savedState, saveToOverview } from "./conversation";
@@ -114,6 +114,8 @@ export default function App() {
   const customer = useLatest(customerId && `${source.mode}:${customerId}`, (signal) => source.customer(customerId ?? "", signal));
   const info = customer.status === "ready" ? customer.data : null;
   const [chatRequest, setChatRequest] = useState<{ text: string; n: number; canned?: boolean } | null>(null);
+  const [voiceControls, setVoiceControls] = useState<VoiceControls | null>(null);
+  const onVoiceControls = useCallback((controls: VoiceControls | null) => setVoiceControls(controls), []);
 
   const toggleDev = (on: boolean) => {
     setDev(on);
@@ -266,20 +268,37 @@ export default function App() {
             </svg>
           </span>
           <h1 className="topbar-title"><CoachFace face="neutral" />{t("app.title")}</h1>
-          <button
-            className="topbar-icon topbar-language"
-            type="button"
-            onClick={() => setLocale(locale === "en" ? "fi" : "en")}
-            aria-label={t("language.switch", { language: t(locale === "en" ? "language.finnish" : "language.english") })}
-            title={t("language.switch", { language: t(locale === "en" ? "language.finnish" : "language.english") })}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="9" />
-              <ellipse cx="12" cy="12" rx="4" ry="9" />
-              <path d="M12 3v18M3 12h18M4.5 7.5Q12 10 19.5 7.5M4.5 16.5Q12 14 19.5 16.5" />
-            </svg>
-            <span className="topbar-language-code" aria-hidden="true">{locale.toUpperCase()}</span>
-          </button>
+          <div className="topbar-actions">
+            {voiceControls?.available && (
+              <button
+                className={`topbar-icon topbar-narration${voiceControls.speechEnabled ? " on" : ""}`}
+                type="button"
+                onClick={voiceControls.toggleSpeech}
+                aria-pressed={voiceControls.speechEnabled}
+                aria-label={voiceControls.speechEnabled ? t("chat.voiceReplyDisable") : t("chat.voiceReplyEnable")}
+                title={voiceControls.speechEnabled ? t("chat.voiceReplyDisable") : t("chat.voiceReplyEnable")}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M11 5 6 9H3v6h3l5 4V5Z" />
+                  <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
+                </svg>
+              </button>
+            )}
+            <button
+              className="topbar-icon topbar-language"
+              type="button"
+              onClick={() => setLocale(locale === "en" ? "fi" : "en")}
+              aria-label={t("language.switch", { language: t(locale === "en" ? "language.finnish" : "language.english") })}
+              title={t("language.switch", { language: t(locale === "en" ? "language.finnish" : "language.english") })}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <ellipse cx="12" cy="12" rx="4" ry="9" />
+                <path d="M12 3v18M3 12h18M4.5 7.5Q12 10 19.5 7.5M4.5 16.5Q12 14 19.5 16.5" />
+              </svg>
+              <span className="topbar-language-code" aria-hidden="true">{locale.toUpperCase()}</span>
+            </button>
+          </div>
         </header>
         {/* Demo controls, kept apart from the product: which synthetic customer to show. */}
         {indexData && (
@@ -347,6 +366,7 @@ export default function App() {
             focus={focus}
             onFocus={setFocus}
             onActive={(active) => setOverviewOpen(!active)}
+            onVoiceControls={onVoiceControls}
             header={
               <>
                 {index.status === "error" && <LoadError error={index.error} retry={index.retry} />}
