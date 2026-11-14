@@ -181,14 +181,13 @@ Questions for the S-Pankki mentors:
 
 ## Repo layout
 
-Current layout from the first skeleton. If we go with Next.js, `packages/app`
-becomes the Next.js app and `packages/backend` the finance engine and AI layer.
-`packages/voice` is the ElevenLabs voice service (TTS/STT); its handlers can be
-re-exported as Next.js route handlers (`@mydata/voice`).
+`packages/app` is a Next.js web app whose API routes re-export the ElevenLabs
+voice service (`@mydata/voice`). `packages/backend` is reserved for the finance
+engine and AI layer.
 
 ```
 packages/
-  app/       # App (empty for now)
+  app/       # Next.js app: voice demo UI + API routes re-exporting @mydata/voice
   backend/   # Finance engine and AI layer (empty for now)
   voice/     # Voice service: ElevenLabs TTS/STT, standalone HTTP handlers
   infra/     # Infrastructure code (empty for now)
