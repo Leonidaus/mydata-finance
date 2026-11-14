@@ -165,3 +165,39 @@ describe("runChat", () => {
     }
   });
 });
+
+describe("runChat when the model sends one tool call per turn", () => {
+  const card: ToolCall = {
+    name: "add_block",
+    args: { id: "safe-week", title: "Safe to spend", explanation: "Balance minus what is still due.", source: "estimate", fn: "safeToSpend", args: { horizon: "week" }, view_kind: "template", template: "stat" },
+  };
+  function oneCallPerTurn() {
+    const seen: ChatModelRequest[] = [];
+    const model: ChatModel = {
+      async generate(request) {
+        seen.push(request);
+        return seen.length === 1 ? { calls: [card] } : { calls: [{ name: "reply", args: { text: "You can safely spend {{safe-week.value}} this week." } }] };
+      },
+    };
+    return { model, seen };
+  }
+  const input = { question: "What is safe to spend?", history: [], blocks: [], today: "2026-09-15" };
+
+  it("asks for the reply alone and keeps the card", async () => {
+    const { model, seen } = oneCallPerTurn();
+    const out = await runChat(model, input);
+    expect(out.text).toBe("You can safely spend {{safe-week.value}} this week.");
+    expect(out.ops).toHaveLength(1);
+    expect(seen).toHaveLength(2);
+    expect(seen[1].tools.map((t) => t.name)).toEqual(["reply"]);
+    expect(seen[1].turns.at(-1)?.text).toContain("ids: safe-week");
+  });
+
+  it("does not ask when the caller writes the reply itself", async () => {
+    const { model, seen } = oneCallPerTurn();
+    const out = await runChat(model, { ...input, replyFollowUp: false });
+    expect(seen).toHaveLength(1);
+    expect(out.ops).toHaveLength(1);
+    expect(out.text).toBe("Here is a card for that.");
+  });
+});
