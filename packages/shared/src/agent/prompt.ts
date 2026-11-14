@@ -7,6 +7,7 @@ import type { Block } from "../blocks";
 import { libraryCatalogText } from "../library/components";
 import { engineCatalogText } from "./catalog";
 import { coachingStyleSection, type CoachingProfile, type ProtectedCategory } from "../profile";
+import { preferencesSection } from "./preferences";
 
 const SPEC_EXAMPLE = JSON.stringify({
   height: 200,
@@ -65,6 +66,8 @@ export interface PromptContext {
   snapshot?: string;
   profile?: CoachingProfile;
   allowProtected?: readonly ProtectedCategory[];
+  /** Set when the coach may change the saved preferences in this conversation (see preferences.ts). */
+  preferences?: { pendingUnprotect: readonly ProtectedCategory[] };
 }
 
 export function buildSystemPrompt(blocks: Block[], today: string, context: PromptContext = {}): string {
@@ -105,7 +108,7 @@ COACHING
 - Any suggestion leaves the regular essentials and the cash buffer untouched.
 - When the user did something well (saved more, spent less than usual), say so.
 
-${context.profile ? coachingStyleSection(context.profile, context.allowProtected) : ""}
+${context.profile ? coachingStyleSection(context.profile, context.allowProtected) : ""}${context.profile && context.preferences ? `\n\n${preferencesSection(context.preferences.pendingUnprotect)}` : ""}
 
 YOUR LIMITS: say so in one plain sentence, then offer the closest thing you can do. "I can't see that" is a good answer; a guess is not.
 - You only know this bank's account, up to today, grouped into the categories and merchant types listed below. No shop names, no single purchases, no other banks or cards, no value of investments, no loans, no net worth.

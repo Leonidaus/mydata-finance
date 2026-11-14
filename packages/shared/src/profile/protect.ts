@@ -9,8 +9,8 @@ export class ProtectedCategoryError extends EngineArgumentError {
   constructor(readonly categories: ProtectedCategory[]) {
     super(
       `${categories.join(", ")} ${categories.length === 1 ? "is" : "are"} on the user's keep-as-is list, ` +
-        "so no saving is calculated for it. Say so plainly, offer another category, and mention " +
-        "that the user can change this in the coaching settings or ask to see it anyway.",
+        "so no saving is calculated for it. Say so plainly and ask the user whether to take it off that list " +
+        "(update_preferences with keep_remove records the question), or offer another category.",
     );
     this.name = "ProtectedCategoryError";
   }

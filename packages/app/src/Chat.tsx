@@ -8,7 +8,16 @@ import { errorMessage } from "./latest";
 import { createVoiceClient } from "./voice/client";
 import { useVoice } from "./voice/useVoice";
 
-type Message = { id: number; role: "user" | "assistant"; text: string; question?: string; blocked?: ProtectedCategory[]; overrideUsed?: boolean };
+type Message = {
+  id: number;
+  role: "user" | "assistant";
+  text: string;
+  question?: string;
+  blocked?: ProtectedCategory[];
+  overrideUsed?: boolean;
+  /** Categories this answer asked about taking off the keep-as-is list. */
+  proposedUnprotect?: ProtectedCategory[];
+};
 
 /** A few of each kind, so the chips show templates, custom charts and widgets. */
 const SUGGESTIONS = [
@@ -19,6 +28,12 @@ const SUGGESTIONS = [
 ];
 
 const voiceClient = createVoiceClient(apiBase);
+const MIN_CHAT_HEIGHT = 320;
+const MIN_CHAT_VIEWPORT = 0.45;
+
+function minimumChatHeight() {
+  return Math.min(MIN_CHAT_HEIGHT, window.innerHeight * MIN_CHAT_VIEWPORT);
+}
 
 /**
  * A single row of chips that scrolls sideways. Touch swipes it natively; a mouse wheel only
@@ -58,7 +73,7 @@ export interface CoachState {
 
 interface Props {
   /** Resolves to the assistant's reply text; dashboard edits happen as a side effect. */
-  onAsk: (question: string, canned?: boolean, allowProtected?: ProtectedCategory[]) => Promise<{ text: string; blocked?: ProtectedCategory[] }>;
+  onAsk: (question: string, canned?: boolean, allowProtected?: ProtectedCategory[]) => Promise<{ text: string; blocked?: ProtectedCategory[]; proposedUnprotect?: ProtectedCategory[] }>;
   /** Changing this resets the conversation (e.g. when switching customer). */
   resetKey: string;
   /** Send a question from outside the chat (e.g. the dev gallery). A new `n` sends again. */
@@ -114,9 +129,9 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
     setPending(true);
     onAsk(trimmed, canned, allowProtected)
       .then(
-        ({ text: reply, blocked }) => {
+        ({ text: reply, blocked, proposedUnprotect }) => {
           if (!current()) return;
-          add("assistant", reply, { question: trimmed, blocked, overrideUsed: Boolean(allowProtected?.length) });
+          add("assistant", reply, { question: trimmed, blocked, proposedUnprotect, overrideUsed: Boolean(allowProtected?.length) });
           return voice.speak(reply);
         },
         (e: unknown) => current() && add("assistant", `I couldn't answer that: ${errorMessage(e)} Please ask again.`),
@@ -145,11 +160,11 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
       : "Typed questions go to Gemini. It sees totals worked out from your account, never single transactions. Chips are instant keyword answers.";
   const note = voice.error
     ? voice.error
-    : voice.enabled
-      ? voice.processing
-        ? "Transcribing your question…"
-        : voice.recording
-          ? "Listening… I'll answer when you pause."
+    : voice.processing
+      ? "Transcribing your question…"
+      : voice.enabled
+        ? voice.recording
+          ? "Listening… Turn off voice when you're ready to send."
           : pending
             ? "Voice is paused while your coach answers…"
             : "Voice on. Start speaking."
@@ -163,7 +178,7 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
 
   function resize(e: ReactPointerEvent<HTMLButtonElement>) {
     if (!resizeStart.current) return;
-    const minHeight = Math.min(190, window.innerHeight * 0.35);
+    const minHeight = minimumChatHeight();
     setChatHeight(Math.max(minHeight, Math.min(window.innerHeight * 0.8, resizeStart.current.height + resizeStart.current.y - e.clientY)));
   }
 
@@ -199,7 +214,7 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
               e.preventDefault();
               const currentHeight = e.currentTarget.parentElement?.parentElement?.getBoundingClientRect().height ?? 300;
               const delta = e.key === "ArrowUp" ? 32 : -32;
-              const minHeight = Math.min(190, window.innerHeight * 0.35);
+              const minHeight = minimumChatHeight();
               setChatHeight((height) => Math.max(minHeight, Math.min(window.innerHeight * 0.8, (height ?? currentHeight) + delta)));
             }
           }}
@@ -222,18 +237,35 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
               const latest = !pending && m.role === "assistant" && i === messages.length - 1;
               // A comparison, not the length itself: with nothing blocked the length is 0, and React would print that 0.
               const showOverride = m.role === "assistant" && i === messages.length - 1 && (m.blocked?.length ?? 0) > 0 && !m.overrideUsed && !pending;
+              // The coach asked whether to take something off the keep-as-is list: the answer is one tap, or typed.
+              const asked = m.role === "assistant" && i === messages.length - 1 && !pending ? (m.proposedUnprotect ?? []) : [];
+              const actions = (asked.length > 0 || showOverride) && (
+                <div className="bubble-actions">
+                  {asked.map((category) => (
+                    <button key={category} type="button" className="chip chip-next" onClick={() => send(`Yes, take ${category} off my keep-as-is list.`)}>
+                      Yes, stop keeping {category} as is
+                    </button>
+                  ))}
+                  {asked.length > 0 && (
+                    <button type="button" className="chip chip-next" onClick={() => send(`No, keep ${asked.join(" and ")} as it is.`)}>
+                      No, keep it
+                    </button>
+                  )}
+                  {showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>Show it anyway</button>}
+                </div>
+              );
               return latest ? (
                 <div key={m.id} className="coach-row">
                   <CoachFace face={coach?.mood ?? "neutral"} />
                   <div>
                     <div className="bubble bubble-assistant">{m.text}</div>
-                    {showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>Show it anyway</button>}
+                    {actions}
                   </div>
                 </div>
               ) : (
                 <div key={m.id}>
                   <div className={`bubble bubble-${m.role}`}>{m.text}</div>
-                  {showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>Show it anyway</button>}
+                  {actions}
                 </div>
               );
             })}
@@ -243,7 +275,8 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
                 <div className="bubble bubble-assistant">{mode === "mock" ? "Thinking…" : "Let me look at your figures…"}</div>
               </div>
             )}
-            {!pending && messages.at(-1)?.role === "assistant" && (coach?.suggestions.length ?? 0) > 0 && (
+            {/* While the coach's question about the keep-as-is list is open, its own buttons are the next steps. */}
+            {!pending && messages.at(-1)?.role === "assistant" && (messages.at(-1)?.proposedUnprotect?.length ?? 0) === 0 && (coach?.suggestions.length ?? 0) > 0 && (
               <ChipRow className="coach-next" label="Suggested next steps">
                 {coach?.suggestions.map((s) => (
                   <button key={s} type="button" className="chip chip-next" onClick={() => send(s)}>
@@ -257,13 +290,16 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
       )}
       {/* Starter prompts only: they go away once the conversation has begun. */}
       {messages.length === 0 && (
-        <ChipRow className="suggestions" label="Suggested questions (answered instantly)">
-          {SUGGESTIONS.map((s) => (
-            <button key={s} type="button" className="chip" onClick={() => send(s, true)} disabled={pending}>
-              {s}
-            </button>
-          ))}
-        </ChipRow>
+        <details className="suggestions-panel" open>
+          <summary>Suggested questions</summary>
+          <ChipRow className="suggestions" label="Suggested questions (answered instantly)">
+            {SUGGESTIONS.map((s) => (
+              <button key={s} type="button" className="chip" onClick={() => send(s, true)} disabled={pending}>
+                {s}
+              </button>
+            ))}
+          </ChipRow>
+        </details>
       )}
 
       <form className="chat-input" onSubmit={onSubmit}>
@@ -274,8 +310,8 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
             className={`voice-btn${voice.enabled ? " on" : ""}`}
             onClick={voice.toggle}
             aria-pressed={voice.enabled}
-            aria-label={voice.enabled ? "Disable voice prompt" : "Activate voice prompt"}
-            title={voice.enabled ? "Disable voice prompt" : "Activate voice prompt"}
+            aria-label={voice.enabled ? "Stop recording and transcribe" : "Activate voice prompt"}
+            title={voice.enabled ? "Stop recording and transcribe" : "Activate voice prompt"}
           >
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <rect x="9" y="2" width="6" height="12" rx="3" />

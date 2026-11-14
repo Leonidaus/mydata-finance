@@ -382,7 +382,7 @@ body {
   flex: 0 0 auto;
   margin-top: auto;
   height: 42dvh;
-  min-height: min(190px, 35dvh);
+  min-height: min(320px, 45dvh);
   max-height: 80dvh;
 }
 
@@ -536,12 +536,40 @@ body {
   padding: 6px 12px;
 }
 
+.suggestions-panel {
+  flex: none;
+  margin-top: auto;
+}
+
+.suggestions-panel summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px 2px;
+  color: var(--green-700);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+
+.suggestions-panel summary::-webkit-details-marker { display: none; }
+.suggestions-panel summary::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  margin: -3px 4px 3px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 160ms ease;
+}
+.suggestions-panel:not([open]) summary::after { transform: rotate(-45deg); }
+
 .suggestions {
   display: flex;
-  flex: none; /* only the conversation above shrinks when the chat is full */
-  margin-top: auto;
   gap: 8px;
-  padding: 12px 16px 2px;
+  padding: 8px 16px 2px;
   overflow-x: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) var(--surface-weak);
@@ -807,3 +835,11 @@ body {
   cursor: pointer;
 }
 .pin-btn.on { background: var(--green-300); border-color: var(--green-300); color: var(--green-900); }
+
+/* Answers to a question the coach asked (yes / no / show it anyway), under its bubble. */
+.bubble-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}

@@ -12,7 +12,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 export interface ServerChat {
   /** Whether the backend has a chat model configured. False when it cannot be reached. */
   available(): Promise<boolean>;
-  ask(input: { customerId: string; question: string; history: { role: "user" | "assistant"; text: string }[]; blocks: Block[]; allowProtected?: ProtectedCategory[] }, signal?: AbortSignal): Promise<ServerChatOutput>;
+  ask(input: { customerId: string; question: string; history: { role: "user" | "assistant"; text: string }[]; blocks: Block[]; allowProtected?: ProtectedCategory[]; pendingUnprotect?: ProtectedCategory[] }, signal?: AbortSignal): Promise<ServerChatOutput>;
 }
 
 /** `base` is the API origin without a trailing slash; empty means same origin. */
