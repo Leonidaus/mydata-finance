@@ -14,6 +14,7 @@
 import { applyOps, type Block, type DashboardOp } from "../blocks";
 import { ENGINE_FNS, type EngineFn, type EngineResult } from "../engine/types";
 import { describeResult, numbersIn, questionLanguage, requestLabel, resultNumbers, unbackedNumbers } from "./figures";
+import { placeholders } from "./placeholders";
 import { buildSystemPrompt } from "./prompt";
 import { buildSnapshot, type Figures, type Lookup, runLookup } from "./snapshot";
 import { LOOKUP_DECLARATION, LOOKUP_TOOL, type Mood, REPLY_TOOL, TOOL_DECLARATIONS, type ToolCall, type ToolDeclaration } from "./tools";
@@ -131,6 +132,30 @@ async function builtCards(lookup: Lookup | undefined, current: Block[], ops: Das
 const cardHeading = ({ block }: BuiltCard) =>
   `Card ${block.id}: "${block.title}" = ${block.data.kind === "engine" ? requestLabel(block.data.fn, block.data.args) : "query"}`;
 
+/**
+ * The placeholders in a reply that the app could not fill: a card that does not exist, or one
+ * whose result has no headline figure (a comparison, a list) or no caption. Without a lookup
+ * the figures are not known here and nothing is reported.
+ */
+async function unfillable(text: string, lookup: Lookup | undefined, blocks: Block[], cards: BuiltCard[]): Promise<string[]> {
+  if (!lookup) return [];
+  const bad: string[] = [];
+  for (const { id, field } of placeholders(text)) {
+    const block = blocks.find((b) => b.id === id);
+    let result = cards.find((c) => c.block.id === id)?.result;
+    if (!result && block?.data.kind === "engine") {
+      try {
+        result = await lookup(block.data.fn, block.data.args);
+      } catch {
+        result = undefined;
+      }
+    }
+    const filled = result && (field === "value" ? typeof result.value === "number" : Boolean(result.caption));
+    if (!filled) bad.push(`{{${id}.${field}}}`);
+  }
+  return [...new Set(bad)];
+}
+
 /** What stands in for a reply that was missing or failed the number check. */
 function standardReply(question: string, cards: BuiltCard[], hasOps: boolean): string {
   const finnish = questionLanguage(question) === "fi";
@@ -212,20 +237,26 @@ export async function runChat(model: ChatModel, input: ChatInput, signal?: Abort
     }
   }
 
-  // 3. The reply must be there, and quote only numbers the coach was shown.
-  let unbacked = parsed.text === null ? [] : unbackedNumbers(parsed.text, backed);
-  let checked = parsed.text !== null && unbacked.length === 0;
-  let cards: BuiltCard[] = [];
+  // 3. The reply must be there, quote only numbers the coach was shown, and use only placeholders the app can fill.
+  const after = applyOps({ customerId: "", blocks: input.blocks }, parsed.ops).blocks;
+  const cards = await builtCards(lookup, input.blocks, parsed.ops);
+  const faultsIn = async (text: string) => ({ unbacked: unbackedNumbers(text, backed), empty: await unfillable(text, lookup, after, cards) });
+  let faults = parsed.text === null ? null : await faultsIn(parsed.text);
+  let checked = faults !== null && faults.unbacked.length === 0 && faults.empty.length === 0;
   if (!checked) {
     // Ask for the reply alone, with only the reply tool on offer: the cards stay as they are.
     // The coach now gets the figures of the cards it built, which it had not seen.
-    cards = await builtCards(lookup, input.blocks, parsed.ops);
     backed.push(...cards.flatMap((c) => resultNumbers(c.result)));
     const figures = cards.map((c) => describeResult(cardHeading(c), c.result)).join("\n\n");
     const problem =
-      parsed.text === null
+      faults === null
         ? "Your answer had no reply."
-        : `Your reply quoted numbers that are not in your figures: ${unbacked.join(", ")}.`;
+        : [
+            faults.unbacked.length ? `Your reply quoted numbers that are not in your figures: ${faults.unbacked.join(", ")}.` : "",
+            faults.empty.length ? `Your reply used ${faults.empty.join(", ")}, which the app cannot fill in: that card has no such figure. Say the figures themselves.` : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
     const replyRequest: ChatModelRequest = {
       system,
       turns: [
@@ -245,8 +276,8 @@ export async function runChat(model: ChatModel, input: ChatInput, signal?: Abort
     const followUp = await repair(() => model.generate(replyRequest, signal), signal);
     const reply = followUp && parseToolCalls(followUp.calls.filter((c) => c.name === REPLY_TOOL), []);
     if (reply && reply.text !== null) {
-      unbacked = unbackedNumbers(reply.text, backed);
-      if (unbacked.length === 0) {
+      faults = await faultsIn(reply.text);
+      if (faults.unbacked.length === 0 && faults.empty.length === 0) {
         checked = true;
         parsed = {
           ...parsed,
@@ -258,10 +289,17 @@ export async function runChat(model: ChatModel, input: ChatInput, signal?: Abort
     }
   }
 
+  const replyFaults =
+    checked || faults === null
+      ? []
+      : [
+          ...(faults.unbacked.length ? [`reply: numbers not in the figures: ${faults.unbacked.join(", ")}`] : []),
+          ...(faults.empty.length ? [`reply: placeholders that cannot be filled: ${faults.empty.join(", ")}`] : []),
+        ];
   return {
     text: checked && parsed.text !== null ? parsed.text : standardReply(question, cards, parsed.ops.length > 0),
     ops: parsed.ops,
-    rejected: [...parsed.errors, ...(checked || unbacked.length === 0 ? [] : [`reply: numbers not in the figures: ${unbacked.join(", ")}`])],
+    rejected: [...parsed.errors, ...replyFaults],
     picks: parsed.picks,
     mood: checked ? parsed.mood : null,
     suggestions: parsed.suggestions,
