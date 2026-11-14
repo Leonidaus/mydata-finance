@@ -18,7 +18,7 @@ interface Props {
 }
 
 export default function CoachingSettings({ profile, onboarding = false, onSave, onSkip, onClose }: Props) {
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState<1 | 2>(1);
   const [style, setStyle] = useState(profile.style);
   const [selected, setSelected] = useState(() => new Set(profile.protectedCategories));
   const [essentials, setEssentials] = useState(false);
@@ -53,11 +53,23 @@ export default function CoachingSettings({ profile, onboarding = false, onSave, 
       {category === "Home & Tech" ? "Home & Tech (small purchases)" : category === "Transportation" ? "Transportation (taxis)" : category}
     </button>
   ));
+  const chooseStyle = (value: typeof style) => {
+    setStyle(value);
+    if (onboarding) setStep(2);
+  };
+  const progress = onboarding && (
+    <div className="coaching-progress" aria-label={`Onboarding step ${step} of 2`}>
+      {[1, 2].map((value) => <button key={value} type="button" className={step === value ? "coaching-progress-dot active" : "coaching-progress-dot"} onClick={() => setStep(value as 1 | 2)} aria-label={`Go to step ${value}`} aria-current={step === value ? "step" : undefined} />)}
+    </div>
+  );
   return (
     <div className="coaching-sheet" role="dialog" aria-modal="true" aria-label="Coaching settings">
       <div className="coaching-card">
         <div className="coaching-heading"><h2>{onboarding ? "Set up your coach" : "Coaching settings"}</h2><button type="button" className="ghost-btn" onClick={onClose}>Close</button></div>
-        {step === 1 ? <><p>How should I coach you?</p><div className="style-options">{COACHING_STYLES.map((value) => <button key={value} type="button" className={style === value ? "style-choice selected" : "style-choice"} onClick={() => setStyle(value)}><strong>{value}</strong><span>{labels[value]}</span></button>)}</div><div className="coaching-actions"><button type="button" className="ghost-btn" onClick={onSkip}>Skip</button><button type="button" onClick={() => setStep(2)}>Next</button></div></> : <><p>Anything you would rather not cut?</p><div className="chip-row">{chips(EVERYDAY)}</div><button type="button" className="essentials-toggle" onClick={() => setEssentials(!essentials)}>Essentials {essentials ? "−" : "+"}</button>{essentials && <><p className="muted small">Savings ideas already skip these. Tap to also protect them from what-if questions.</p><div className="chip-row">{chips(ESSENTIALS)}</div></>}<div className="coaching-actions"><button type="button" className="ghost-btn" onClick={onSkip}>Skip</button><button type="button" onClick={() => setStep(1)}>Back</button><button type="button" onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save"}</button></div></>}
+        {(!onboarding || step === 1) && <><p>How should I coach you?</p><div className="style-options">{COACHING_STYLES.map((value) => <button key={value} type="button" className={style === value ? "style-choice selected" : "style-choice"} onClick={() => chooseStyle(value)}><strong>{value}</strong><span>{labels[value]}</span></button>)}</div></>}
+        {(!onboarding || step === 2) && <><p>Anything you would rather not cut?</p><div className="chip-row">{chips(EVERYDAY)}</div><button type="button" className="essentials-toggle" onClick={() => setEssentials(!essentials)}>Essentials {essentials ? "−" : "+"}</button>{essentials && <><p className="muted small">Savings ideas already skip these. Tap to also protect them from what-if questions.</p><div className="chip-row">{chips(ESSENTIALS)}</div></>}</>}
+        {!onboarding || step === 2 ? <div className="coaching-actions"><button type="button" className="ghost-btn" onClick={onSkip}>Skip</button><button type="button" className="ghost-btn save-btn" onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save"}</button></div> : <div className="coaching-actions"><button type="button" className="ghost-btn" onClick={onSkip}>Skip</button></div>}
+        {progress}
         {confirm && <div className="inline-confirm"><span>Stop keeping {confirm} as is?</span><button type="button" onClick={() => { setSelected((old) => { const next = new Set(old); next.delete(confirm); return next; }); setConfirm(null); }}>Stop keeping it</button><button type="button" className="ghost-btn" onClick={() => setConfirm(null)}>Keep it</button></div>}
       </div>
     </div>
