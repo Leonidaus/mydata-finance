@@ -152,6 +152,27 @@ describe.each(contexts)("financial definitions on $label", ({ ctx }) => {
     expect(Number.isFinite(runEngine(ctx, "goalProgress", { target: 5000 }).value)).toBe(true);
   });
 
+  it("narrows to one merchant type, so a question about taxis is not answered with all transport", () => {
+    const taxis = runEngine(ctx, "spendBy", { period: "last_12_months", mcc: "4121" });
+    const transport = runEngine(ctx, "spendBy", { period: "last_12_months", category: "Transportation" });
+    const behind = filterTransactions(ctx, taxis.filter!);
+    expect(behind.every((t) => t.mcc_code === "4121")).toBe(true);
+    close(-sum(behind.map((t) => t.tx_amount_eur)), taxis.value!);
+    expect(taxis.value!).toBeLessThanOrEqual(transport.value!);
+    expect(taxis.rows.every((row) => row.key === "4121")).toBe(true);
+    expect(taxis.caption).toContain("Taxis");
+
+    const trend = runEngine(ctx, "monthlyTrend", { mcc: "4121", months: 12 });
+    close(sum(trend.rows.map((row) => row.amount as number)), taxis.value!);
+    const fastFood = runEngine(ctx, "whatIf", { mcc: "5814", cutPct: 50 });
+    const restaurants = runEngine(ctx, "whatIf", { category: "Restaurants", cutPct: 50 });
+    expect(fastFood.value!).toBeLessThanOrEqual(restaurants.value!);
+    expect(fastFood.caption).toContain("Fast food");
+
+    expect(() => runEngine(ctx, "spendBy", { mcc: "9999" })).toThrow(EngineArgumentError);
+    expect(() => runEngine(ctx, "spendBy", { mcc: "4121", category: "Groceries" })).toThrow(/belongs to Transportation/);
+  });
+
   it("peer comparison covers the same 12 months on both sides", () => {
     const r = runEngine(ctx, "peerCompare");
     expect(ctx.cohorts!.window).toEqual([r.filter!.from, r.filter!.to]);
