@@ -1,0 +1,45 @@
+# Checks every pull request and every push to develop and main.
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    # To run on CRACI's runners instead (Junction credits, build-time SBOMs), install the
+    # CRACI GitHub App on this repository and change this line to: runs-on: craci
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # The tests use bundled fixtures and an in-memory database, so no dataset is needed.
+      - name: Test
+        run: npm test
+
+      - name: Build the app
+        run: npm run build
+
+      - name: Check the data prep scripts compile
+        run: python3 -m py_compile data/prep/*.py
