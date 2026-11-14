@@ -173,7 +173,7 @@ export async function respond(question: string, blocks: Block[], run: RunEngine)
     const top = r.rows[0];
     return {
       text: top
-        ? `Of every €100 you spent, about €${Math.round(((top.amount as number) / (r.value || 1)) * 100)} went on ${top.label}. I made a small custom widget for this; it runs sandboxed and only sees your spending totals.`
+        ? `Of every 100 € you spent, about ${Math.round(((top.amount as number) / (r.value || 1)) * 100)} € went on ${top.label}. I made a small custom widget for this; it runs sandboxed and only sees your spending totals.`
         : "No spending in that period.",
       ops: [{ op: "add_block", block: custom.waffle(p), index: 0 }],
     };

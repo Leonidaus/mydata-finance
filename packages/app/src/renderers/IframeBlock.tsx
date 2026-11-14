@@ -8,7 +8,7 @@
  * Contract for the code (see `mydata` in the frame):
  *   mydata.onData((rows, result) => { ... })  called with the block's engine result, and again on change
  *   mydata.select({ key, label, date, month, category })  drill into the transactions behind a datum
- *   mydata.formatEur(n)  "€1,234"
+ *   mydata.formatEur(n)  "1 234 €"
  * Theme tokens (--text, --muted, --surface, --border, --chart-1..4, ...) are set on :root.
  */
 import type { EngineResult } from "@mydata/shared";
@@ -28,7 +28,7 @@ const CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-i
 const BOOTSTRAP = `
 (function () {
   var callbacks = [], last = null;
-  var eur = new Intl.NumberFormat("en-FI", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
+  var eur = new Intl.NumberFormat("fi-FI", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
   function showError(err) {
     var p = document.createElement("p");
     p.className = "frame-error";
