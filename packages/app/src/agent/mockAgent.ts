@@ -13,6 +13,7 @@ import {
   type Mood,
   type Period,
   PERIODS,
+  type PhotoRead,
   SPENDING_CATEGORIES,
   type TemplateId,
 } from "@mydata/shared";
@@ -29,6 +30,8 @@ export interface AgentReply {
   proposedUnprotect?: string[];
   /** True when the coach changed the saved coaching profile in this answer. */
   profileChanged?: boolean;
+  /** What the model read from a photo sent with the question. */
+  photo?: PhotoRead;
 }
 
 /** Runs an engine function for the customer being answered, through the app's data source. */

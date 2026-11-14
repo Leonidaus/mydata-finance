@@ -246,6 +246,50 @@ Counts towards: feasibility, potential to integrate into S-mobiili.
 - [ ] An open-weight model on Verda as an alternative provider (also the Verda side
   challenge)
 
+## Photo: can I afford this?
+
+Counts towards: originality of AI integration, financial literacy (which basket a cost
+belongs to).
+
+- [x] A camera button in the chat. The photo is scaled down in the browser, waits in
+  the input row and goes with the user's next message to `POST /api/chat` (`image`),
+  typed or spoken. Any question can be asked about it; sent without words it means
+  "can I afford this?"
+- [x] The photo is read in a model call of its own, which sees the picture and nothing
+  about the customer and can only report the item, the price and its kind. The coach
+  never sees the picture
+- [x] Engine function `afford` and the card "Can I afford this?": safe to spend until
+  payday minus the price; a bill may also use the buffer for unexpected necessities.
+  For a photo sent without words the card is added by the server, not left to the
+  model; with a question, the coach has the figures and decides
+- [x] What was read is shown under the photo, so a misread price is visible
+- [ ] Try it with the real model on a phone: a price tag, a bill, a flat listing, a
+  photo with no price. Written against a stand-in model only so far
+- [ ] Add a photo question to the chat evaluation
+- [ ] Correcting a misread price is by typing it ("it was 399"); a tap-to-edit on the
+  amount would be clearer
+- [ ] Reading it with NVIDIA Nemotron instead of Gemini would enter that side challenge
+
+## Time machine (idea, not started)
+
+Counts towards: financial literacy (the baskets equation seen moving), feasibility (the
+backtest shown, not only reported). Judges try the app themselves, so it has to be
+found and understood without a script.
+
+- [ ] A date scrubber at the top that moves the app's "today". Every card and the coach
+  recompute: safe to spend falls as bills leave and jumps on payday
+- [ ] Backend: an optional `asOf` on the engine, data and chat routes, limited to the
+  data's range. The engine already takes `today` per call (the backtest uses it); the
+  backend pins it to the database's date, and the app asks for it once and keeps it
+- [ ] A one-line caption on what changed since the previous position ("Rent left:
+  940 € from regular essentials"), from the engine's own figures, without the model
+- [ ] Snap to days and limit the range to about three months. Peer averages are
+  computed at the fixed today, so they stay as they are and are marked so
+- [ ] "Was the coach right?": dragging past 15.9.2026 enters the two weeks the app has
+  not seen. The forecast is drawn against what really happened, with the result on all
+  customers below it. For every customer, misses included, with the wording "an
+  estimate, not a guarantee"
+
 ## Demo and pitch
 
 - [ ] Pick the demo customers and one path through the app: a simple question, the
@@ -264,7 +308,9 @@ Decide which to enter; each needs its own submission.
 - [x] ElevenLabs: the voice mode exists
 - [x] Verda: the demo runs on a Verda instance
 - [ ] Verda: model inference in Europe, the backtest as a batch job
-- [ ] NVIDIA Nemotron: photograph a bill or a flat listing and ask "can I afford this?"
+- [ ] NVIDIA Nemotron: photograph a bill or a flat listing and ask "can I afford this?".
+  The feature exists with Gemini (see [Photo](#photo-can-i-afford-this)); the entry
+  needs Nemotron as the reader
 - [ ] Aiven: PostgreSQL as the database
 - [ ] Oxylabs: one live, cited lookup
 
