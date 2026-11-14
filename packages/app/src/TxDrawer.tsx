@@ -1,6 +1,6 @@
 import { lookupMcc, type TxFilter } from "@mydata/shared";
 import { useEffect, useRef } from "react";
-import { dataSource } from "./data";
+import { useDataSource } from "./data";
 import { formatDate, formatEurCents } from "./format";
 import { useLatest } from "./latest";
 import LoadError from "./LoadError";
@@ -17,7 +17,10 @@ interface Props {
 
 export default function TxDrawer({ customerId, title, filter, onClose }: Props) {
   // Asks for as many as a data source gives at once, so that the total covers every match in practice.
-  const page = useLatest(JSON.stringify([customerId, filter]), (signal) => dataSource.transactions(customerId, filter, MAX_TX_LIMIT, signal));
+  const source = useDataSource();
+  const page = useLatest(JSON.stringify([source.mode, customerId, filter]), (signal) =>
+    source.transactions(customerId, filter, MAX_TX_LIMIT, signal),
+  );
   const txs = page.status === "ready" ? page.data.transactions : [];
   const count = page.status === "ready" ? page.data.count : 0;
   const total = txs.reduce((a, t) => a + t.tx_amount_eur, 0);

@@ -8,6 +8,7 @@
  *
  * Both modes implement the same DataSource contract (sources/types.ts).
  */
+import { createContext, useContext } from "react";
 import { createApiSource } from "./sources/api";
 import { createFixtureSource } from "./sources/fixtures";
 import type { DataMode, DataSource } from "./sources/types";
@@ -31,7 +32,18 @@ export function resolveDataConfig(env: { VITE_DATA_SOURCE?: string; VITE_API_BAS
 const config = resolveDataConfig(import.meta.env);
 const fixtures = createFixtureSource(`${import.meta.env.BASE_URL}fixtures/`);
 
+/** The configured source (VITE_DATA_SOURCE). */
 export const dataSource: DataSource = config.mode === "api" ? createApiSource(config.apiBase) : fixtures;
+
+/** The backend's origin (empty = same origin), for calls that are not data requests, such as the chat. */
+export const apiBase = config.apiBase;
+
+/** Static demo fixtures with the engine in the browser. Dev mode uses these, so no backend is needed. */
+export const fixtureSource: DataSource = fixtures;
+
+/** The source components read from. App provides dataSource normally and fixtureSource in dev mode. */
+export const DataSourceContext = createContext<DataSource>(dataSource);
+export const useDataSource = () => useContext(DataSourceContext);
 
 /**
  * The personas and customer ids offered in the picker. In API mode too: these customers are in

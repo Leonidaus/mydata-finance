@@ -478,6 +478,7 @@ body {
 .dev-section { display: flex; flex-direction: column; gap: 10px; }
 .dev-section h2 { margin: 12px 0 0; font-size: 1.05rem; }
 .dev-section > p { margin: 0; }
+.dev-ask { padding: 0; }
 .dev-prompts h3 { margin: 6px 0 0; font-size: 0.9rem; }
 .dev-prompts p { margin: 2px 0 6px; }
 .dev-chips { display: flex; flex-wrap: wrap; gap: 6px; }
