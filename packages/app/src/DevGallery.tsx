@@ -5,6 +5,7 @@
  */
 import type { Block, TxFilter } from "@mydata/shared";
 import { useState } from "react";
+import { geminiAvailable } from "./agent/gemini";
 import { DEMO_PROMPTS } from "./agent/mockAgent";
 import BlockCard from "./BlockCard";
 import { custom } from "./blocks/custom";
@@ -14,7 +15,8 @@ interface Props {
   customerId: string;
   today: string;
   onAdd: (block: Block) => void;
-  onAsk: (prompt: string) => void;
+  /** canned: keyword answer; otherwise the question goes to the agent (Gemini when configured). */
+  onAsk: (prompt: string, canned?: boolean) => void;
   onDrill: (title: string, filter: TxFilter) => void;
 }
 
@@ -90,6 +92,7 @@ export default function DevGallery({ customerId, today, onAdd, onAsk, onDrill }:
   const [json, setJson] = useState(SAMPLE);
   const [pasted, setPasted] = useState<Block | null>(() => parseBlock(SAMPLE));
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [question, setQuestion] = useState("");
 
   const update = (id: string, patch: Partial<Block>) =>
     setSections((prev) => prev.map((s) => ({ ...s, blocks: s.blocks.map((b) => (b.id === id ? { ...b, ...patch } : b)) })));
@@ -105,6 +108,32 @@ export default function DevGallery({ customerId, today, onAdd, onAsk, onDrill }:
 
   return (
     <>
+      <section className="dev-section">
+        <h2>Ask the agent</h2>
+        <p className="muted small">
+          {geminiAvailable
+            ? "Typed questions go to Gemini with only the block definitions, never the figures. The answer opens on the dashboard."
+            : "No GEMINI_API_KEY in packages/app/.env.local, so typed questions use the keyword stand-in."}
+        </p>
+        <form
+          className="chat-input dev-ask"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (question.trim()) onAsk(question.trim(), false);
+          }}
+        >
+          <input
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            placeholder="e.g. Show my spending by weekday in a fun way"
+            aria-label="Question for the agent"
+          />
+          <button type="submit" disabled={!question.trim()}>
+            Ask
+          </button>
+        </form>
+      </section>
+
       <section className="dev-section">
         <h2>Demo prompts</h2>
         <p className="muted small">Tap one to send it to the stand-in agent and see the dashboard edit it makes.</p>

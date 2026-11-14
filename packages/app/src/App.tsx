@@ -1,11 +1,12 @@
-import { applyOps, type Block, type Dashboard, type TxFilter } from "@mydata/shared";
+import { applyOps, type Block, type Dashboard, type EngineResult, fillPlaceholders, placeholderBlockIds, type TxFilter } from "@mydata/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { askAgent, cannedReply } from "./agent";
+import { askAgent, cannedReply, type RunEngine } from "./agent";
 import BlockCard from "./BlockCard";
 import { defaultDashboard } from "./catalog";
 import Chat from "./Chat";
 import DevGallery from "./DevGallery";
 import { DataSourceContext, dataSource, fixtureSource, loadIndex } from "./data";
+import { formatEur } from "./format";
 import { useLatest } from "./latest";
 import LoadError from "./LoadError";
 import TxDrawer from "./TxDrawer";
@@ -45,6 +46,15 @@ function setDevInUrl(on: boolean) {
   window.history.replaceState(null, "", url.toString().replace(/\?dev=(&|$)/, "?dev$1"));
 }
 
+/** A result's headline figure for a reply placeholder, e.g. "€312" or "€85/month". */
+function formatValue(r: EngineResult): string | undefined {
+  if (r.value === undefined) return undefined;
+  const unit = r.unit ?? "";
+  if (unit.startsWith("€")) return formatEur(r.value) + unit.slice(1).replace(/^\s*\/\s*/, "/").replace(/^\s+/, " ");
+  if (unit === "%") return `${Math.round(r.value)}%`;
+  return `${Math.round(r.value * 100) / 100}${unit ? ` ${unit}` : ""}`;
+}
+
 function loadBlocks(cid: string): Block[] {
   const raw = store.get(dashboardKey(cid));
   if (raw) {
@@ -72,7 +82,9 @@ export default function App() {
   const info = customer.status === "ready" ? customer.data : null;
   const shownCustomer = useRef(customerId);
   shownCustomer.current = customerId;
-  const [chatRequest, setChatRequest] = useState<{ text: string; n: number } | null>(null);
+  const [chatRequest, setChatRequest] = useState<{ text: string; n: number; canned?: boolean } | null>(null);
+  // What the model said, with placeholders unfilled: figures are never sent back to it.
+  const history = useRef<{ customerId: string; turns: { role: "user" | "assistant"; text: string }[] }>({ customerId: "", turns: [] });
 
   const toggleDev = (on: boolean) => {
     setDev(on);
@@ -109,9 +121,15 @@ export default function App() {
     if (!dashboard || !info) return "Still loading your data…";
     // The whole answer is for the customer who asked, also if another one is selected before it is ready.
     const { customerId: askedFor, blocks } = dashboard;
-    const reply = await (canned ? cannedReply : askAgent)(question, blocks, (fn, args = {}) =>
-      source.runData(askedFor, { kind: "engine", fn, args }),
-    );
+    if (history.current.customerId !== askedFor) history.current = { customerId: askedFor, turns: [] };
+    const ctx = {
+      blocks,
+      today: info.today,
+      history: history.current.turns,
+      run: ((fn, args = {}) => source.runData(askedFor, { kind: "engine", fn, args })) as RunEngine,
+    };
+    const reply = await (canned ? cannedReply : askAgent)(question, ctx);
+    const after = applyOps({ customerId: askedFor, blocks }, reply.ops).blocks;
     if (reply.ops.length) {
       // The new answer replaces the previous unpinned one; pinned blocks and blocks this reply touched stay.
       const touched = new Set(reply.ops.map((o) => (o.op === "add_block" ? o.block.id : o.id)));
@@ -120,7 +138,20 @@ export default function App() {
       );
       if (shownCustomer.current === askedFor) document.querySelector(".dashboard")?.scrollTo({ top: 0, behavior: "smooth" });
     }
-    return reply.text;
+    history.current.turns = [...history.current.turns, { role: "user" as const, text: question }, { role: "assistant" as const, text: reply.text }].slice(-10);
+
+    // Fill {{blockId.value}} / {{blockId.caption}} from the computed results, here in the browser.
+    const results = new Map<string, EngineResult>();
+    await Promise.all(
+      placeholderBlockIds(reply.text).map(async (id) => {
+        const b = after.find((x) => x.id === id);
+        if (b) results.set(id, await source.runData(askedFor, b.data).catch(() => ({ rows: [] }) as EngineResult));
+      }),
+    );
+    return fillPlaceholders(reply.text, (id, field) => {
+      const r = results.get(id);
+      return r && (field === "value" ? formatValue(r) : r.caption);
+    });
   };
 
   const addBlock = (block: Block) => {
@@ -129,9 +160,10 @@ export default function App() {
     setGallery(false);
   };
 
-  const askFromGallery = (prompt: string) => {
+  /** Demo prompts are canned; a typed question from the gallery goes to the agent (Gemini when configured). */
+  const askFromGallery = (prompt: string, canned = true) => {
     setGallery(false);
-    setChatRequest((prev) => ({ text: prompt, n: (prev?.n ?? 0) + 1 }));
+    setChatRequest((prev) => ({ text: prompt, n: (prev?.n ?? 0) + 1, canned }));
   };
 
   const pickRandom = () => {
