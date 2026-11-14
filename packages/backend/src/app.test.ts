@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "vitest";
 import { createApp } from "./app";
-import { resolveFromInvocationDir } from "./db";
+import { DatabaseSync } from "node:sqlite";
+import { resolveFromInvocationDir, wrapDatabase } from "./db";
 import { resolvePeriod } from "./finance/period";
 import type { SpendingResult } from "./finance/spending";
 import { createFixtureDb } from "./testing/fixture";
@@ -383,5 +384,13 @@ describe("chat model route", () => {
     assert.deepEqual(((await withKey.json()) as { services: unknown }).services, { chat: true, voice: false });
     const without = await app.request("/api/health");
     assert.deepEqual(((await without.json()) as { services: unknown }).services, { chat: false, voice: false });
+  });
+});
+
+describe("database version check", () => {
+  it("refuses a database built with other basket rules", () => {
+    const old = new DatabaseSync(":memory:");
+    old.exec("CREATE TABLE meta (key TEXT, value TEXT); INSERT INTO meta VALUES ('demo_today', '2026-09-15'), ('rules_version', '1');");
+    assert.throws(() => wrapDatabase(old), /built with basket rules version 1.*expects version 2/s);
   });
 });

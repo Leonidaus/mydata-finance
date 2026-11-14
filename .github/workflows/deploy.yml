@@ -1,0 +1,74 @@
+# Publishes the Docker image on every push to main, and redeploys the demo host when one
+# is configured. main is the persistent build: whatever is on it is what runs.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      image: ${{ steps.name.outputs.image }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Registry names must be lowercase; the repository owner's name is not.
+      - name: Image name
+        id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.name.outputs.image }}:latest
+            ${{ steps.name.outputs.image }}:${{ github.sha }}
+
+  # Runs only when the repository has a deploy host configured (see deploy/README.md).
+  host:
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      IMAGE: ${{ needs.image.outputs.image }}:${{ github.sha }}
+    steps:
+      - name: Skip when no host is configured
+        if: env.DEPLOY_HOST == ''
+        run: echo "No DEPLOY_HOST secret, so the image was published but nothing was deployed."
+
+      - name: Redeploy over SSH
+        if: env.DEPLOY_HOST != ''
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new "${DEPLOY_USER:-root}@$DEPLOY_HOST" \
+            "cd /srv/mydata && IMAGE='$IMAGE' docker compose pull app && IMAGE='$IMAGE' docker compose up -d && docker image prune -f"
+
+      - name: Check the deployment answers
+        if: env.DEPLOY_HOST != ''
+        run: |
+          ssh -i ~/.ssh/deploy_key "${DEPLOY_USER:-root}@$DEPLOY_HOST" \
+            "for i in 1 2 3 4 5 6 7 8 9 10; do docker compose -f /srv/mydata/docker-compose.yml exec -T app node -e \"fetch('http://localhost:8787/api/health').then(r=>r.json()).then(j=>{console.log(JSON.stringify(j));process.exit(j.ok?0:1)}).catch(()=>process.exit(1))\" && exit 0; sleep 3; done; exit 1"

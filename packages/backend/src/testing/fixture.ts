@@ -14,7 +14,7 @@ export function createFixtureDb(): FinanceDb {
   const database = new DatabaseSync(":memory:");
   database.exec(`
     CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
-    INSERT INTO meta VALUES ('demo_today', '2026-09-15'), ('rows_customers', '2'),
+    INSERT INTO meta VALUES ('demo_today', '2026-09-15'), ('rules_version', '2'), ('rows_customers', '2'),
       ('rows_transactions', '10'), ('built_at', '2026-11-13T00:00:00+00:00'),
       ('average_window_first_month', '2025-09'), ('average_window_last_month', '2026-08');
 

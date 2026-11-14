@@ -511,6 +511,18 @@ reads `PORT`, `FINANCE_DB` and `STATIC_DIR`; the defaults suit the commands abov
 Without Docker, the same setup is `npm run build` followed by
 `STATIC_DIR=packages/app/dist npm run start -w @mydata/backend`.
 
+### Continuous integration and deployment
+
+- **CI** (`.github/workflows/ci.yml`) runs typecheck, tests and the app build on every
+  pull request and on pushes to `develop` and `main`.
+- **Deploy** (`.github/workflows/deploy.yml`) runs on every push to `main`: it publishes
+  the Docker image to GitHub's container registry and, when a host is configured,
+  redeploys it there over SSH. `main` is the persistent build.
+- The host runs the image behind Caddy, which provides HTTPS; a phone's browser only
+  allows microphone use on a secure address. Setup steps: [deploy/README.md](deploy/README.md).
+- The backend refuses to start on a database built with other basket rules than the
+  code expects, so a deploy cannot silently serve wrong numbers.
+
 ## Demo boundary
 
 This is a demo on synthetic data, not a secure banking service:

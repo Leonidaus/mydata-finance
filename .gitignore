@@ -35,5 +35,7 @@ __pycache__/
 .vscode/
 .idea/
 
-# local deployment databases
-/deploy/
+# local deployment databases (the deploy/ setup files themselves are tracked)
+/deploy/*.sqlite*
+/deploy/data/
+/deploy/.env

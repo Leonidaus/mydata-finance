@@ -36,6 +36,13 @@ export function resolveFromInvocationDir(path: string, env: NodeJS.ProcessEnv = 
 /** Default location: data/out/finance.sqlite at the repository root. */
 export const DEFAULT_DB_PATH = resolve(here, "../../../data/out/finance.sqlite");
 
+/**
+ * The basket rule version this code expects in the database (RULES_VERSION in
+ * data/prep/build_database.py). A database built with other rules has different labels
+ * and columns, so the server refuses it instead of answering with wrong numbers.
+ */
+export const EXPECTED_RULES_VERSION = "2";
+
 export function wrapDatabase(database: DatabaseSync): FinanceDb {
   const metaRows = database.prepare("SELECT key, value FROM meta").all() as unknown as {
     key: string;
@@ -44,6 +51,13 @@ export function wrapDatabase(database: DatabaseSync): FinanceDb {
   const meta = Object.fromEntries(metaRows.map((row) => [row.key, row.value]));
   const today = meta.demo_today;
   if (!today) throw new Error("The database has no demo_today in its meta table");
+  if (meta.rules_version !== EXPECTED_RULES_VERSION) {
+    throw new Error(
+      `The database was built with basket rules version ${meta.rules_version ?? "(none)"}, ` +
+        `but this code expects version ${EXPECTED_RULES_VERSION}. Rebuild it with:\n` +
+        "  python3 data/prep/build_database.py --raw data/raw --out data/out/finance.sqlite",
+    );
+  }
 
   return {
     today,
