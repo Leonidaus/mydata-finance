@@ -599,8 +599,27 @@ app and load nothing from the network.
 The caller cannot supply instructions, pick the model or reach Gemini directly. The
 whole conversation logic is in `packages/shared/src/agent` (`chat.ts` for the steps
 above, `snapshot.ts`, `figures.ts` for the number check, `viewChecks.ts`); the
-backend adds the model and the engine for the customer who is asking. `GEMINI_MODEL`
-may list several models, comma-separated; the next is tried when one is overloaded.
+backend adds the model and the engine for the customer who is asking.
+
+`GEMINI_MODEL` may list several models, comma-separated; the next is tried when one
+is overloaded. A name may carry a thinking level after a colon. The default is
+`gemini-3.5-flash-lite,gemini-3.8-flash:low`, chosen from one run of the chat
+evaluation per model (11 questions, one customer, 14 Nov 2026):
+
+| Model | Answers right | Seconds per answer (median, longest) |
+|---|---|---|
+| `gemini-3.5-flash-lite` | 11 of 11 | 2.3, 4.6 |
+| `gemini-3.1-flash-lite` | 9 of 11 | 2.1, 3.6 |
+| `gemini-3.6-flash:minimal` | 9 of 11 | 4.1, 7.6 |
+| `gemini-3.8-flash:low` | 11 of 11 | 6.0, 7.9 |
+| `gemini-3.8-flash` | 11 of 11 | 17.1, 23.8 |
+| `gemini-4-hydrogen:low` | 11 of 11 | 7.5, 12.8 |
+| `gemini-4-hydrogen` | 11 of 11 | 14.1, 21.3 |
+
+The larger models write fuller coaching: they name the amounts and notice, for
+example, that a customer spends more than comes in. With their default thinking
+they are too slow for a chat, which is why a level is set. Gemini 4 Argon and Carbon
+were not tried.
 
 `npm run eval:chat -w @mydata/backend` asks the challenge's questions with the real
 model and compares each answer with the engine: a card with the right function and

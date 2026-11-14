@@ -13,7 +13,11 @@ import type { ToolCall } from "./tools";
 export type GeminiTransport = (model: string, body: string, signal: AbortSignal) => Promise<Response>;
 
 export interface GeminiOptions {
-  /** Models to try in order. Google often answers 503 "high demand" for a while, so on an overload the next one gets the question. */
+  /**
+   * Models to try in order. Google often answers 503 "high demand" for a while, so on an overload the next one gets the question.
+   * A name may carry a thinking level after a colon, e.g. "gemini-3.8-flash:low": the larger models think for
+   * 10 to 20 seconds by default, which is too slow for a chat. Which levels a model accepts is in Google's docs.
+   */
   models?: string[];
   /** Per attempt. An overloaded model can hang for a long time before its 503, so give up early. */
   timeoutMs?: number;
@@ -21,7 +25,12 @@ export interface GeminiOptions {
   log?: (level: "info" | "warn", message: string) => void;
 }
 
-export const DEFAULT_GEMINI_MODELS = ["gemini-flash-lite-latest", "gemini-flash-latest"];
+/**
+ * Measured on the chat evaluation (11 questions, 14 Nov 2026): gemini-3.5-flash-lite answered all
+ * of them correctly in about 2 s each; gemini-3.8-flash at low thinking also did, in about 6 s,
+ * with fuller coaching. The fast one answers; the other steps in when it is overloaded.
+ */
+export const DEFAULT_GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash:low"];
 
 /** "a, b" → ["a", "b"]; empty or missing → the defaults. */
 export function parseGeminiModels(value: string | undefined): string[] {
@@ -52,6 +61,15 @@ interface Content {
   parts: Part[];
 }
 
+/** A generateContent request body, before the per-model thinking level is added. */
+interface GeminiRequest {
+  systemInstruction: { parts: Part[] };
+  contents: Content[];
+  tools: unknown[];
+  toolConfig: unknown;
+  generationConfig: Record<string, unknown>;
+}
+
 const toContent = (t: ChatTurn): Content => (t.raw as Content | undefined) ?? { role: t.role, parts: [{ text: t.text ?? "" }] };
 
 export function createGeminiModel(transport: GeminiTransport, options: GeminiOptions = {}): ChatModel {
@@ -60,7 +78,11 @@ export function createGeminiModel(transport: GeminiTransport, options: GeminiOpt
   const retryDelayMs = options.retryDelayMs ?? 1_000;
   const log = options.log ?? (() => {});
 
-  async function call(model: string, body: string, signal?: AbortSignal): Promise<Response> {
+  async function call(entry: string, request: GeminiRequest, signal?: AbortSignal): Promise<Response> {
+    const [model, thinkingLevel] = entry.split(":");
+    const body = JSON.stringify(
+      thinkingLevel ? { ...request, generationConfig: { ...request.generationConfig, thinkingConfig: { thinkingLevel } } } : request,
+    );
     const timeout = AbortSignal.timeout(timeoutMs);
     let res: Response;
     try {
@@ -77,13 +99,13 @@ export function createGeminiModel(transport: GeminiTransport, options: GeminiOpt
   }
 
   /** Tries each model, the first one twice, and moves on only when the failure is an overload or timeout. */
-  async function callWithFallback(body: string, signal?: AbortSignal): Promise<Response> {
+  async function callWithFallback(request: GeminiRequest, signal?: AbortSignal): Promise<Response> {
     const attempts = [models[0], ...models];
     let last: unknown;
     for (const [i, model] of attempts.entries()) {
       if (i === 1) await sleep(retryDelayMs, signal);
       try {
-        const res = await call(model, body, signal);
+        const res = await call(model, request, signal);
         if (i > 0) log("info", `answered by ${model} after ${i} failed ${i === 1 ? "try" : "tries"}`);
         return res;
       } catch (e) {
@@ -98,13 +120,13 @@ export function createGeminiModel(transport: GeminiTransport, options: GeminiOpt
   return {
     async generate({ system, turns, tools }, signal) {
       const res = await callWithFallback(
-        JSON.stringify({
+        {
           systemInstruction: { parts: [{ text: system }] },
           contents: turns.map(toContent),
           tools: [{ functionDeclarations: tools }],
           toolConfig: { functionCallingConfig: { mode: "ANY" } },
           generationConfig: { temperature: 0.4, maxOutputTokens: 8192 },
-        }),
+        },
         signal,
       );
       const data = (await res.json()) as { candidates?: { content?: Content; finishReason?: string }[] };
