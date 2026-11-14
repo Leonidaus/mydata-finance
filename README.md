@@ -5,9 +5,10 @@ Junction 2026. People ask questions about their own banking data and get answers
 they can inspect, in the spirit of MyData: their data, their questions, not charts
 the bank picked for them.
 
-> **Status: proposal.** This README describes a proposed starting direction and the
-> options we have. Nothing here is decided. The choices that need all three of us
-> are listed under [Open decisions](#open-decisions).
+> **Status: working prototype.** The app, the finance engine, the database build and
+> the API exist and are tested. The chat still uses keyword rules, not a language
+> model. See [Where things stand](#where-things-stand) for what is done and what is
+> next.
 
 ## The challenge in one paragraph
 
@@ -74,7 +75,41 @@ What should set us apart from a chat box on top of a pie chart:
    and show percentiles against the same age band and postal area.
 6. **Finnish first, in plain language**, with an English toggle.
 
-Out of scope for now: the multi-bank (PSD2) view, beyond a slide.
+## Stretch goal: multi-bank view
+
+The challenge lists this as an optional bonus: under PSD2, customers can let their
+bank fetch account data from other banks, so how could an AI coach use the full
+financial picture? It asks for the idea, not for a live bank connection. We build it
+only after the core demo works.
+
+**What we would show.** A "link another bank" consent screen and a second account
+at a simulated bank, clearly labelled as simulated. Our data has a natural hook:
+every customer has one account, and 1,500 customers make investment deposits and
+264 make salary sweeps to somewhere we cannot see. The simulated bank is where that
+money lands. With it, the coach can show:
+
+- a true savings rate, because those outflows turn out to be saving, not spending
+- a safe-to-spend number that uses balances and upcoming bills across all accounts
+- a buffer measured in months of essentials across everything the user owns
+- things hidden elsewhere, such as a loan or duplicate subscriptions
+- a stronger mortgage-readiness answer, since equity saved elsewhere counts
+
+**What we would build.**
+
+- A connector interface that turns any bank's accounts and transactions into our
+  schema, with a field for which bank each row came from. Worth defining early,
+  even if only the S-Pankki data sits behind it at first.
+- A categoriser for transactions from other banks, which will not carry S-Pankki's
+  categories: the MCC table in `packages/shared` first, the model for free text.
+- Matching of transfers between the user's own accounts, so they do not count as
+  spending.
+
+**What we would not build.** Real PSD2 access needs a licensed account information
+provider, consent and strong authentication at each bank, and real accounts on
+stage. In production S-Pankki would be the licensed party. If we want a real API
+behind the demo, the Finnish aggregator Enable Banking has a sandbox that covers
+Finnish banks including S-Pankki; that is about half a day of work. GoCardless
+Bank Account Data (formerly Nordigen) is reported closed to new sign-ups.
 
 ## Suggested partitioning
 
@@ -113,38 +148,53 @@ aggregates per basket, in each SQLite bundle. The app and the model then read
 labels instead of computing them — deterministic, testable, and every figure
 still opens the transactions behind it.
 
-## Proposed stack
+What was built from this: steps 1, 2, 4 and 5 are the rules in
+[Basket rules](#basket-rules), assigned in data prep and stored on each transaction
+as proposed. Step 3 found nothing in this dataset, since no customer pays one
+merchant a steady amount month after month. Step 6 is the payday logic behind safe
+to spend; see [Backtest](#backtest) for how well it holds.
 
-Rings are from the [SOK Tech Radar](https://s-group-dev.github.io/tech-radar/)
-(version 2025.5). The radar is SOK's, so S-Pankki may differ, and it has no AI
-entries at all.
+## Stack
 
-| Layer | Proposal | Radar | Why |
-|---|---|---|---|
-| App | Mobile-first web app: Next.js + React + TypeScript | ADOPT | Judges open it on their own phones from a QR code. A web view embeds in S-mobiili whether it is React Native or native. |
-| Styling | Styled components or CSS Modules | ADOPT / TRIAL | Tailwind is not on the radar. |
-| API | Next.js route handlers in TypeScript, described with OpenAPI | ADOPT | One deployable for app and API. |
-| Finance engine | Typed TypeScript functions: `spend_by`, `baskets`, `safe_to_spend`, `what_if`, `compare_to_peers`, `mortgage_readiness` | ADOPT (TypeScript, Node.js) | Deterministic and testable; the model only chooses which to call. |
-| Free exploration | A read-only SQL tool, with the query shown to the user | — | Keeps the "every answer shows its work" idea from the first skeleton. |
-| Database | PostgreSQL, one read-only role with row-level security per customer | Aurora is ADOPT | SQL written for Postgres ports to Aurora unchanged. |
-| AI | One provider interface; model to be decided (see below) | not on radar | Lets us compare models on the same test questions. |
-| Data prep | Python | ADOPT | CSV cleaning, recurring-payment detection, baskets, cohorts. |
-| Tests | Jest, React Testing Library, ESLint, Prettier | ADOPT | |
-| Deploy | One Docker container | ADOPT | Maps to ECS and Fargate. EC2 and Nginx are on HOLD. |
+What the prototype is built with. Rings are from the
+[SOK Tech Radar](https://s-group-dev.github.io/tech-radar/) (version 2025.5). The
+radar is SOK's, so S-Pankki may differ, and it has no AI entries at all.
+
+| Layer | What we use | Radar |
+|---|---|---|
+| App | Vite + React + TypeScript, mobile-first, Vega-Lite charts | React and TypeScript are ADOPT; Vite and Vega are not listed |
+| Finance engine | Pure TypeScript functions in `packages/shared`, used by both app and backend | ADOPT (TypeScript) |
+| API | Hono on Node.js, read-only | Node.js is ADOPT; Hono is not listed |
+| Database | One SQLite file with all customers, built by Python | not listed; Aurora would be the ADOPT choice in production |
+| Data prep | Python, standard library only | ADOPT |
+| Tests | Vitest | not listed; Jest is the ADOPT choice |
+| Deploy | One Docker container serving the API and the built app | ADOPT (Docker) |
+| AI | Gemini for the chat, called through the backend so the key stays on the server; a keyword mock when no key is set | not on the radar |
 
 Production path for the pitch, not for the weekend: Lambda or Fargate, Aurora,
 DynamoDB for sessions and pinned cards, Kinesis for proactive nudges, CDK, GitLab.
 All of these are ADOPT.
 
-## Open decisions
+## Decisions
 
-| Decision | Option A (proposed) | Option B | What decides it |
-|---|---|---|---|
-| App shell | Next.js web app, embedded as a web view | React Native with Expo, as in the first skeleton | Whether one of us has shipped React Native, and whether S-mobiili is React Native (ask the mentors). |
-| Where data lives | Server-side Postgres | On the device in SQLite, with a stateless backend, as in the first skeleton | B has the stronger privacy story. A is faster to build, supports cohort benchmarks, and ports to Aurora. A middle path is SQLite in the browser for personal data plus a server for cohorts. |
-| Model | Open-weight model hosted in Europe (Verda or NVIDIA Nemotron) | Claude through the Anthropic API | A fits two tech challenges and the "bank data stays in Europe" pitch. B is the safer choice for reliable tool calling. We can build behind one interface and test both. |
-| API style | Plain route handlers + OpenAPI | GraphQL with Apollo | GraphQL is ADOPT and Apollo is TRIAL, but it is more setup than we need for a demo. |
-| Tech challenges | Verda + Nemotron, ElevenLabs if time allows | Add Aiven and Oxylabs | How much time we have after the core demo works. |
+Settled:
+
+| Decision | Outcome |
+|---|---|
+| App shell | Web app (Vite + React), not React Native. S-Pankki said where the feature would live in S-mobiili is not our concern. |
+| Where data lives | On the server, in SQLite. S-Pankki said data location and what the model may read are out of scope for the hackathon. The app can also run on 15 bundled fixture customers. |
+| Basket rules | One rule set, with groceries as a regular essential. See [Basket rules](#basket-rules). |
+| API style | Plain JSON routes, no GraphQL. |
+| Branches | Feature branches into `develop`; `main` only from `develop`. |
+| Model for the chat | Gemini. The model chooses which cards to build and never sees the customer's figures; the app fills the numbers in. |
+
+Still open:
+
+| Decision | Options | What decides it |
+|---|---|---|
+| Interface language | Finnish first with an English toggle, or English only | Time left once the chat works. |
+| Tech challenges | Verda + Nemotron, ElevenLabs, Aiven, Oxylabs | Time left after the core demo. |
+| Safe-to-spend cushion | Spend down to zero (now), or always keep a fixed cushion | Many customers hold large balances; see [Backtest](#backtest). |
 
 ## Tech challenges worth entering
 
@@ -161,23 +211,52 @@ Side challenges can be combined with the S-Pankki challenge. Shortlist:
 To check at the booths: whether Verda's inference API serves Nemotron (one
 integration would then cover both), and how ElevenLabs sounds in Finnish.
 
-## Suggested first steps
+## Where things stand
 
-A possible split for three people, to adjust when we talk:
+Done:
 
-1. **Data and finance engine.** Fix the prep script, load Postgres, detect recurring
-   payments, assign baskets, compute safe to spend, build cohort aggregates.
-2. **AI layer.** Provider interface, tool definitions, a set of test questions with
-   known answers, the first model comparison.
-3. **App.** Chat, answer cards, the pinned home view, Finnish and English.
+- Database build with basket labels, monthly summaries and peer cohorts for all
+  5,100 customers.
+- Finance engine with eleven functions, including safe to spend, safe to save,
+  what-if, forecast, peer comparison and goals. Every result carries a filter for
+  the transactions behind it, and estimates carry their assumptions.
+- API over the database: the engine for any customer, plus spending and summaries.
+- App with configurable cards, charts and transaction drill-downs.
+- A backtest of the forecast and safe to spend on all customers.
 
-First milestone for everyone: one customer asks "how much did I spend on taxis last
-month?" and gets a correct number that opens the transactions behind it.
+Next, in order:
 
-Questions for the S-Pankki mentors:
+1. Connect a language model to the chat: a server endpoint that lets the model call
+   the engine functions as tools. The engine already checks every argument.
+2. Add an app card for safe to save.
+3. Deploy (see [Deploy](#deploy)) and test the whole flow on a phone.
+4. Stretch: mortgage readiness, the multi-bank view, a voice mode, read-only SQL
+   exploration.
 
-- Is S-mobiili React Native or native, and can it host an embedded web view?
-- Is there any constraint on which model provider or cloud a real version could use?
+Not planned for the hackathon: authentication, per-customer access control and
+restricting which origins may call the API. See [Demo boundary](#demo-boundary).
+
+## Branches
+
+- `main` is always demo-ready. It only receives merges from `develop`.
+- `develop` is the integration branch. Start new work from it and open pull
+  requests into it.
+- Work happens on short-lived branches named `feature/<short-name>`, for example
+  `feature/safe-to-spend`.
+
+```bash
+git switch develop && git pull          # start from the latest develop
+git switch -c feature/<short-name>      # do the work, commit
+git fetch origin && git rebase origin/develop
+git push -u origin feature/<short-name>
+gh pr create --base develop             # or open the pull request on GitHub
+```
+
+Keep pull requests small and merge them quickly; a teammate's quick look is enough.
+We merge `develop` into `main` whenever a demoable milestone works.
+
+Until the repository's default branch is changed to `develop`, GitHub proposes
+`main` as the target of a new pull request. Pick `develop` as the base.
 
 ## Repo layout
 
@@ -188,15 +267,15 @@ re-exported as Next.js route handlers (`@mydata/voice`).
 
 ```
 packages/
-  app/       # App (empty for now)
-  backend/   # Finance engine and AI layer (empty for now)
-  voice/     # Voice service: ElevenLabs TTS/STT, standalone HTTP handlers
+  app/       # Vite + React web app, mobile-first
+  backend/   # Finance API: Node + TypeScript server over the SQLite database
+  voice/     # Voice service: ElevenLabs text-to-speech and speech-to-text handlers
   infra/     # Infrastructure code (empty for now)
   shared/    # Dataset schema + shared types (the single source of truth)
 data/
   raw/       # Local source CSVs (gitignored; see "Data" below)
-  out/       # Generated per-customer SQLite bundles (gitignored)
-  prep/      # Python: CSV → per-customer SQLite bundle
+  out/       # Generated databases (gitignored)
+  prep/      # Python: CSV → application database, or a per-customer bundle
 ```
 
 ## Data
@@ -205,15 +284,27 @@ The source dataset lives in a separate repo:
 `git@github.com:hackjunction/Junction-2026-S-pankki.git` (Git LFS required).
 
 Download the four CSVs from there and place them in `data/raw/`. Both `data/raw/`
-and the generated bundles in `data/out/` are gitignored. Build a per-customer
-bundle with:
+and everything generated in `data/out/` are gitignored.
+
+Build the application database, which the backend reads:
+
+```bash
+python3 data/prep/build_database.py --raw data/raw --out data/out/finance.sqlite
+```
+
+This takes about 20 seconds and writes a 665 MB file with all 5,100 customers. On
+top of the four source tables it adds a basket label on every transaction, a
+monthly summary per customer, per-customer averages, and percentiles per cohort
+(age band and postal area). `--today` sets the demo's fixed current date (default
+`2026-09-15`); the summaries ignore later transactions.
+
+To extract a single customer into a small bundle instead:
 
 ```bash
 python3 data/prep/csv_to_sqlite.py --raw data/raw --out data/out/CUST00001.sqlite --customer CUST00001
 ```
 
-The script needs Python 3.10 or newer and no extra packages. It streams the CSVs,
-so one customer takes about two seconds. In the bundle:
+Both scripts need Python 3.10 or newer and no extra packages. In a bundle:
 
 - Tables are `transactions`, `customer`, `mortgage_outcomes` and `mortgage_events`
   (the last two are empty unless the customer has a mortgage application).
@@ -223,6 +314,16 @@ so one customer takes about two seconds. In the bundle:
   (`03OCT24:09:04:04`), so they sort correctly.
 - Transactions keep the source file order, which is also chronological; the
   running balance follows it.
+
+The web app also ships demo fixtures (3 personas plus 12 random customers, cut at
+the demo "today" 2026-09-15, plus peer averages by age band). They fill the customer
+picker, and in fixture mode (`VITE_DATA_SOURCE=fixtures`) the app runs on them
+without a backend. They are committed under `packages/app/public/fixtures/`;
+rebuild them with:
+
+```bash
+python3 data/prep/build_fixtures.py --raw data/raw --out packages/app/public/fixtures
+```
 
 If you read the CSVs yourself: they start with a UTF-8 BOM, so use `utf-8-sig`.
 
@@ -234,9 +335,244 @@ The enums in `packages/shared/src/schema.ts` (categories, transaction types,
 mortgage event types, rejection reasons) have been checked against the data and
 match exactly.
 
-## Getting started
+## Basket rules
+
+One rule set decides which of the three baskets a spending transaction falls in. It
+is applied in data prep (`classify` in `data/prep/build_database.py`), which stores
+`flow`, `basket` and `basket_rule` on each transaction in the database and in the
+app's fixtures. The finance engine reads that label; for a transaction without one it
+applies the same rules in TypeScript (`packages/shared/src/engine/baskets.ts`). A
+test checks on every fixture transaction that the two agree. Change both together.
+
+| Transaction | Flow | Basket |
+|---|---|---|
+| Salary, other income | income | — |
+| Investment deposit, salary sweep | saving | — |
+| Investment withdrawal | saving withdrawal | — |
+| Housing, utilities | spending | regular |
+| Groceries | spending | regular |
+| Transportation, except taxis | spending | regular |
+| Taxis (MCC 4121) | spending | everyday |
+| Health under €100 | spending | regular |
+| Health of €100 or more | spending | irregular |
+| Home & Tech of €500 or more | spending | irregular |
+| Home & Tech under €500 | spending | everyday |
+| Restaurants, Entertainment, Lifestyle, Travel | spending | everyday |
+
+In the interface the baskets are called regular essentials, unexpected necessities
+and everyday spending. Over the last 12 complete months the average customer spends
+€1,902 a month on regular essentials, €170 on unexpected necessities and
+€844 on everyday spending, and saves €298.
+
+Recurring payments cannot be detected per merchant in this dataset: no customer
+pays the same merchant a steady amount month after month. What recurs is visible
+from the transaction type alone (housing, utilities, salary, investment deposits).
+
+Related definitions, used the same way everywhere:
+
+- **Net** is income minus spending, before any transfer to or from savings. The
+  monthly summary also has `balanceChange`, which includes those transfers.
+- **Monthly averages and peer benchmarks** cover the last 12 complete months before
+  the demo's today. Peers are the synthetic customers in the dataset, by age band.
+- **Safe to spend** is the balance minus bills still due before payday, groceries
+  and other regular essentials at the recent daily rate, the usual saving transfer,
+  a buffer for unexpected necessities (at least one typical such purchase) and a
+  margin in case the salary arrives late. What is left is for everyday spending.
+- **Safe to save** is what would remain at payday at the usual pace of everyday
+  spending, minus a cushion of one month of regular essentials.
+
+## Backtest
+
+`npm run backtest -w @mydata/backend` replays the forecast and the safe-to-spend
+amount on past dates. For every customer and for the 5th, 15th and 25th of each month
+from October 2025 to August 2026, the engine sees only the transactions up to that
+date, and its output is compared with what happened up to the next salary. Add
+`-- --sample 500` for a quick run. The summary is written to `data/out/backtest.json`.
+
+Result on all 5,100 customers (168,133 cases):
+
+| Measure | Result |
+|---|---|
+| Balance just before the next salary | median error €381 (12% of a salary); 90% of cases within €1,552 |
+| Bills due before payday | median error €57; 90% within €198 |
+| Payday date | exact in 71% of cases, within two days in 80% |
+| Customers whose everyday spending stayed within the amount shown | 92% |
+| Of those, went below zero before the salary anyway | 1.5% |
+| If the whole amount shown had been spent: balance below zero | 20% of cases |
+
+What it taught us, and what changed because of it:
+
+- **Salaries are not always on time.** They usually arrive on the 15th, but about
+  three times in ten at the end of the month instead. The payday guess now expects
+  the late date when the usual day has passed without a salary, and safe to spend
+  holds back essentials for those extra days. Before this, the payday was within two
+  days in 69% of cases and spending the whole amount would have overdrawn in 45%.
+- **Unexpected necessities are lumpy.** A monthly average does not cover a single
+  €500 purchase, so the buffer is now at least one typical such purchase.
+- **The amount is an estimate, not a guarantee.** Spending all of it would still end
+  below zero in one case in five, mostly when the salary is late or a large purchase
+  lands. The app should present it with its assumptions, which the engine returns.
+- **Many customers hold large balances**, so the median amount shown is about
+  €4,700. A version that also keeps a fixed cushion may suit those customers better.
+
+## Backend
+
+`packages/backend` is a small read-only API over `data/out/finance.sqlite`. Build
+the database first (see Data), then:
 
 ```bash
-npm install          # installs workspace tooling (typescript)
-npm run typecheck    # type-checks packages/shared
+npm install
+npm run dev -w @mydata/backend     # http://localhost:8787, restarts on changes
+npm test                           # engine and backend tests; the backend ones use a small built-in fixture
 ```
+
+It uses Node's built-in SQLite driver, which prints an "experimental" warning on
+Node 22. `PORT` and `FINANCE_DB` override the port and the database path. All
+answers are cut off at the demo's "today", so later transactions never appear.
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/health` | Row counts and the demo's today |
+| `GET /api/customers?limit=20&mortgage=true` | Customer profiles, for a customer picker |
+| `GET /api/customers/:id` | Profile, current balance, monthly averages per basket |
+| `GET /api/customers/:id/summary?months=12` | Month-by-month income, baskets, saving, net and balance |
+| `GET /api/customers/:id/spending` | Total spent, with the transactions behind it |
+| `GET /api/customers/:id/engine/:fn` | One finance engine function, arguments in the query string |
+| `POST /api/data` | A dashboard block's data request: `{ customerId, data: { kind: "engine", fn, args } }` |
+| `POST /api/transactions` | The transactions behind an engine result: `{ customerId, filter, limit }` |
+| `POST /api/tts` | Text to speech: `{ text, languageCode? }` → MP3 audio (ElevenLabs, from `packages/voice`) |
+| `POST /api/stt` | Speech to text: an `audio` form file or a raw audio body → `{ text, languageCode }` |
+| `POST /gemini/v1beta/models/<model>:generateContent` | The chat's language model: forwarded to Google's Gemini API with the server's key |
+
+The spending endpoint takes `period` (`this_month`, `last_month`, `last_30_days`,
+`last_3_months`, `last_12_months`, `this_year`, `all`) or `from` and `to`, and the
+optional filters `category`, `mcc` and `basket`. `groupBy` (`category`, `mcc`,
+`basket`, `month`) adds a breakdown, and `limit` caps the transactions returned.
+"How much did I spend on taxis last month?" is:
+
+```bash
+curl 'http://localhost:8787/api/customers/CUST04488/spending?mcc=4121&period=last_month'
+```
+
+The voice routes need `ELEVENLABS_API_KEY` and the chat route needs `GEMINI_API_KEY`.
+Put them in a `.env` file at the repository root (copy `.env.example`), which the
+backend reads at startup. Without a key the route answers 503 and everything else
+works; `/api/health` reports which services are on. Because these routes spend
+credits, each has a request budget across all callers (voice: 30 a minute, 400 an
+hour; chat: 30 a minute, 600 an hour) and answers 429 beyond it.
+
+The chat route forwards exactly one call, `generateContent` on a Gemini model, and
+adds the key on the server, so the key never reaches the browser. The app's chat
+agent sends the question and the card definitions to it, never the customer's figures.
+
+The engine endpoints run the finance engine from `packages/shared/src/engine` for
+any of the 5,100 customers: `spendBy`, `monthlyTrend`, `baskets`, `safeToSpend`,
+`safeToSave`, `balanceForecast`, `whatIf`, `peerCompare`, `dailySpend`, `recurring`
+and `goalProgress`. The app runs the same engine on its 15 fixture customers; for
+those customers the backend gives identical results for every function.
+
+Arguments are checked: an unknown argument, a value outside its range or an unknown
+period or category answers 400 with the reason, instead of silently falling back to
+a default. Estimates carry an `assumptions` list in plain language.
+
+```bash
+curl 'http://localhost:8787/api/customers/CUST03004/engine/safeToSpend'
+curl 'http://localhost:8787/api/customers/CUST03004/engine/whatIf?category=Restaurants&cutPct=20'
+```
+
+SQL data requests (`kind: "sql"`) are not supported yet and answer 501.
+
+The functions behind the endpoints take plain objects and return plain JSON, so
+they can be given to the model as tools unchanged.
+
+## Deploy
+
+One Docker image serves the API and the built app from the same address. The
+database is not in the image; mount the directory that holds it at `/data`.
+
+```bash
+docker build -t mydata-finance .
+docker run --rm -p 8787:8787 -v "$PWD/data/out:/data:ro" mydata-finance
+# open http://localhost:8787
+```
+
+The full database is 663 MB. For a host where that is awkward, build a small one
+that keeps only chosen customers' transactions. Peer cohorts are still computed
+from all 5,100 customers, so comparisons do not change:
+
+```bash
+python3 data/prep/build_database.py --raw data/raw --out deploy/finance.sqlite \
+  --keep-customers packages/app/public/fixtures/index.json   # the 15 demo customers, about 2 MB
+docker run --rm -p 8787:8787 -v "$PWD/deploy:/data:ro" mydata-finance
+```
+
+`--keep-customers` also accepts a comma-separated list of customer ids. The image
+reads `PORT`, `FINANCE_DB` and `STATIC_DIR`; the defaults suit the commands above.
+Without Docker, the same setup is `npm run build` followed by
+`STATIC_DIR=packages/app/dist npm run start -w @mydata/backend`.
+
+### Continuous integration and deployment
+
+- **CI** (`.github/workflows/ci.yml`) runs typecheck, tests and the app build on every
+  pull request and on pushes to `develop` and `main`.
+- **Deploy** (`.github/workflows/deploy.yml`) runs on every push to `main`: it publishes
+  the Docker image to GitHub's container registry and, when a host is configured,
+  redeploys it there over SSH. `main` is the persistent build.
+- The host runs the image behind Caddy, which provides HTTPS; a phone's browser only
+  allows microphone use on a secure address. Setup steps: [deploy/README.md](deploy/README.md).
+- The backend refuses to start on a database built with other basket rules than the
+  code expects, so a deploy cannot silently serve wrong numbers.
+
+## Demo boundary
+
+This is a demo on synthetic data, not a secure banking service:
+
+- The API has no login. Anyone who can reach it can ask for any customer id.
+- It accepts requests from any origin, and the database holds every customer.
+- The app's fixture files are public static files.
+
+S-Pankki told us that where data lives, what a language model may read and how the
+feature fits into S-mobiili are theirs to solve after the hackathon. Before any use
+with real customer data, access would have to be tied to a logged-in customer, every
+query scoped to that customer, origins restricted, and what reaches the model defined.
+
+## Getting started
+
+Node version is pinned in `.nvmrc` (Node 26 LTS), and `.npmrc` sets `engine-strict` so installs fail fast on an old Node.
+Use any version manager that reads `.nvmrc`; [fnm](https://github.com/Schniz/fnm) is recommended (Linux, macOS, Windows):
+
+```bash
+curl -fsSL https://fnm.vercel.app/install | bash
+# in ~/.bashrc, so fnm switches Node automatically when you cd into the repo:
+eval "$(fnm env --use-on-cd --shell bash)"
+fnm install            # installs the version from .nvmrc
+```
+
+Then:
+
+```bash
+npm install
+npm run dev          # web app on http://localhost:5173 (add `-- --host` to test on a phone, trusted networks only)
+npm run dev -w @mydata/backend   # finance API on http://localhost:8787 (build the database first)
+npm run typecheck    # type-checks shared, app and backend
+npm run build        # production build of the app
+npm test             # finance engine, backend and app data-layer tests (vitest)
+```
+
+### Data source modes
+
+The web app reads everything through one data contract (`packages/app/src/sources/types.ts`)
+with two implementations, chosen with `VITE_DATA_SOURCE` when Vite starts or builds:
+
+- `api` (default): the backend's `/api`, so all 5,100 customers work and the engine runs on
+  the server. It is the default because it is the integrated path the demo uses. Start the
+  backend as well; without it the app shows an error with a retry button.
+- `fixtures`: the 15 static demo customers with the engine in the browser. No backend or
+  database needed: `VITE_DATA_SOURCE=fixtures npm run dev`.
+
+In API mode the app calls `/api` on its own origin, and the Vite dev and preview servers
+forward that to `http://localhost:8787` (`API_PROXY_TARGET=http://localhost:9000 npm run dev`
+forwards elsewhere). To call a backend directly instead, set `VITE_API_BASE`, for example
+`VITE_API_BASE=http://localhost:8787`. Both variables can also go in
+`packages/app/.env.local`; see `packages/app/.env.example`. The customer picker lists the
+fixture personas and pool in both modes.

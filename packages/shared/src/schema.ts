@@ -21,6 +21,14 @@ export interface Transaction {
   transaction_type: TransactionType;
   merchant_id: string | null;
   mcc_code: string | null;
+  /**
+   * Derived by data prep, not in the source CSV: which of the three baskets a spending
+   * transaction falls in (null for income and saving). When absent, the engine applies
+   * the same rules itself (`classifyBasket`).
+   */
+  basket?: "regular" | "irregular" | "everyday" | null;
+  /** Derived: the rule that assigned the basket, e.g. "groceries" or "home_large". */
+  basket_rule?: string | null;
 }
 
 export const TRANSACTION_CATEGORIES = [

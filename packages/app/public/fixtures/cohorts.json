@@ -1,0 +1,81 @@
+{
+ "source": "Synthetic S-Pankki dataset, all 5,100 customers",
+ "window": [
+  "2025-09-01",
+  "2026-08-31"
+ ],
+ "bands": {
+  "18-24": {
+   "Entertainment": 156.86,
+   "Groceries": 289.75,
+   "Health": 37.62,
+   "Home & Tech": 131.42,
+   "Housing": 726.24,
+   "Lifestyle": 92.01,
+   "Restaurants": 212.81,
+   "Transportation": 140.72,
+   "Travel": 34.66,
+   "Utilities": 100.86
+  },
+  "25-34": {
+   "Entertainment": 134.46,
+   "Groceries": 392.84,
+   "Health": 78.75,
+   "Home & Tech": 144.61,
+   "Housing": 830.84,
+   "Lifestyle": 153.47,
+   "Restaurants": 198.46,
+   "Transportation": 179.37,
+   "Travel": 59.19,
+   "Utilities": 120.81
+  },
+  "35-44": {
+   "Entertainment": 136.02,
+   "Groceries": 520.08,
+   "Health": 112.33,
+   "Home & Tech": 197.15,
+   "Housing": 1006.02,
+   "Lifestyle": 202.75,
+   "Restaurants": 233.59,
+   "Transportation": 242.18,
+   "Travel": 116.98,
+   "Utilities": 161.95
+  },
+  "45-54": {
+   "Entertainment": 162.85,
+   "Groceries": 540.17,
+   "Health": 112.16,
+   "Home & Tech": 256.76,
+   "Housing": 1110.46,
+   "Lifestyle": 198.55,
+   "Restaurants": 298.04,
+   "Transportation": 265.09,
+   "Travel": 174.56,
+   "Utilities": 184.95
+  },
+  "55-64": {
+   "Entertainment": 173.34,
+   "Groceries": 532.94,
+   "Health": 127.17,
+   "Home & Tech": 274.6,
+   "Housing": 1202.77,
+   "Lifestyle": 190.45,
+   "Restaurants": 338.99,
+   "Transportation": 264.06,
+   "Travel": 235.29,
+   "Utilities": 204.79
+  },
+  "65+": {
+   "Entertainment": 94.53,
+   "Groceries": 516.29,
+   "Health": 257.92,
+   "Home & Tech": 85.74,
+   "Housing": 893.23,
+   "Lifestyle": 154.18,
+   "Restaurants": 118.05,
+   "Transportation": 151.05,
+   "Travel": 114.63,
+   "Utilities": 134.24
+  }
+ }
+}

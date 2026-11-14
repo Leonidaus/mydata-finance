@@ -1,17 +1,22 @@
 {
   "name": "mydata-finance",
   "private": true,
-  "description": "MyData-style personal finance explorer — Junction 2026, S-Pankki challenge",
+  "description": "MyData-style personal finance explorer \u2014 Junction 2026, S-Pankki challenge",
   "workspaces": [
     "packages/*"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12"
   },
   "scripts": {
-    "typecheck": "tsc -b packages/shared packages/voice"
+    "dev": "npm run dev -w @mydata/app --",
+    "build": "npm run build -w @mydata/app --",
+    "typecheck": "tsc -p packages/shared/tsconfig.json --noEmit && tsc -p packages/voice/tsconfig.json --noEmit && npm run typecheck -w @mydata/app && npm run typecheck -w @mydata/backend",
+    "test": "vitest run"
   },
   "devDependencies": {
-    "typescript": "^5.6.0"
+    "@types/node": "26.6.5",
+    "typescript": "^5.6.0",
+    "vitest": "5.0.5"
   }
 }
