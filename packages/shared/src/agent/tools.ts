@@ -6,7 +6,6 @@
 import { TEMPLATE_IDS, WIDGET_LIBS } from "../blocks";
 import { ENGINE_ARG_SPECS } from "../engine/args";
 import { ENGINE_FNS } from "../engine/types";
-import { MCC_CODES } from "../mcc";
 import { SPENDING_CATEGORIES } from "../engine/util";
 import { COMPONENT_IDS } from "../library/components";
 
@@ -37,7 +36,8 @@ function engineArgsSchema(description: string): Record<string, unknown> {
       else if (spec.type === "month") properties[key] = { type: "string", pattern: "^\\d{4}-(0[1-9]|1[0-2])$", description: `A month as YYYY-MM. ${usedBy}` };
       else if (spec.type === "number") properties[key] = { type: "number", minimum: spec.min, maximum: spec.max, description: usedBy };
       else if (spec.type === "mcc") {
-        properties[key] = { type: "string", enum: Object.keys(MCC_CODES), description: `Merchant type code from MERCHANT TYPES, e.g. 4121 for taxis. ${usedBy}` };
+        // No list of allowed values here: the code table has hundreds, and the engine checks the code.
+        properties[key] = { type: "string", pattern: "^\\d{4}$", description: `Four-digit merchant type code from MERCHANT TYPES, e.g. 4121 for taxis. ${usedBy}` };
       } else properties[key] = { type: "string", maxLength: spec.maxLength, description: usedBy };
     }
   }
