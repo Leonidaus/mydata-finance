@@ -714,6 +714,25 @@ body {
 /* Dev mode gallery */
 .ghost-btn.on { background: var(--green-300); border-color: var(--green-300); color: var(--green-900); }
 
+.coaching-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: end center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--text) 32%, transparent);
+}
+.coaching-card { width: min(100%, 520px); padding: 20px; border-radius: 20px; background: var(--surface); box-shadow: 0 10px 40px #0003; }
+.coaching-heading, .coaching-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.coaching-heading h2 { margin: 0; font-size: 1.15rem; }
+.style-options { display: grid; gap: 8px; }
+.style-choice { display: grid; gap: 3px; text-align: left; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 12px; color: var(--text); }
+.style-choice.selected, .chip.selected { border-color: var(--green-500); background: var(--green-100); }
+.chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.essentials-toggle { border: 0; background: none; padding: 8px 0; color: var(--green-700); font-weight: 700; }
+.inline-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+
 .dev-section { display: flex; flex-direction: column; gap: 10px; }
 .dev-section h2 { margin: 12px 0 0; font-size: 1.05rem; }
 .dev-section > p { margin: 0; }

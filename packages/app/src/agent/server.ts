@@ -3,14 +3,16 @@
  * with its own key and validates the answer; the app sends the question, the conversation so
  * far and the dashboard's card definitions, and gets back a reply and card operations.
  */
-import type { Block, ChatOutput } from "@mydata/shared";
+import type { Block, ChatOutput, ProtectedCategory } from "@mydata/shared";
+
+export type ServerChatOutput = ChatOutput & { blocked?: ProtectedCategory[] };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
 export interface ServerChat {
   /** Whether the backend has a chat model configured. False when it cannot be reached. */
   available(): Promise<boolean>;
-  ask(input: { customerId: string; question: string; history: { role: "user" | "assistant"; text: string }[]; blocks: Block[] }, signal?: AbortSignal): Promise<ChatOutput>;
+  ask(input: { customerId: string; question: string; history: { role: "user" | "assistant"; text: string }[]; blocks: Block[]; allowProtected?: ProtectedCategory[] }, signal?: AbortSignal): Promise<ServerChatOutput>;
 }
 
 /** `base` is the API origin without a trailing slash; empty means same origin. */
@@ -52,7 +54,7 @@ export function createServerChat(base = "", fetchFn: typeof fetch = (...args) =>
       if (!isRecord(body) || typeof body.text !== "string" || !Array.isArray(body.ops)) {
         throw new Error("The coach gave an answer the app could not read.");
       }
-      return body as unknown as ChatOutput;
+      return body as unknown as ServerChatOutput;
     },
   };
 }
