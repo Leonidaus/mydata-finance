@@ -25,12 +25,18 @@ export interface ToolCall {
  * bare `{ type: "object" }` Gemini tends to send `args: {}`, and the card silently uses defaults.
  * Which arguments a function or component accepts is checked in validate.ts.
  */
+/** Enums longer than this are described in words (see engineArgsSchema). The longest before receipts had 15 values. */
+const MAX_ENUM_VALUES = 16;
+
 function engineArgsSchema(description: string): Record<string, unknown> {
   const properties: Record<string, Record<string, unknown>> = {};
   for (const [fn, specs] of Object.entries(ENGINE_ARG_SPECS)) {
     for (const [key, spec] of Object.entries(specs)) {
       const usedBy = properties[key]?.description ? `${properties[key].description as string}, ${fn}` : `Used by ${fn}`;
-      if (spec.type === "enum") properties[key] = { type: "string", enum: [...spec.values], description: usedBy };
+      // A long list of values is named in the description instead of as an enum: the schema is repeated in
+      // every tool that takes engine arguments, and Gemini rejects the request when the enums add up to too many.
+      if (spec.type === "enum" && spec.values.length > MAX_ENUM_VALUES) properties[key] = { type: "string", description: `One of: ${spec.values.join(", ")}. ${usedBy}` };
+      else if (spec.type === "enum") properties[key] = { type: "string", enum: [...spec.values], description: usedBy };
       else if (spec.type === "category") properties[key] = { type: "string", enum: [...SPENDING_CATEGORIES], description: usedBy };
       else if (spec.type === "categories") properties[key] = { type: "array", items: { type: "string", enum: [...SPENDING_CATEGORIES] }, description: usedBy };
       else if (spec.type === "month") properties[key] = { type: "string", pattern: "^\\d{4}-(0[1-9]|1[0-2])$", description: `A month as YYYY-MM. ${usedBy}` };
