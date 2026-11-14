@@ -408,144 +408,6 @@ ${START}
 </script>`;
 
 /**
- * 3D city (Three.js with orbit controls): one tower per category, as tall as its spending. It turns
- * slowly; tapping a tower shows its figure. In full screen it can be dragged and zoomed. In the card
- * a touch scrolls the page as usual, so a finger on the scene never traps the dashboard.
- */
-const CITY_CODE = `<style>
-  .city { position: relative; }
-  .stage { position: relative; height: 300px; }
-  html.fullscreen .city { height: 100%; display: flex; flex-direction: column; }
-  html.fullscreen .stage { flex: 1; height: auto; min-height: 0; }
-  canvas { display: block; width: 100%; height: 100%; }
-  .chip { position: absolute; left: 0; top: 0; max-width: 70%; padding: 8px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); font-size: 13px; }
-  .chip b { display: block; font-size: 22px; line-height: 1.2; font-variant-numeric: tabular-nums; }
-  .chip span { color: var(--muted); }
-  .chip button { margin-top: 6px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
-  .hint { margin: 6px 0 0; font-size: 12px; color: var(--muted); text-align: center; }
-  .flat { list-style: none; margin: 0; padding: 0; font-size: 13px; }
-  .flat li { margin: 8px 0; cursor: pointer; }
-  .flat i { display: block; height: 10px; border-radius: 5px; background: var(--chart-1); margin-top: 3px; }
-</style>
-<div class="city">
-  <div class="stage" id="stage"><canvas id="c"></canvas><div class="chip" id="chip" hidden></div></div>
-  <p class="hint" id="hint"></p>
-</div>
-<script>
-(function () {
-  var canvas = document.getElementById("c"), stage = document.getElementById("stage"), chip = document.getElementById("chip"), hint = document.getElementById("hint");
-  var webgl = false;
-  try { var probe = document.createElement("canvas"); webgl = !!(probe.getContext("webgl2") || probe.getContext("webgl")); } catch (e) {}
-  if (!webgl) {
-    // No WebGL in this browser: the same figures as plain bars.
-    stage.style.height = "auto"; canvas.remove();
-    mydata.onData(function (rows) {
-      var max = Math.max.apply(null, rows.map(function (r) { return Number(r.amount) || 0; }).concat([1]));
-      var ul = document.createElement("ul"); ul.className = "flat";
-      rows.forEach(function (r) {
-        var li = document.createElement("li"), bar = document.createElement("i");
-        li.textContent = r.label + " \\u00b7 " + mydata.formatEur(Number(r.amount) || 0);
-        bar.style.width = Math.max(2, (Number(r.amount) || 0) / max * 100) + "%";
-        li.appendChild(bar); li.onclick = function () { mydata.select({ key: r.key, label: r.label }); };
-        ul.appendChild(li);
-      });
-      stage.innerHTML = ""; stage.appendChild(ul);
-    });
-    return;
-  }
-
-  var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  var scene = new THREE.Scene();
-  var camera = new THREE.PerspectiveCamera(35, 1, 1, 3000);
-  camera.position.set(125, 105, 155);
-  scene.add(new THREE.AmbientLight(0xffffff, 1.9));
-  var sun = new THREE.DirectionalLight(0xffffff, 2.4);
-  sun.position.set(-90, 220, 140);
-  scene.add(sun);
-  var ground = new THREE.Mesh(new THREE.CircleGeometry(100, 72), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.08, depthWrite: false }));
-  ground.rotation.x = -Math.PI / 2; ground.position.y = -0.2; scene.add(ground);
-  var group = new THREE.Group(); scene.add(group);
-
-  var controls = new THREE.OrbitControls(camera, canvas);
-  controls.enableDamping = true; controls.enablePan = false;
-  controls.minDistance = 90; controls.maxDistance = 420; controls.maxPolarAngle = Math.PI / 2 - 0.08;
-  controls.target.set(0, 24, 0);
-  controls.autoRotate = !mydata.reducedMotion; controls.autoRotateSpeed = 0.7;
-
-  var towers = [], selected = null, total = 0, clock = 0;
-  function show(mesh) {
-    selected = mesh;
-    towers.forEach(function (m) { m.material.opacity = m === mesh ? 1 : 0.5; });
-    if (!mesh) { chip.hidden = true; return; }
-    var r = mesh.userData.row, amount = Number(r.amount) || 0;
-    chip.hidden = false; chip.innerHTML = "";
-    var name = document.createElement("span"), fig = document.createElement("b"), share = document.createElement("span"), more = document.createElement("button");
-    name.textContent = r.label; fig.textContent = mydata.formatEur(amount);
-    share.textContent = total > 0 ? Math.round(amount / total * 100) + "% of your spending" : "";
-    more.textContent = "See payments"; more.onclick = function () { mydata.select({ key: r.key, label: r.label }); };
-    chip.append(name, fig, share, document.createElement("br"), more);
-  }
-  function build(rows) {
-    towers.forEach(function (m) { group.remove(m); m.geometry.dispose(); m.material.dispose(); });
-    towers = [];
-    var data = rows.filter(function (r) { return Number(r.amount) > 0; }).slice(0, 16);
-    total = rows.reduce(function (s, r) { return s + (Number(r.amount) || 0); }, 0);
-    var max = data.length ? Number(data[0].amount) : 1;
-    data.forEach(function (r) { max = Math.max(max, Number(r.amount)); });
-    var cols = Math.ceil(Math.sqrt(data.length)), lines = Math.ceil(data.length / cols), gap = 30;
-    var palette = ["--chart-1", "--chart-2", "--chart-3", "--chart-4"].map(function (v) { return mydata.css(v) || "#00693c"; });
-    data.forEach(function (r, i) {
-      var geo = new THREE.BoxGeometry(18, 1, 18); geo.translate(0, 0.5, 0);   // grows upwards from the ground
-      var mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: palette[i % 4], roughness: 0.55, metalness: 0.05, transparent: true }));
-      mesh.position.set((i % cols - (cols - 1) / 2) * gap, 0, (Math.floor(i / cols) - (lines - 1) / 2) * gap);
-      mesh.userData = { row: r, height: Math.max(3, Number(r.amount) / max * 95), delay: i * 0.07 };
-      mesh.scale.y = 0.01;
-      group.add(mesh); towers.push(mesh);
-    });
-    ground.material.color.set(mydata.css("--text") || "#222");
-    clock = mydata.reducedMotion ? 99 : 0;
-    show(towers[0] || null);
-  }
-  function fit() {
-    var w = canvas.clientWidth || 300, h = canvas.clientHeight || 300;
-    renderer.setSize(w, h, false);
-    camera.aspect = w / h; camera.updateProjectionMatrix();
-    // In the card a touch scrolls the page; dragging the scene is for full screen.
-    controls.enabled = mydata.fullscreen;
-    canvas.style.touchAction = mydata.fullscreen ? "none" : "pan-y";
-    canvas.style.cursor = mydata.fullscreen ? "grab" : "pointer";
-    hint.textContent = mydata.fullscreen ? "Drag to look around, pinch to zoom, tap a tower" : "Tap a tower \\u00b7 open full screen to look around";
-  }
-  mydata.onResize(fit);
-  if ("ResizeObserver" in window) new ResizeObserver(fit).observe(stage);
-
-  // A tap (not a drag) picks the tower under the finger.
-  var down = null, ray = new THREE.Raycaster(), point = new THREE.Vector2();
-  canvas.addEventListener("pointerdown", function (e) { down = { x: e.clientX, y: e.clientY }; });
-  canvas.addEventListener("pointerup", function (e) {
-    if (!down || Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y) > 8) return;
-    var box = canvas.getBoundingClientRect();
-    point.set((e.clientX - box.left) / box.width * 2 - 1, -((e.clientY - box.top) / box.height) * 2 + 1);
-    ray.setFromCamera(point, camera);
-    var hit = ray.intersectObjects(towers)[0];
-    if (hit) show(hit.object);
-  });
-
-  mydata.onData(function (rows) { build(rows); fit(); });
-  mydata.loop(function (dt) {
-    clock += dt;
-    for (var i = 0; i < towers.length; i++) {
-      var k = Math.max(0, Math.min(1, (clock - towers[i].userData.delay) / 0.9));
-      towers[i].scale.y = Math.max(0.01, (1 - Math.pow(1 - k, 3)) * towers[i].userData.height);
-    }
-    controls.update();
-    renderer.render(scene, camera);
-  });
-})();
-</script>`;
-
-/**
  * A story in steps (GSAP): the balance today, then each thing that still has to come out of it,
  * down to what is safe to spend. Plays by itself once, and has Back / Next to go at your own pace.
  */
@@ -653,21 +515,11 @@ const STORY_CODE = `<style>
 </script>`;
 
 export const widgets = {
-  /** Spending by category as a 3D city to look around in. */
-  city: (period = "last_3_months"): Block => ({
-    id: id("city"),
-    title: "Your spending city",
-    explanation: "Money out for the period by category. Each tower is one category and its height is the amount, so the skyline shows where your money goes.",
-    source: "own",
-    data: { kind: "engine", fn: "spendBy", args: { period, by: "category", category: "" } },
-    view: { kind: "code", code: CITY_CODE, libs: ["three"] },
-    controls: [periodControl],
-  }),
-
   /** Safe-to-spend told step by step. */
   story: (horizon: "week" | "until_payday" = "week"): Block => ({
     id: id("story"),
     title: "From your balance to what's safe to spend",
+    component: "widget:story",
     explanation:
       "Starts from your balance today and takes away, one step at a time, the bills, essentials and planned saving still due before payday, and a buffer for unexpected costs. What remains is safe to spend.",
     source: "estimate",
@@ -690,6 +542,7 @@ export const widgets = {
   jar: (target?: number, label?: string): Block => ({
     id: id("jar"),
     title: label ?? "Savings jar",
+    component: "widget:jar",
     explanation:
       "Saved = transfers to investments and savings minus withdrawals. The jar is full at your goal (the green ring), so the coins show how far along you are. Without a goal set, it uses your mortgage down payment or a 3-month emergency fund.",
     source: "estimate",
@@ -702,6 +555,7 @@ export const widgets = {
   gauge: (horizon: "week" | "until_payday" = "week"): Block => ({
     id: id("gauge"),
     title: horizon === "week" ? "Safe to spend this week" : "Safe to spend until payday",
+    component: "widget:gauge",
     explanation:
       "Your balance today, minus regular bills and planned saving still due before payday, minus a buffer for unexpected costs based on your last 12 months. The gauge shows the safe amount as a share of your balance.",
     source: "estimate",
@@ -724,6 +578,7 @@ export const widgets = {
   flow: (period = "last_3_months"): Block => ({
     id: id("flow"),
     title: "Where your money flows",
+    component: "widget:flow",
     explanation:
       "Your spending for the period split into the three baskets. Regular essentials repeat monthly; unexpected necessities are unusually large purchases in Home & Tech, Lifestyle, Travel or Health; the rest is everyday spending. Each stream is as wide as its share.",
     source: "own",
@@ -736,6 +591,7 @@ export const widgets = {
   coins: (category = "Restaurants", cutPct = 20): Block => ({
     id: id("coins"),
     title: `What if I cut ${category}?`,
+    component: "widget:coins",
     explanation: `Your average monthly spending on ${category} over the last 12 months, times the cut you choose, added up over a year. Each coin stands for the same amount of money.`,
     source: "estimate",
     data: { kind: "engine", fn: "whatIf", args: { category, cutPct } },

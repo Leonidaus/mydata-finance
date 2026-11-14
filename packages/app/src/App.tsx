@@ -68,12 +68,49 @@ function loadBlocks(cid: string): Block[] {
   const raw = store.get(dashboardKey(cid));
   if (raw) {
     try {
-      return JSON.parse(raw) as Block[];
+      return uniqueWidgetTypes((JSON.parse(raw) as Block[]).filter((block) => !block.id.startsWith("city-") && block.title !== "Your spending city"));
     } catch {
       /* fall through to the default */
     }
   }
   return defaultDashboard();
+}
+
+function widgetType(block: Block): string | undefined {
+  if (block.component?.startsWith("widget:")) return block.component;
+  const legacyType = /^(story|jar|gauge|flow|coins)-/.exec(block.id)?.[1];
+  return legacyType ? `widget:${legacyType}` : undefined;
+}
+
+function uniqueWidgetTypes(blocks: Block[]): Block[] {
+  const seen = new Set<string>();
+  return blocks.filter((block) => {
+    const type = widgetType(block);
+    if (!type) return true;
+    if (seen.has(type)) return false;
+    seen.add(type);
+    return true;
+  });
+}
+
+/** Widget types are singular on a dashboard; adding one replaces the existing card of that type. */
+function applyDashboardOps(dashboard: Dashboard, ops: Parameters<typeof applyOps>[1]): Dashboard {
+  const newestWidgetIds = new Map<string, string>();
+  for (const op of ops) {
+    if (op.op === "add_block") {
+      const type = widgetType(op.block);
+      if (type) newestWidgetIds.set(type, op.block.id);
+    }
+  }
+  const existing = dashboard.blocks.filter((block) => !newestWidgetIds.has(widgetType(block) ?? ""));
+  const result = applyOps({ ...dashboard, blocks: existing }, ops);
+  return {
+    ...result,
+    blocks: result.blocks.filter((block) => {
+      const newestId = newestWidgetIds.get(widgetType(block) ?? "");
+      return newestId === undefined || newestId === block.id;
+    }),
+  };
 }
 
 export default function App() {
@@ -152,13 +189,10 @@ export default function App() {
     };
     const reply = await (canned ? cannedReply : askAgent)(question, ctx);
     if (shownCustomer.current === askedFor) setCoach({ mood: reply.mood ?? null, suggestions: reply.suggestions ?? [] });
-    const after = applyOps({ customerId: askedFor, blocks }, reply.ops).blocks;
+    const after = applyDashboardOps({ customerId: askedFor, blocks }, reply.ops).blocks;
     if (reply.ops.length) {
-      // The new answer replaces the previous unpinned one; pinned blocks and blocks this reply touched stay.
-      const touched = new Set(reply.ops.map((o) => (o.op === "add_block" ? o.block.id : o.id)));
-      updateBlocks(askedFor, (prev) =>
-        applyOps({ customerId: askedFor, blocks: prev }, reply.ops).blocks.filter((b) => b.pinned || touched.has(b.id)),
-      );
+      // Keep older cards on the dashboard; add_block with an existing id still updates that card.
+      updateBlocks(askedFor, (prev) => applyDashboardOps({ customerId: askedFor, blocks: prev }, reply.ops).blocks);
       if (shownCustomer.current === askedFor) document.querySelector(".dashboard")?.scrollTo({ top: 0, behavior: "smooth" });
     }
     history.current.turns = [...history.current.turns, { role: "user" as const, text: question }, { role: "assistant" as const, text: reply.text }].slice(-10);
@@ -179,7 +213,7 @@ export default function App() {
 
   const addBlock = (block: Block) => {
     if (!customerId) return;
-    updateBlocks(customerId, (prev) => applyOps({ customerId, blocks: prev }, [{ op: "add_block", block: { ...block, pinned: true }, index: 0 }]).blocks);
+    updateBlocks(customerId, (prev) => applyDashboardOps({ customerId, blocks: prev }, [{ op: "add_block", block: { ...block, pinned: true }, index: 0 }]).blocks);
     setGallery(false);
   };
 

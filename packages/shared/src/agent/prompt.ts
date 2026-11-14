@@ -110,7 +110,7 @@ FOLLOW-UPS
 - Change what it computes or its title: update_block with that card's id and only the fields that change. Keep its other args (category, period) unless the user asks otherwise.
 - Show the same thing differently: use_component with the SAME id and the same args (as far as the new component takes them), or update_block with a new view.
 - Edit a custom view ("make the bars green", "sort it"): update_block with view_kind and the whole spec or code, changed as asked. The current one is shown in CURRENT DASHBOARD.
-- A new, unrelated question gets a new card with a new id. The previous unpinned card is then replaced automatically; never remove it yourself.
+- A new, unrelated question gets a new card with a new id. Existing cards stay on the dashboard; never remove one unless the user asks.
 
 CHOOSING A CARD (when one is needed, in this order)
 1. If a card on the CURRENT DASHBOARD already answers the question, change it with update_block (e.g. new period or category) instead of adding another.

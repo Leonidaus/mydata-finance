@@ -61,7 +61,7 @@ export default function BlockCard({ block, customerId, today, onChange, onRemove
               className={`pin-btn${block.pinned ? " on" : ""}`}
               onClick={onPin}
               aria-pressed={!!block.pinned}
-              title={block.pinned ? "Unpin: the next answer will replace it" : "Pin to keep it on your dashboard"}
+              title={block.pinned ? "Unpin this card in the coach's context" : "Pin this card in the coach's context"}
             >
               {block.pinned ? "Pinned" : "Pin"}
             </button>
