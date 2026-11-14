@@ -61,3 +61,44 @@ jobs:
 
       - name: Check the data prep scripts compile
         run: python3 -m py_compile data/prep/*.py
+
+  # Provider probe: only trusted branch pushes receive repository secrets. This keeps
+  # provider failures out of deployment while catching invalid keys, voices, and models
+  # before a develop-to-main release is prepared.
+  tts-smoke:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+      ELEVENLABS_VOICE_ID: ${{ vars.ELEVENLABS_VOICE_ID || '4ZwDxrFaobUF5e1KlEM' }}
+      ELEVENLABS_TTS_MODEL_ID: ${{ vars.ELEVENLABS_TTS_MODEL_ID || 'eleven_multilingual_v2' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Skip without ElevenLabs credentials
+        if: env.ELEVENLABS_API_KEY == ''
+        run: echo "No ELEVENLABS_API_KEY is configured; skipping the TTS provider smoke test."
+
+      # One short request uses a small number of credits and consumes the complete stream
+      # so a successful result is known to contain audio rather than headers alone.
+      - name: Synthesize Finnish speech
+        if: env.ELEVENLABS_API_KEY != ''
+        run: |
+          npm run build -w @mydata/voice
+          node --input-type=module <<'NODE'
+          import { speak } from "./packages/voice/dist/voice.js";
+
+          const audio = await speak("Tämä on testi.", { languageCode: "fi" });
+          const bytes = (await new Response(audio).arrayBuffer()).byteLength;
+          if (bytes === 0) throw new Error("TTS provider returned an empty audio stream.");
+          console.log(`TTS provider smoke check passed: ${bytes} bytes`);
+          NODE
