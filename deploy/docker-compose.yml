@@ -2,14 +2,19 @@
 # HTTPS matters: a phone's browser only allows microphone use on a secure address.
 #
 # Lives at /srv/mydata/docker-compose.yml on the host, next to:
-#   .env    service keys (GEMINI_API_KEY, ELEVENLABS_API_KEY) and DOMAIN
-#   data/   finance.sqlite
+#   .env      DOMAIN, and any other settings for this host
+#   keys.env  service keys, written by the deploy workflow from the repository secrets
+#   data/     finance.sqlite
 # See deploy/README.md.
 services:
   app:
     image: ${IMAGE:-ghcr.io/leonidaus/mydata-finance:latest}
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - .env
+      # Written on every deploy; later files win, so a key here replaces one in .env.
+      - path: keys.env
+        required: false
     volumes:
       - ./data:/data:ro
 
