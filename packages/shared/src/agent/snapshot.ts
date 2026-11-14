@@ -29,7 +29,8 @@ export interface Snapshot extends Figures {
   headlines: Headline[];
 }
 
-const SNAPSHOT: { title: string; fn: EngineFn; args: Record<string, unknown> }[] = [
+/** `ifAny`: left out when the result has no rows (receipts, which most customers have none of). */
+const SNAPSHOT: { title: string; fn: EngineFn; args: Record<string, unknown>; ifAny?: boolean }[] = [
   { title: "Safe to spend this week (estimate)", fn: "safeToSpend", args: { horizon: "week" } },
   { title: "Safe to spend until payday (estimate)", fn: "safeToSpend", args: { horizon: "until_payday" } },
   { title: "This calendar month so far, next to the usual by the same day", fn: "monthSoFar", args: {} },
@@ -42,6 +43,7 @@ const SNAPSHOT: { title: string; fn: EngineFn; args: Record<string, unknown> }[]
   { title: "Moved to savings per month", fn: "monthlyTrend", args: { metric: "saving", months: 6 } },
   { title: "Monthly averages next to customers of the same age (context, not a target)", fn: "peerCompare", args: {} },
   { title: "Bills and saving transfers that repeat every month", fn: "recurring", args: {} },
+  { title: "What is in the shopping, from the receipts the user has linked (a sample, see coverage)", fn: "itemSpend", args: {}, ifAny: true },
 ];
 
 const SNAPSHOT_ROWS = 30;
@@ -64,6 +66,7 @@ export async function buildSnapshot(lookup: Lookup, blocks: Block[] = []): Promi
       const args = fn === "safeToSpend" && stated !== undefined ? { ...entry.args, reserve: stated } : entry.args;
       try {
         const result = await lookup(fn, args);
+        if (entry.ifAny && result.rows.length === 0) return null;
         return {
           text: describeResult(`${title} = ${requestLabel(fn, args)}`, result, SNAPSHOT_ROWS),
           numbers: resultNumbers(result),

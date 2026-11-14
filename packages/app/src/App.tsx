@@ -6,11 +6,12 @@ import {
   fillPlaceholders,
   photoQuestion,
   placeholderBlockIds,
+  receiptQuestion,
   type TxFilter,
   type ProtectedCategory,
   type ProfileUpdate,
 } from "@mydata/shared";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { askAgent, cannedReply, type ChatMode, chatMode, geminiAvailable, type RunEngine } from "./agent";
 import BlockCard, { displayTitle } from "./BlockCard";
 import Chat, { type Focus, type VoiceControls } from "./Chat";
@@ -27,6 +28,8 @@ import LoadError from "./LoadError";
 import OverviewBar from "./Overview";
 import TxDrawer from "./TxDrawer";
 import { createProfileClient } from "./sources/profile";
+import { createReceiptClient } from "./sources/receipts";
+import { ReceiptList, ReceiptsContext, receiptModelText, receiptReply } from "./receipts";
 
 const store = {
   get(key: string): string | null {
@@ -51,6 +54,7 @@ const store = {
 const dashboardKey = (cid: string) => `mydata.dashboard.v3.${cid}`;
 const coachingPromptKey = (cid: string) => `mydata.coachingPrompt.v1.${cid}`;
 const profileClient = createProfileClient(apiBase);
+const receiptClient = createReceiptClient(apiBase);
 
 /**
  * Dev mode (?dev in the URL, or the Dev button) runs on the static demo fixtures with the engine in
@@ -96,6 +100,13 @@ export default function App() {
   const [gallery, setGallery] = useState(devInUrl);
   const source = dev ? fixtureSource : dataSource;
   const [profileReload, setProfileReload] = useState(0);
+  // Moves whenever a receipt is linked, unlinked or deleted: item cards and the drawer fetch again.
+  const [receiptsVersion, setReceiptsVersion] = useState(0);
+  const receiptsChanged = useCallback(() => setReceiptsVersion((n) => n + 1), []);
+  const receipts = useMemo(
+    () => ({ client: source.mode === "api" ? receiptClient : null, version: receiptsVersion, changed: receiptsChanged }),
+    [source.mode, receiptsVersion, receiptsChanged],
+  );
   const profile = useLatest(
     source.mode === "api" && customerId ? `profile:${customerId}:${profileReload}` : null,
     (signal) => profileClient.get(customerId ?? "", signal),
@@ -176,6 +187,13 @@ export default function App() {
       language: locale,
     };
     const reply = await (canned ? cannedReply : askAgent)(question, ctx);
+    // A receipt sent without words: saving it was the answer, and the app says so in the user's language.
+    if (reply.receipt && !reply.text) {
+      if (reply.receipt.status === "confirmed") receiptsChanged();
+      const text = receiptReply(reply.receipt, locale, t);
+      return { text, modelText: text, userText: receiptModelText(reply.receipt), photo: reply.photo, receipt: reply.receipt, cards: [], mood: null, suggestions: [] };
+    }
+    if (reply.receipt?.status === "confirmed") receiptsChanged();
     // The coach changed the saved preferences: show the new ones in the coaching settings too.
     if (reply.profileChanged) {
       store.set(coachingPromptKey(askedFor), "done");
@@ -202,7 +220,7 @@ export default function App() {
       // What the coach is given later as the conversation so far: its own words before the figures
       // were filled in (figures are never sent back to it), and the question with what a photo showed.
       modelText: reply.text,
-      userText: reply.photo ? photoQuestion(question, reply.photo) : question,
+      userText: reply.receipt ? receiptQuestion(question, reply.receipt) : reply.photo ? photoQuestion(question, reply.photo) : question,
       cards: applied.cards,
       removed: applied.removed,
       mood: reply.mood ?? null,
@@ -210,6 +228,7 @@ export default function App() {
       blocked: reply.blocked as ProtectedCategory[] | undefined,
       proposedUnprotect: reply.proposedUnprotect as ProtectedCategory[] | undefined,
       photo: reply.photo,
+      receipt: reply.receipt,
     };
   };
 
@@ -259,6 +278,7 @@ export default function App() {
 
   return (
     <DataSourceContext.Provider value={source}>
+      <ReceiptsContext.Provider value={receipts}>
       <div className="app">
         {/* The top bar mirrors a screen inside S-mobiili: back, centred title, messages. Both icons are decorative here. */}
         <header className="topbar">
@@ -412,6 +432,7 @@ export default function App() {
                     <button type="button" className="ghost-btn reset" onClick={() => updateBlocks(dashboard.customerId, () => defaultDashboard().map(savedCard))}>
                       {t("overview.reset")}
                     </button>
+                    {receipts.client && <ReceiptList customerId={dashboard.customerId} today={info.today} />}
                   </section>
                 )}
               </>
@@ -433,6 +454,7 @@ export default function App() {
           <TxDrawer customerId={drill.customerId} title={drill.title} filter={drill.filter} evidenceNote={drill.evidenceNote} onClose={() => setDrill(null)} />
         )}
       </div>
+      </ReceiptsContext.Provider>
     </DataSourceContext.Provider>
   );
 }

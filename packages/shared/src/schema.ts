@@ -5,6 +5,8 @@
  */
 
 export interface Transaction {
+  /** The row id in the finance database. Absent in the bundled fixtures; a receipt links to it. */
+  tx_id?: number;
   customer_id: string;
   bank_account_id: string;
   /** ISO date, e.g. "2024-10-03" */

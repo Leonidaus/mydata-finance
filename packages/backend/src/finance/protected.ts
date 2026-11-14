@@ -1,11 +1,11 @@
 import { applyProtections, DEFAULT_PROFILE, ProtectedCategoryError, type EngineFn, type EngineResult, type ProtectedCategory } from "@mydata/shared";
 import type { FinanceDb } from "../db";
 import type { ProfileStore } from "../profiles";
-import { loadEngineContext, runEngineFor } from "./engine";
+import { loadEngineContext, type ReceiptsFor, runEngineFor } from "./engine";
 
 /** Finance execution bound to a profile store. The shared engine remains profile-free. */
 export class ProtectedEngine {
-  constructor(private db: FinanceDb, private profiles: ProfileStore) {}
+  constructor(private db: FinanceDb, private profiles: ProfileStore, private receipts?: ReceiptsFor) {}
 
   run(
     customerId: string,
@@ -21,7 +21,7 @@ export class ProtectedEngine {
         // For a merchant type the code table has no category for: where this customer's payments there sit.
         categoryOfMcc: (mcc) => loadEngineContext(this.db, customerId)?.tx.find((t) => t.mcc_code === mcc)?.category,
       });
-      return runEngineFor(this.db, customerId, fn, safeArgs);
+      return runEngineFor(this.db, customerId, fn, safeArgs, this.receipts);
     } catch (error) {
       if (error instanceof ProtectedCategoryError) options.onBlocked?.(error.categories);
       throw error;
