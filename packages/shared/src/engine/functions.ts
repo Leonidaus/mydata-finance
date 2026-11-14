@@ -967,6 +967,70 @@ function goalReview(ctx: EngineContext, args: Record<string, unknown>): EngineRe
   };
 }
 
+// ---------- can I afford this? ----------
+
+/** Below this share of the usual everyday spending a day, what is left after a purchase counts as tight. */
+const TIGHT_SHARE_OF_USUAL = 0.5;
+
+/**
+ * Whether a one-off price fits this pay period's money: safe to spend until payday, minus the
+ * price. A necessity (a repair, a dentist's bill) may also use the buffer for unexpected
+ * necessities, which is what the buffer is for. What does not fit is set against the reserve,
+ * and beyond that against what is usually left over a month, as the start of a savings goal.
+ */
+function afford(ctx: EngineContext, args: Record<string, unknown>): EngineResult {
+  const amount = num(args.amount, NaN);
+  if (!Number.isFinite(amount)) throw new EngineArgumentError("afford needs amount: the price in euros.");
+  const label = str(args.label) ?? "This purchase";
+  const necessity = args.kind === "necessity";
+  const stated = typeof args.reserve === "number";
+  const p = plan(ctx, stated ? (args.reserve as number) : undefined);
+  const safe = Math.max(0, p.spendable);
+  const buffer = necessity ? p.buffer : 0;
+  const left = safe + buffer - amount;
+  const perDay = left / p.daysLeft;
+  // The reserve stands in for the buffer and a late salary first; the rest of it is free to use.
+  const freeReserve = Math.max(0, p.reserve - p.buffer - p.lateMargin);
+  const room = leftAfterSpending(ctx);
+  const payday = displayDate(p.payday);
+  const everydayDays = p.everydayPerDay > 0 ? Math.round(amount / p.everydayPerDay) : 0;
+  const equals = !necessity && everydayDays >= 2 ? ` It equals about ${everydayDays} days of your usual everyday spending.` : "";
+
+  let caption: string;
+  if (left >= 0 && (necessity || perDay >= TIGHT_SHARE_OF_USUAL * p.everydayPerDay)) {
+    caption = necessity
+      ? `Covered: this is what the buffer for unexpected necessities is for. ${euros(left)} is still left until payday ${payday}.`
+      : `Fits: ${euros(left)} would be left until payday ${payday}, about ${euros(perDay)} a day.${equals}`;
+  } else if (left >= 0) {
+    caption = `Fits, but tightly: ${euros(left)} would be left until payday ${payday}, about ${euros(perDay)} a day, and you usually spend about ${euros(p.everydayPerDay)} a day.${equals}`;
+  } else if (-left <= freeReserve) {
+    caption = `More than this pay period has left: ${euros(-left)} would come out of the ${euros(p.reserve)} reserve on your account.`;
+  } else if (room > 0) {
+    caption = `Not from this pay period's money. About ${euros(room)} a month is usually left over after your spending, so this takes about ${Math.ceil(amount / room)} months of saving: a savings goal, not a purchase.`;
+  } else {
+    caption = "Not from this pay period's money, and nothing is usually left over after your spending: this needs a savings plan first.";
+  }
+
+  return {
+    rows: [
+      { term: `Safe to spend until payday (${payday})`, amount: round2(safe) },
+      ...(necessity ? [{ term: "Buffer for unexpected necessities", amount: round2(buffer) }] : []),
+      { term: label, amount: round2(-amount) },
+      { term: left >= 0 ? "Left until payday after this" : "Missing from this pay period's money", amount: round2(left) },
+    ],
+    value: round2(left),
+    unit: "€",
+    caption,
+    assumptions: [
+      necessity
+        ? "A necessity you could not plan for may use the buffer for unexpected necessities as well as what is safe to spend."
+        : "A purchase you choose comes out of everyday spending: what is safe to spend until payday. Bills, essentials and the buffer stay untouched.",
+      ...planAssumptions(ctx, p),
+    ],
+    filter: { from: addDays(ctx.today, -29), to: ctx.today, kind: "all" },
+  };
+}
+
 /** A category that averages less than this a month is not worth suggesting. */
 const MIN_OPTION_PER_MONTH = 10;
 const MAX_OPTIONS = 5;
@@ -990,6 +1054,7 @@ const FNS: Record<EngineFn, (ctx: EngineContext, args: Record<string, unknown>) 
   savingsOptions,
   monthSoFar,
   goalReview,
+  afford,
 };
 
 export function runEngine(ctx: EngineContext, fn: EngineFn, args: Record<string, unknown> = {}): EngineResult {

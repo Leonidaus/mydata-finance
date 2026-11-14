@@ -1,9 +1,11 @@
 import {
   type Block,
+  type ChatImage,
   type Dashboard,
   defaultDashboard,
   type EngineResult,
   fillPlaceholders,
+  photoQuestion,
   placeholderBlockIds,
   type TxFilter,
   type ProtectedCategory,
@@ -158,7 +160,7 @@ export default function App() {
   const askedUnprotect = useRef<{ customerId: string; categories: ProtectedCategory[] }>({ customerId: "", categories: [] });
 
   /** Suggested prompts are canned (answered locally, no API call); typed questions go to the agent. */
-  const ask = async (question: string, canned = false, allowProtected?: ProtectedCategory[]) => {
+  const ask = async (question: string, canned = false, allowProtected?: ProtectedCategory[], image?: ChatImage) => {
     if (customer.status === "error") return { text: "I couldn't load your data. Use “Try again” above first." };
     if (!dashboard || !info) return { text: "Still loading your data…" };
     // The whole answer is for the customer who asked, also if another one is selected before it is ready.
@@ -174,6 +176,7 @@ export default function App() {
       allowProtected,
       // What the previous answer asked about taking off the keep-as-is list: this message may be the yes.
       pendingUnprotect: askedUnprotect.current.customerId === askedFor ? askedUnprotect.current.categories : [],
+      image,
     };
     const reply = await (canned ? cannedReply : askAgent)(question, ctx);
     askedUnprotect.current = { customerId: askedFor, categories: (reply.proposedUnprotect ?? []) as ProtectedCategory[] };
@@ -189,7 +192,7 @@ export default function App() {
       updateBlocks(askedFor, (prev) => applyDashboardOps({ customerId: askedFor, blocks: prev }, reply.ops).blocks);
       if (shownCustomer.current === askedFor) document.querySelector(".dashboard")?.scrollTo({ top: 0, behavior: "smooth" });
     }
-    history.current.turns = [...history.current.turns, { role: "user" as const, text: question }, { role: "assistant" as const, text: reply.text }].slice(-10);
+    history.current.turns = [...history.current.turns, { role: "user" as const, text: reply.photo ? photoQuestion(question, reply.photo) : question }, { role: "assistant" as const, text: reply.text }].slice(-10);
 
     // Fill {{blockId.value}} / {{blockId.caption}} from the computed results, here in the browser.
     const results = new Map<string, EngineResult>();
@@ -206,6 +209,7 @@ export default function App() {
       }),
       blocked: reply.blocked as ProtectedCategory[] | undefined,
       proposedUnprotect: reply.proposedUnprotect as ProtectedCategory[] | undefined,
+      photo: reply.photo,
     };
   };
 

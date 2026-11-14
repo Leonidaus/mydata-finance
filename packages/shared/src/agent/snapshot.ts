@@ -52,8 +52,12 @@ const MAX_LOOKUP_CHARS = 4000;
  * `blocks` is the dashboard: when the customer has said how much of the account is savings, that
  * is on their safe-to-spend card, and the snapshot's figures use the same amount as the card.
  */
+/** How much of the account the customer has said is savings: the reserve on their safe-to-spend card, if they set one. */
+export const statedReserve = (blocks: Block[]): number | undefined =>
+  blocks.flatMap((b) => (b.data.kind === "engine" && b.data.fn === "safeToSpend" && typeof b.data.args.reserve === "number" ? [b.data.args.reserve] : []))[0];
+
 export async function buildSnapshot(lookup: Lookup, blocks: Block[] = []): Promise<Snapshot> {
-  const stated = blocks.flatMap((b) => (b.data.kind === "engine" && b.data.fn === "safeToSpend" && typeof b.data.args.reserve === "number" ? [b.data.args.reserve] : []))[0];
+  const stated = statedReserve(blocks);
   const parts = await Promise.all(
     SNAPSHOT.map(async (entry) => {
       const { title, fn } = entry;
