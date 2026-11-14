@@ -35,6 +35,8 @@ export interface AgentContext {
   /** Whether the app is using the backend for this customer (API mode, not dev mode). */
   useBackend: boolean;
   allowProtected?: ProtectedCategory[];
+  /** What the previous answer asked the user about taking off the keep-as-is list. */
+  pendingUnprotect?: ProtectedCategory[];
 }
 
 const serverChat = createServerChat(apiBase);
@@ -51,7 +53,15 @@ function report(out: ChatOutput & { blocked?: ProtectedCategory[] }): AgentReply
     if (p.via === "library") console.info(`[agent] ${p.blockId}: library component ${p.component}`);
     else console.info(`[agent] ${p.blockId}: custom ${p.view}${p.why ? ` (why: ${p.why})` : ""}`);
   }
-  return { text: out.text, ops: out.ops, mood: out.mood, suggestions: out.suggestions, blocked: out.blocked };
+  return {
+    text: out.text,
+    ops: out.ops,
+    mood: out.mood,
+    suggestions: out.suggestions,
+    blocked: out.blocked,
+    proposedUnprotect: out.proposedUnprotect,
+    profileChanged: Boolean(out.profile),
+  };
 }
 
 export const cannedReply = (prompt: string, ctx: AgentContext): Promise<AgentReply> => respond(prompt, ctx.blocks, ctx.run);
@@ -59,7 +69,7 @@ export const cannedReply = (prompt: string, ctx: AgentContext): Promise<AgentRep
 export async function askAgent(question: string, ctx: AgentContext): Promise<AgentReply> {
   const mode = await chatMode(ctx.useBackend);
   if (mode === "server") {
-    return report(await serverChat.ask({ customerId: ctx.customerId, question, history: ctx.history, blocks: ctx.blocks, allowProtected: ctx.allowProtected }));
+    return report(await serverChat.ask({ customerId: ctx.customerId, question, history: ctx.history, blocks: ctx.blocks, allowProtected: ctx.allowProtected, pendingUnprotect: ctx.pendingUnprotect }));
   }
   if (mode === "browser") {
     return report(await runChat(gemini, { question, history: ctx.history, blocks: ctx.blocks, today: ctx.today, lookup: (fn, args) => ctx.run(fn, args) }));

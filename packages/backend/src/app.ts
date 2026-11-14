@@ -322,8 +322,17 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
         },
         profile: profiles.get(id) ?? DEFAULT_PROFILE,
         allowProtected: request.allowProtected,
+        // The coach may change the saved preferences when the user asks. Taking a category off the
+        // keep-as-is list only goes through for categories the previous answer asked the user about.
+        preferences: {
+          pendingUnprotect: request.pendingUnprotect ?? [],
+          apply: (update) => profiles.update(id, update),
+        },
       });
-      return c.json({ ...answer, blocked: [...blocked] });
+      // A refused lookup is also something to ask about: the next message may confirm taking it off the list.
+      const kept = (profiles.get(id) ?? DEFAULT_PROFILE).protectedCategories;
+      const proposedUnprotect = [...new Set([...answer.proposedUnprotect, ...kept.filter((category) => blocked.has(category))])];
+      return c.json({ ...answer, blocked: [...blocked], proposedUnprotect });
     } catch (error) {
       if (error instanceof Error && error.name === "TimeoutError") {
         throw new HTTPException(504, { message: "The coach took too long to answer. Try again in a moment." });

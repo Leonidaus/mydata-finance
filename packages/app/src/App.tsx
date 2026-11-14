@@ -154,6 +154,9 @@ export default function App() {
     });
   }, []);
 
+  /** The categories the coach's latest answer asked about taking off the keep-as-is list, per customer. */
+  const askedUnprotect = useRef<{ customerId: string; categories: ProtectedCategory[] }>({ customerId: "", categories: [] });
+
   /** Suggested prompts are canned (answered locally, no API call); typed questions go to the agent. */
   const ask = async (question: string, canned = false, allowProtected?: ProtectedCategory[]) => {
     if (customer.status === "error") return { text: "I couldn't load your data. Use “Try again” above first." };
@@ -169,8 +172,16 @@ export default function App() {
       run: ((fn, args = {}) => source.runData(askedFor, { kind: "engine", fn, args })) as RunEngine,
       useBackend: source.mode === "api",
       allowProtected,
+      // What the previous answer asked about taking off the keep-as-is list: this message may be the yes.
+      pendingUnprotect: askedUnprotect.current.customerId === askedFor ? askedUnprotect.current.categories : [],
     };
     const reply = await (canned ? cannedReply : askAgent)(question, ctx);
+    askedUnprotect.current = { customerId: askedFor, categories: (reply.proposedUnprotect ?? []) as ProtectedCategory[] };
+    // The coach changed the saved preferences: show the new ones in the coaching settings too.
+    if (reply.profileChanged) {
+      store.set(coachingPromptKey(askedFor), "done");
+      setProfileReload((n) => n + 1);
+    }
     if (shownCustomer.current === askedFor) setCoach({ mood: reply.mood ?? null, suggestions: reply.suggestions ?? [] });
     const after = applyDashboardOps({ customerId: askedFor, blocks }, reply.ops).blocks;
     if (reply.ops.length) {
@@ -194,6 +205,7 @@ export default function App() {
       return r && (field === "value" ? formatValue(r) : r.caption);
       }),
       blocked: reply.blocked as ProtectedCategory[] | undefined,
+      proposedUnprotect: reply.proposedUnprotect as ProtectedCategory[] | undefined,
     };
   };
 
