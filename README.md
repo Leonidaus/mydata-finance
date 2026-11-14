@@ -186,7 +186,7 @@ Settled:
 | Basket rules | One rule set, with groceries as a regular essential. See [Basket rules](#basket-rules). |
 | API style | Plain JSON routes, no GraphQL. |
 | Branches | Feature branches into `develop`; `main` only from `develop`. |
-| Model for the chat | Gemini. The model chooses which cards to build and never sees the customer's figures; the app fills the numbers in. |
+| Model for the chat | Gemini, run by the backend. The model chooses which cards to build, then explains the results the engine computed for them. It never sees the transaction list, and a reply with a number that is not in the results is discarded. |
 
 Still open:
 
@@ -461,15 +461,27 @@ works; `/api/health` reports which services are on. Because these routes spend
 credits, each has a request budget across all callers (voice: 30 a minute, 400 an
 hour; chat: 20 a minute, 400 an hour) and answers 429 beyond it.
 
-The chat runs on the server. The app sends the question, the conversation so far and
-the definitions of the cards on screen. The server builds the prompt, calls Gemini
-with its own key, checks every tool call the model makes (using the engine's argument
-checks), asks again once if something is invalid, and returns the reply and the card
-operations. The caller cannot supply instructions, pick the model or reach Gemini
-directly. The model never sees the customer's figures: its reply refers to them as
-`{{cardId.value}}`, and the app fills them in from the engine. The agent itself
-(prompt, tools, validation) is in `packages/shared/src/agent`. `GEMINI_MODEL` may list
-several models, comma-separated; the next is tried when one is overloaded.
+The chat runs on the server, in two steps. The app sends the question, the
+conversation so far and the definitions of the cards on screen.
+
+1. **Which cards.** The server builds the prompt, calls Gemini with its own key and
+   checks every tool call the model makes (using the engine's argument checks), asking
+   again once if something is invalid. The model sees no customer data in this step.
+2. **What the figures mean.** The finance engine computes those cards, and the model
+   writes a reply from the results: totals, rows and assumptions of the cards, never
+   the transaction list. Every number in the reply must appear in those results, as
+   given or rounded; if one does not, the reply is discarded and the answer falls back
+   to a sentence with a `{{cardId.value}}` placeholder that the app fills in itself.
+   The reply follows the language of the question.
+
+The caller cannot supply instructions, pick the model or reach Gemini directly. The
+agent's first step (prompt, tools, validation) is in `packages/shared/src/agent`; the
+second is `packages/backend/src/explain.ts`. `GEMINI_MODEL` may list several models,
+comma-separated; the next is tried when one is overloaded.
+
+`npm run eval:chat -w @mydata/backend` asks the challenge's questions with the real
+model and compares each answer with the engine: the right function and arguments,
+nothing rejected, and the engine's figure in the reply.
 
 The engine endpoints run the finance engine from `packages/shared/src/engine` for
 any of the 5,100 customers: `spendBy`, `monthlyTrend`, `baskets`, `safeToSpend`,

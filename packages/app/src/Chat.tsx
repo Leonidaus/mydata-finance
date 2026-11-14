@@ -106,7 +106,9 @@ export default function Chat({ onAsk, resetKey, request, mode }: Props) {
       <p className="chat-note">
         {mode === "mock"
           ? "Demo coach: keyword-based. Set GEMINI_API_KEY (in .env for the backend, or packages/app/.env.local for dev mode) to use Gemini."
-          : "Typed questions go to Gemini, which never sees your figures. Chips are instant keyword answers."}
+          : mode === "server"
+            ? "Typed questions go to Gemini. It sees the totals on the cards it builds, never your transactions. Chips are instant keyword answers."
+            : "Typed questions go to Gemini, which never sees your figures. Chips are instant keyword answers."}
       </p>
     </section>
   );
