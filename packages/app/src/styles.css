@@ -439,12 +439,13 @@ body {
 
 .chat-input .voice-btn {
   flex: none;
-  padding: 0 12px;
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  padding: 0;
   border: 1px solid var(--green-700);
   background: var(--surface);
   color: var(--green-700);
-  font-size: 0.85rem;
-  font-weight: 600;
 }
 
 .chat-input .voice-btn.on {
