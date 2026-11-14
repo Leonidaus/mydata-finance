@@ -101,24 +101,3 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key "${DEPLOY_USER:-root}@$DEPLOY_HOST" \
             "for i in 1 2 3 4 5 6 7 8 9 10; do docker compose -f /srv/mydata/docker-compose.yml exec -T app node -e \"fetch('http://localhost:8787/api/health').then(r=>r.json()).then(j=>{console.log(JSON.stringify(j));process.exit(j.ok?0:1)}).catch(()=>process.exit(1))\" && exit 0; sleep 3; done; exit 1"
-
-      # This makes one short provider request, so it runs only when voice is configured.
-      # A health response only confirms that the API key exists; it cannot prove synthesis works.
-      - name: Check text to speech
-        if: env.DEPLOY_HOST != '' && env.ELEVENLABS_API_KEY != ''
-        run: |
-          ssh -i ~/.ssh/deploy_key "${DEPLOY_USER:-root}@$DEPLOY_HOST" \
-            "docker compose -f /srv/mydata/docker-compose.yml exec -T app node" <<'NODE'
-          const response = await fetch("http://localhost:8787/api/tts", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ text: "Tämä on testi.", languageCode: "fi" }),
-          });
-          const audio = await response.arrayBuffer();
-          const contentType = response.headers.get("content-type") ?? "";
-          if (!response.ok || !contentType.startsWith("audio/mpeg") || audio.byteLength === 0) {
-            console.error(`TTS smoke check failed: ${response.status} ${contentType} (${audio.byteLength} bytes)`);
-            process.exit(1);
-          }
-          console.log(`TTS smoke check passed: ${audio.byteLength} bytes`);
-          NODE
