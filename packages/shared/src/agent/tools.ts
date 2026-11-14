@@ -3,7 +3,7 @@
  * Schemas are plain JSON Schema (Gemini `parametersJsonSchema`, also fine for other providers).
  * Deep values (Vega-Lite specs) travel as JSON strings, which models produce more reliably.
  */
-import { TEMPLATE_IDS } from "../blocks";
+import { TEMPLATE_IDS, WIDGET_LIBS } from "../blocks";
 import { ENGINE_ARG_SPECS } from "../engine/args";
 import { ENGINE_FNS } from "../engine/types";
 import { SPENDING_CATEGORIES } from "../engine/util";
@@ -70,6 +70,11 @@ const blockFields = {
   template: { type: "string", enum: [...TEMPLATE_IDS], description: 'When view_kind is "template"' },
   spec: { type: "string", description: 'When view_kind is "spec": a Vega-Lite spec as a JSON string, without data (rows are injected)' },
   code: { type: "string", description: 'When view_kind is "code": HTML with an inline <script> using mydata.onData' },
+  libs: {
+    type: "array",
+    items: { type: "string", enum: [...WIDGET_LIBS] },
+    description: 'When view_kind is "code": libraries to load into the widget. Globals: gsap, Matter (matter), THREE (three). Only list what the code uses.',
+  },
   controls: { type: "array", items: control },
   why_custom: {
     type: "string",
@@ -77,11 +82,25 @@ const blockFields = {
   },
 };
 
+/**
+ * The chat answer travels with the card call. Light models often make a single tool call and
+ * stop, so asking for a separate `reply` call cost a second request for most answers.
+ */
+const replyField = {
+  type: "string",
+  description:
+    "What to tell the user in the chat about this card: one to three friendly sentences in their language. Never write a figure yourself; " +
+    "use {{<id>.value}} (the card's headline figure) or {{<id>.caption}} (its one-line summary).",
+};
+
+export const REPLY_TOOL = "reply";
+
 export const TOOL_DECLARATIONS: ToolDeclaration[] = [
   {
     name: "use_component",
     description:
-      "Preferred way to answer: add a ready-made card from the component library. Reusing an existing id replaces that card.",
+      "Preferred way to answer: add a ready-made card from the component library. Reusing an existing id replaces that card, " +
+      "which is how to show the same thing as a different component.",
     parametersJsonSchema: {
       type: "object",
       properties: {
@@ -89,8 +108,9 @@ export const TOOL_DECLARATIONS: ToolDeclaration[] = [
         component: { type: "string", enum: [...COMPONENT_IDS] },
         args: engineArgsSchema("Only the component's own args (see the library). Set every one the question implies: category, period, by..."),
         title: { type: "string", description: "Optional shorter, more specific title in the user's language" },
+        reply: replyField,
       },
-      required: ["id", "component"],
+      required: ["id", "component", "reply"],
     },
   },
   {
@@ -102,17 +122,20 @@ export const TOOL_DECLARATIONS: ToolDeclaration[] = [
       properties: {
         id: { type: "string", description: "Short lowercase id like restaurants-trend; used in reply placeholders" },
         ...blockFields,
+        reply: replyField,
       },
-      required: ["id", "title", "explanation", "source", "fn", "view_kind"],
+      required: ["id", "title", "explanation", "source", "fn", "view_kind", "reply"],
     },
   },
   {
     name: "update_block",
-    description: "Change an existing card. Only the given fields change; args are merged into the current ones.",
+    description:
+      "Change a card that is on the dashboard: the way to act on follow-ups like 'make it 3 months' or 'rename it'. Only the given fields change; " +
+      "args are merged into the current ones. To change a custom view, send view_kind with the whole edited spec or code.",
     parametersJsonSchema: {
       type: "object",
-      properties: { id: { type: "string" }, ...blockFields },
-      required: ["id"],
+      properties: { id: { type: "string" }, ...blockFields, reply: replyField },
+      required: ["id", "reply"],
     },
   },
   {
@@ -130,9 +153,10 @@ export const TOOL_DECLARATIONS: ToolDeclaration[] = [
     },
   },
   {
-    name: "reply",
+    name: REPLY_TOOL,
     description:
-      "The chat answer shown to the user. Call exactly once. Never write a number from the data yourself: use placeholders " +
+      "A chat answer without changing a card: when the user only asks something, when nothing can be built, or after remove_block/move_block. " +
+      "Not needed when a card call already carries reply. Never write a number from the data yourself: use placeholders " +
       "{{<blockId>.value}} (the card's headline figure) or {{<blockId>.caption}} (its one-line summary).",
     parametersJsonSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] },
   },

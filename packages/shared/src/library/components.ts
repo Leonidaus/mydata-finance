@@ -8,6 +8,7 @@ import { ENGINE_ARG_SPECS, EngineArgumentError, validateEngineArgs } from "../en
 import type { EngineFn } from "../engine/types";
 import { catalog } from "./catalog";
 import { custom } from "./custom";
+import { widgets } from "./widgets";
 
 export interface ComponentDef {
   description: string;
@@ -96,11 +97,11 @@ export const COMPONENTS = {
     build: (a) => catalog.goal(n(a.target), s(a.label)),
   },
   spending_donut: {
-    description: "Donut chart of spending by category: top five plus Other.",
+    description: "Donut chart of spending by category: top five plus Other. With a category, the donut splits that category by merchant type.",
     examples: ["Show my spending as a donut chart", "What share does each category take?"],
     fn: "spendBy",
-    args: ["period"],
-    build: (a) => custom.donut(s(a.period)),
+    args: ["period", "category"],
+    build: (a) => custom.donut(s(a.period), s(a.category)),
   },
   weekday_pattern: {
     description: "Bars of total spending per day of the week, biggest day highlighted.",
@@ -130,6 +131,54 @@ export const COMPONENTS = {
     args: ["period"],
     build: (a) => custom.receipt(s(a.period)),
   },
+  spending_city: {
+    description:
+      "Showpiece: an interactive 3D city with one tower per spending category, as tall as the amount. Tap a tower for its figure; in full screen it can be rotated and zoomed. Pick this when the user asks for 3D, something impressive, or to explore their spending.",
+    examples: ["Show my spending in 3D", "Give me a cool view of where my money goes"],
+    fn: "spendBy",
+    args: ["period"],
+    build: (a) => widgets.city(s(a.period)),
+  },
+  money_story: {
+    description:
+      "Showpiece: a step-by-step story from the balance today, through each bill and buffer, down to what is safe to spend, with Back and Next. Pick this when the user asks to be walked through it, for a story, or why the safe amount is what it is.",
+    examples: ["Walk me through how much I can spend", "Tell me the story of my money this month"],
+    fn: "safeToSpend",
+    args: ["horizon"],
+    build: (a) => widgets.story(a.horizon === "until_payday" ? "until_payday" : "week"),
+  },
+  savings_jar: {
+    description:
+      "Animated 3D jar that fills with coins up to the saving goal. Same figures as goal_progress; pick this when the user wants to see, visualise or feel their progress.",
+    examples: ["Show me my savings goal", "Visualise how close I am to my down payment"],
+    fn: "goalProgress",
+    args: ["target", "label"],
+    build: (a) => widgets.jar(n(a.target), s(a.label)),
+  },
+  safe_gauge: {
+    description:
+      "Animated gauge of the safe-to-spend amount, with the deductions appearing one by one. Same figures as safe_to_spend; pick this when the user asks to see how it is worked out or wants a visual.",
+    examples: ["Show me how my safe-to-spend is worked out", "Visualise what I can spend this week"],
+    fn: "safeToSpend",
+    args: ["horizon"],
+    build: (a) => widgets.gauge(a.horizon === "until_payday" ? "until_payday" : "week"),
+  },
+  money_flow: {
+    description:
+      "Animated streams of spending flowing into the three baskets. Same figures as baskets; pick this for 'where does my money go/flow' or when the user wants an animation.",
+    examples: ["Show me where my money flows", "Animate where my money went"],
+    fn: "baskets",
+    args: ["period"],
+    build: (a) => widgets.flow(s(a.period)),
+  },
+  whatif_coins: {
+    description:
+      "Interactive pile of coins showing a year of savings from cutting one category; the slider adds and removes coins. Same figures as what_if; pick this when the user wants to play with or see the saving.",
+    examples: ["Let me play with cutting my restaurant spending", "Show what I'd save as coins"],
+    fn: "whatIf",
+    args: ["category", "cutPct"],
+    build: (a) => widgets.coins(s(a.category), n(a.cutPct)),
+  },
 } satisfies Record<string, ComponentDef>;
 
 export type ComponentId = keyof typeof COMPONENTS;
@@ -149,7 +198,7 @@ export function buildComponent(id: ComponentId, args: Record<string, unknown> = 
       throw new EngineArgumentError(`${id} does not take "${key}". ${def.args.length ? `Allowed: ${def.args.join(", ")}.` : "It takes no arguments."}`);
     }
   }
-  return def.build(validateEngineArgs(def.fn, args));
+  return { ...def.build(validateEngineArgs(def.fn, args)), component: id };
 }
 
 /** The library as plain text for the system prompt. */

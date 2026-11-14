@@ -80,15 +80,34 @@ describe("parseToolCalls", () => {
     const r = parseToolCalls(
       [
         { name: "use_component", args: { id: "a", component: "pie_of_doom" } },
-        { name: "use_component", args: { id: "b", component: "spending_donut", args: { category: "Groceries" } } },
+        { name: "use_component", args: { id: "b", component: "weekday_pattern", args: { category: "Groceries" } } },
         { name: "use_component", args: { id: "c", component: "what_if", args: { cutPct: 500 } } },
       ],
       [],
     );
     expect(r.ops).toEqual([]);
     expect(r.errors[0]).toMatch(/component must be one of: .*safe_to_spend/);
-    expect(r.errors[1]).toMatch(/spending_donut does not take "category". Allowed: period/);
+    expect(r.errors[1]).toMatch(/weekday_pattern does not take "category". Allowed: period/);
     expect(r.errors[2]).toMatch(/cutPct/);
+  });
+
+  it("accepts known widget libraries and rejects others", () => {
+    const widget = (libs: unknown) => add({ view_kind: "code", code: "<script>mydata.onData(function () {})</script>", why_custom: "x", libs });
+    const r = parseToolCalls([widget(["gsap", "three", "gsap"]), widget(["jquery"])], []);
+    expect(r.ops[0]).toMatchObject({ block: { view: { kind: "code", libs: ["gsap", "three"] } } });
+    expect(r.errors[0]).toMatch(/libs may only contain: gsap, matter, three/);
+  });
+
+  it("ships library widgets whose scripts parse and only use libraries they declare", () => {
+    const globals = { gsap: /\bgsap\./, matter: /\bMatter\./, three: /\bTHREE\./ } as const;
+    for (const c of COMPONENT_IDS) {
+      const { view } = buildComponent(c);
+      if (view.kind !== "code") continue;
+      const scripts = [...view.code.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+      expect(scripts.length, c).toBeGreaterThan(0);
+      for (const js of scripts) expect(() => new Function(js), c).not.toThrow();
+      for (const [lib, re] of Object.entries(globals)) expect(re.test(view.code), `${c} ${lib}`).toBe((view.libs ?? []).includes(lib as keyof typeof globals));
+    }
   });
 
   it("checks controls against the function's arguments", () => {
@@ -149,6 +168,30 @@ describe("runChat", () => {
     expect(model.requests[1].turns.at(-1)?.text).toMatch(/rejected:[\s\S]*fn must be one of/);
     expect(model.requests[1].turns.at(-2)).toMatchObject({ role: "model", raw: { n: 1 } });
     expect(out).toMatchObject({ text: "Fixed.", rejected: [] });
+  });
+
+  it("takes the chat answer from the card call, so one request is a whole answer", async () => {
+    const model = scripted([{ name: "use_component", args: { id: "food", component: "category_bars", args: { category: "Groceries" }, reply: "You spent {{food.value}}." } }]);
+    const out = await runChat(model, input);
+    expect(model.requests).toHaveLength(1);
+    expect(out).toMatchObject({ text: "You spent {{food.value}}.", rejected: [] });
+    expect(out.ops).toHaveLength(1);
+  });
+
+  it("asks only for the sentence when a valid card came without one, and keeps the card", async () => {
+    const model = scripted([add()], [{ name: "reply", args: { text: "Here it is: {{food-trend.value}}." } }]);
+    const out = await runChat(model, input);
+    expect(model.requests).toHaveLength(2);
+    expect(model.requests[1].tools.map((t) => t.name)).toEqual(["reply"]);
+    expect(out.text).toBe("Here it is: {{food-trend.value}}.");
+    expect(out.ops).toMatchObject([{ op: "add_block", block: { id: "food-trend" } }]);
+  });
+
+  it("shows the model a custom view and names library cards, so follow-ups can edit them", () => {
+    const customCard: Block = { ...existing, id: "bars", view: { kind: "spec", spec: { mark: "bar" } } };
+    const prompt = buildSystemPrompt([customCard, { ...existing, pinned: true, component: "safe_to_spend" }], "2026-09-15");
+    expect(prompt).toContain('custom spec:\n    {"mark":"bar"}, the latest answer');
+    expect(prompt).toContain("view library component safe_to_spend, pinned");
   });
 
   it("sends block definitions to the model, never results", () => {

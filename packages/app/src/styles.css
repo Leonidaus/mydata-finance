@@ -472,6 +472,34 @@ body {
   color-scheme: normal;
 }
 
+.frame-wrap { position: relative; }
+.frame-expand {
+  position: absolute;
+  top: 8px;
+  right: 0;
+  z-index: 1;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+/* Full screen: the same iframe, stretched over the app (moving it would reload the widget). */
+.frame-wrap.full {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  background: var(--bg);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.frame-wrap.full .frame { flex: 1; height: auto; margin: 0; }
+.frame-wrap.full .frame-expand { top: calc(10px + env(safe-area-inset-top)); right: calc(12px + env(safe-area-inset-right)); color: var(--text); }
+
 /* Dev mode gallery */
 .ghost-btn.on { background: rgb(255 255 255 / 0.22); }
 
