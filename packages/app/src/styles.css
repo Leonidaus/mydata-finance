@@ -44,29 +44,31 @@
   -webkit-font-smoothing: antialiased;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0d1a12;
-    --surface: #15261b;
-    --surface-weak: #1e3627;
-    --text: #e6f2ea;
-    --muted: #9db3a5;
-    --border: #24402e;
-    --border-strong: #5b6e62;
-    --danger: #f2b8b5;
-    --warning-bg: #3d2f12;
-    --warning-text: #f0b45a;
-    --info-bg: #12303a;
-    --info-text: #8fd3e6;
-    --green-700: #4fd18b;
-    --bubble-bot: #1e3627;
-    --bubble-bot-text: var(--text);
-    --chart-1: #4fd18b;
-    --chart-2: #2e8f5a;
-    --chart-3: #f0b45a;
-    --chart-4: #5b6e62;
-    --heat-0: #1e3627;
-  }
+/* Light is the default on every device, like S-mobiili. Dark is opt-in (?theme=dark, see theme.ts). */
+:root { color-scheme: light; }
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d1a12;
+  --surface: #15261b;
+  --surface-weak: #1e3627;
+  --text: #e6f2ea;
+  --muted: #9db3a5;
+  --border: #24402e;
+  --border-strong: #5b6e62;
+  --danger: #f2b8b5;
+  --warning-bg: #3d2f12;
+  --warning-text: #f0b45a;
+  --info-bg: #12303a;
+  --info-text: #8fd3e6;
+  --green-700: #4fd18b;
+  --bubble-bot: #1e3627;
+  --bubble-bot-text: var(--text);
+  --chart-1: #4fd18b;
+  --chart-2: #2e8f5a;
+  --chart-3: #f0b45a;
+  --chart-4: #5b6e62;
+  --heat-0: #1e3627;
 }
 
 * { box-sizing: border-box; }
@@ -290,9 +292,7 @@ body {
   cursor: pointer;
 }
 
-@media (prefers-color-scheme: dark) {
-  .stat-value { color: var(--chart-1); }
-}
+:root[data-theme="dark"] .stat-value { color: var(--chart-1); }
 
 .stat-caption { margin: 2px 0 8px; color: var(--muted); }
 
