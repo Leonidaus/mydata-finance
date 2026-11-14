@@ -1,5 +1,6 @@
 /**
- * Example "free-form" blocks: what the LLM will produce when no template fits.
+ * Ready-made "free-form" blocks: custom views that no template covers, kept in the component
+ * library so common questions reuse them instead of the LLM writing a new view.
  *
  * - `spec` blocks carry a raw Vega-Lite spec. If the spec has no `data`, the app injects the
  *   engine rows as `data.values`, so the AI never writes numbers into the chart.
@@ -8,7 +9,7 @@
  *
  * Both still use an engine DataRequest, so the figures come from the same calculations.
  */
-import type { Block } from "@mydata/shared";
+import type { Block } from "../blocks";
 
 let seq = 0;
 const id = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${(seq++).toString(36)}`;

@@ -1,8 +1,7 @@
-import type { Block, Control, EngineResult, TxFilter } from "@mydata/shared";
+import { type Block, type Control, type EngineResult, PERIOD_OPTIONS, type TxFilter } from "@mydata/shared";
 import { useMemo } from "react";
 import type { TopLevelSpec } from "vega-lite";
 import { type Datum, VEGA_TEMPLATES } from "./blocks/templates";
-import { PERIOD_OPTIONS } from "./catalog";
 import { useDataSource } from "./data";
 import { formatEur } from "./format";
 import { useLatest } from "./latest";

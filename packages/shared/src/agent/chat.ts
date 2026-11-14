@@ -7,7 +7,7 @@
 import type { Block, DashboardOp } from "../blocks";
 import { buildSystemPrompt } from "./prompt";
 import { TOOL_DECLARATIONS, type ToolCall, type ToolDeclaration } from "./tools";
-import { parseToolCalls } from "./validate";
+import { type CardPick, parseToolCalls } from "./validate";
 
 /** A turn in the conversation. `raw` is the provider's own message, replayed as-is on a retry. */
 export interface ChatTurn {
@@ -47,6 +47,8 @@ export interface ChatOutput {
   ops: DashboardOp[];
   /** Calls that were still invalid after the retry, for debugging. */
   rejected: string[];
+  /** Whether each added card came from the library or was built custom. */
+  picks: CardPick[];
 }
 
 export const MAX_QUESTION_CHARS = 1000;
@@ -82,5 +84,5 @@ export async function runChat(model: ChatModel, input: ChatInput, signal?: Abort
   }
 
   const fallback = parsed.ops.length ? "Here is a card for that." : "Sorry, I couldn't build a card for that. Try asking in another way.";
-  return { text: parsed.text ?? (res.text?.trim() || fallback), ops: parsed.ops, rejected: parsed.errors };
+  return { text: parsed.text ?? (res.text?.trim() || fallback), ops: parsed.ops, rejected: parsed.errors, picks: parsed.picks };
 }

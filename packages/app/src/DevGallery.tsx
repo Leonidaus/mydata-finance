@@ -3,13 +3,11 @@
  * plus the demo prompts and a playground for pasting Block JSON (e.g. copied from an LLM
  * response) before the backend exists. Open with ?dev in the URL or the Dev button.
  */
-import type { Block, TxFilter } from "@mydata/shared";
+import { type Block, catalog, custom, type TxFilter } from "@mydata/shared";
 import { useState } from "react";
 import { geminiAvailable } from "./agent/gemini";
 import { DEMO_PROMPTS } from "./agent/mockAgent";
 import BlockCard from "./BlockCard";
-import { custom } from "./blocks/custom";
-import { catalog } from "./catalog";
 
 interface Props {
   customerId: string;
