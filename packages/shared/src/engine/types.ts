@@ -1,3 +1,4 @@
+import type { LinkedReceipt } from "../receipts/types";
 import type { Customer, MortgageOutcome, Transaction } from "../schema";
 
 /** Average monthly spend per category for one age band, e.g. bands["25-34"]["Groceries"]. */
@@ -16,6 +17,8 @@ export interface EngineContext {
   /** The demo's fixed "today", ISO date. */
   today: string;
   cohorts: Cohorts | null;
+  /** Receipts the user has linked to card payments. Absent where there are none (the fixtures). */
+  receipts?: LinkedReceipt[];
 }
 
 export type Basket = "regular" | "irregular" | "everyday";
@@ -33,6 +36,10 @@ export interface TxFilter {
   month?: string;
   /** "YYYY-MM-DD" */
   date?: string;
+  /** Only payments with a linked receipt. */
+  withReceipt?: boolean;
+  /** Only payments whose receipt has a line of this item sub-category (implies withReceipt). */
+  subcategory?: string;
 }
 
 export type Row = Record<string, string | number | null>;
@@ -67,5 +74,6 @@ export const ENGINE_FNS = [
   "monthSoFar",
   "goalReview",
   "afford",
+  "itemSpend",
 ] as const;
 export type EngineFn = (typeof ENGINE_FNS)[number];

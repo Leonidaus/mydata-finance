@@ -15,6 +15,7 @@ import {
   type EngineContext,
   type EngineFn,
   type EngineResult,
+  type LinkedReceipt,
   type MortgageOutcome,
   type Transaction,
   type TxFilter,
@@ -89,7 +90,7 @@ export function loadEngineContext(db: FinanceDb, customerId: string): EngineCont
 
   // Source order is chronological and the running balance follows it.
   const tx = db.all<Transaction>(
-    `SELECT customer_id, bank_account_id, tx_date, tx_timestamp, category, tx_amount_eur,
+    `SELECT tx_id, customer_id, bank_account_id, tx_date, tx_timestamp, category, tx_amount_eur,
             balance_after_eur, transaction_type, merchant_id, mcc_code, basket, basket_rule
      FROM transactions
      WHERE customer_id = :customerId AND tx_date <= :today
@@ -116,14 +117,22 @@ export function isEngineFn(name: string): name is EngineFn {
   return (ENGINE_FNS as readonly string[]).includes(name);
 }
 
+/** Receipts change while the server runs, so they are attached on each call and never cached. */
+export type ReceiptsFor = (customerId: string) => LinkedReceipt[];
+
+function withReceipts(context: EngineContext, customerId: string, receipts?: ReceiptsFor): EngineContext {
+  return receipts ? { ...context, receipts: receipts(customerId) } : context;
+}
+
 export function runEngineFor(
   db: FinanceDb,
   customerId: string,
   fn: EngineFn,
   args: Record<string, unknown> = {},
+  receipts?: ReceiptsFor,
 ): EngineResult | null {
   const context = loadEngineContext(db, customerId);
-  return context && runEngine(context, fn, args);
+  return context && runEngine(withReceipts(context, customerId, receipts), fn, args);
 }
 
 /** The transactions behind an engine result, newest first. */
@@ -132,10 +141,11 @@ export function transactionsFor(
   customerId: string,
   filter: TxFilter,
   limit = 200,
+  receipts?: ReceiptsFor,
 ): { count: number; transactions: Transaction[] } | null {
   const context = loadEngineContext(db, customerId);
   if (!context) return null;
-  const matching = filterTransactions(context, filter);
+  const matching = filterTransactions(withReceipts(context, customerId, receipts), filter);
   const take = Math.min(Math.max(limit, 0), 1000);
   return {
     count: matching.length,

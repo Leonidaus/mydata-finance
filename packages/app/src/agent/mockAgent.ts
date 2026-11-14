@@ -10,6 +10,7 @@ import {
   type DashboardOp,
   type EngineFn,
   type EngineResult,
+  type ReceiptView,
   type Mood,
   type Period,
   PERIODS,
@@ -33,6 +34,8 @@ export interface AgentReply {
   profileChanged?: boolean;
   /** What the model read from a photo sent with the question. */
   photo?: PhotoRead;
+  /** The receipt the photo was, as the backend saved it. */
+  receipt?: ReceiptView;
 }
 
 /** Runs an engine function for the customer being answered, through the app's data source. */

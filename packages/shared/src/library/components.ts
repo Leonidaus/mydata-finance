@@ -61,6 +61,15 @@ export const COMPONENTS = {
     args: ["period", "category", "by", "mcc"],
     build: (a) => catalog.categoryBars({ period: s(a.period), category: s(a.category), by: a.by as "category" | "merchant_type" | undefined, mcc: s(a.mcc) }),
   },
+  receipt_items: {
+    description:
+      "Bars of what is inside the shopping, per kind of item (sweets, alcohol, ready meals, fuel, ...), from the receipts the user has linked to card payments. " +
+      "subcategory for one kind of item, category for one bank category (Groceries). A sample: it covers only payments with a receipt.",
+    examples: ["What's in my grocery shopping?", "How much do I spend on sweets?", "Paljonko ostan karkkia?"],
+    fn: "itemSpend",
+    args: ["period", "subcategory", "category"],
+    build: (a) => catalog.itemBars({ period: s(a.period), subcategory: s(a.subcategory), category: s(a.category) }),
+  },
   spending_trend: {
     description: "Line of one figure per month: spending (optionally one category), income, saving or net.",
     examples: ["Show my income per month", "Is my grocery spending going up?"],

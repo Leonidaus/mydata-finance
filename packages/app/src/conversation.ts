@@ -10,7 +10,7 @@
  * answers, newest first, followed by the overview. The first card in that list is what "it" and
  * "that" mean in a follow-up.
  */
-import type { Block, ChatImage, DashboardOp, Mood, PhotoRead, ProtectedCategory } from "@mydata/shared";
+import type { Block, ChatImage, DashboardOp, Mood, PhotoRead, ProtectedCategory, ReceiptView } from "@mydata/shared";
 import { applyDashboardOps } from "./dashboard";
 
 export interface Message {
@@ -35,6 +35,8 @@ export interface Message {
   photo?: PhotoRead;
   /** The cards this answer showed. */
   cards?: Block[];
+  /** The receipt this answer saved, as it is now. */
+  receipt?: ReceiptView;
   /** The title of the card the user asked about, when they chose one. */
   about?: string;
   /** How the coach looked and what it offered next. */
@@ -74,6 +76,7 @@ export interface AskResult {
   blocked?: ProtectedCategory[];
   proposedUnprotect?: ProtectedCategory[];
   photo?: PhotoRead;
+  receipt?: ReceiptView;
 }
 
 /** How many cards from answers the coach is told about. Older ones stay on screen but out of its view. */
