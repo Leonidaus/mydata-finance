@@ -18,6 +18,9 @@ const existing: Block = {
   view: { kind: "template", template: "stat" },
 };
 
+/** Every component builds without arguments, except a plan, which needs the user's target. */
+const exampleArgs = (component: string): Record<string, unknown> => (component === "goal_plan" ? { target: 25000 } : {});
+
 const add = (over: Record<string, unknown> = {}): ToolCall => ({
   name: "add_block",
   args: {
@@ -95,6 +98,24 @@ describe("parseToolCalls", () => {
     expect(buildSystemPrompt([], "2026-09-15")).toMatch(/finland_compare/);
   });
 
+  it("builds a savings plan only from a target the user gave", () => {
+    const r = parseToolCalls(
+      [
+        { name: "use_component", args: { id: "home", component: "goal_plan", args: { saved: 10000 }, reply: "Here is a plan." } },
+        { name: "use_component", args: { id: "home", component: "goal_plan", args: { target: 25000, saved: 10000, extra: 100 }, reply: "Here is your plan." } },
+        { name: "use_component", args: { id: "cuts", component: "saving_options", args: { protect: ["Travel", "Groceries"], cutPct: 20 }, reply: "Here." } },
+        { name: "use_component", args: { id: "cuts2", component: "saving_options", args: { protect: ["Holidays"] }, reply: "Here." } },
+      ],
+      [],
+    );
+    expect(r.errors[0]).toMatch(/goal_plan needs target/);
+    expect(r.errors[1]).toMatch(/protect must be a list of categories/);
+    expect(r.ops.map((op) => (op.op === "add_block" ? op.block.data : null))).toEqual([
+      { kind: "engine", fn: "goalPlan", args: { target: 25000, saved: 10000, extra: 100 } },
+      { kind: "engine", fn: "savingsOptions", args: { protect: ["Travel", "Groceries"], cutPct: 20 } },
+    ]);
+  });
+
   it("rejects unknown components and arguments the component doesn't take", () => {
     const r = parseToolCalls(
       [
@@ -160,7 +181,7 @@ describe("parseToolCalls", () => {
   it("ships library widgets whose scripts parse and only use libraries they declare", () => {
     const globals = { gsap: /\bgsap\./, matter: /\bMatter\./, three: /\bTHREE\./ } as const;
     for (const c of COMPONENT_IDS) {
-      const { view } = buildComponent(c);
+      const { view } = buildComponent(c, exampleArgs(c));
       if (view.kind !== "code") continue;
       const scripts = [...view.code.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
       expect(scripts.length, c).toBeGreaterThan(0);
@@ -263,7 +284,7 @@ describe("runChat", () => {
     const prompt = buildSystemPrompt([], "2026-09-15");
     for (const c of COMPONENT_IDS) {
       expect(prompt).toContain(`- ${c}:`);
-      expect(buildComponent(c).data.kind).toBe("engine");
+      expect(buildComponent(c, exampleArgs(c)).data.kind).toBe("engine");
     }
   });
 });
@@ -387,11 +408,28 @@ describe("runChat with the customer's figures", () => {
   });
 
   it("accepts numbers the user gave and placeholders for cards it has not seen", async () => {
-    const { ask } = harness([say("With 25 000 € as the target, see {{goal.value}}. That is 1 500 € more than before.")]);
+    const goal = (reply: string): ToolCall => ({ name: "use_component", args: { id: "goal", component: "what_if", args: { cutPct: 20 }, reply } });
+    const { ask } = harness([goal("With 25 000 € as the target, see {{goal.value}}. That is 1 500 € more than before.")]);
     const out = await ask("My target is 25000 euros");
     expect(out.checked).toBe(false); // 1 500 is from nowhere
-    const fine = harness([say("With 25 000 € as the target, see {{goal.value}}.")]);
+    const fine = harness([goal("With 25 000 € as the target, see {{goal.value}}.")]);
     expect(await fine.ask("My target is 25000 euros")).toMatchObject({ checked: true });
+  });
+
+  it("sends back a placeholder the app could not fill", async () => {
+    // spendBy by category has a total; the card called "ghost" does not exist, and a caption is missing here.
+    const card = (reply: string): ToolCall => ({ name: "use_component", args: { id: "food", component: "category_bars", args: {}, reply } });
+    const { requests, ask } = harness([card("You spent {{ghost.value}}, see {{food.caption}}.")], [say("You spent 500 € in total.")]);
+    const out = await ask();
+    expect(requests).toHaveLength(2);
+    expect(requests[1].turns.at(-1)?.text).toMatch(/used \{\{ghost\.value\}\}, \{\{food\.caption\}\}, which the app cannot fill in/);
+    expect(out).toMatchObject({ text: "You spent 500 € in total.", checked: true, rejected: [] });
+
+    const stubborn = harness([card("You spent {{ghost.value}}.")], [say("You spent {{ghost.value}}.")]);
+    const failed = await stubborn.ask();
+    expect(failed.checked).toBe(false);
+    expect(failed.text).toMatch(/: \{\{food\.value\}\}\.$/);
+    expect(failed.rejected).toEqual(["reply: placeholders that cannot be filled: {{ghost.value}}"]);
   });
 
   it("works without figures: no snapshot, no lookups, placeholders only", async () => {
