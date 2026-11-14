@@ -257,8 +257,8 @@ Keep pull requests small and merge them quickly; a teammate's quick look is enou
 We merge `develop` into `main` whenever a demoable milestone works.
 
 `develop` is the repository's default branch, so GitHub selects it for new pull
-requests. CI rejects pull requests from `feature/*` branches that target any other
-branch.
+requests. CI requires every pull request to target `develop`, except release pull
+requests from `develop` into `main`.
 
 ## Repo layout
 
