@@ -130,20 +130,40 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
   }
 
   if (view.template === "stat") {
+    // What has happened and what is expected comes first, up to a subtotal when the engine gives one.
+    // What follows it (the precautions and the suggestion they lead to) is shown on request.
+    const cut = result.rows.findIndex((r) => r.kind === "subtotal");
+    const summary = cut >= 0 ? result.rows.slice(0, cut + 1) : result.rows;
+    const detail = cut >= 0 ? result.rows.slice(cut + 1) : [];
+    const term = (r: (typeof result.rows)[number]) => (
+      <li key={String(r.term)}>
+        <span>
+          {r.term}
+          {typeof r.coveredByReserve === "number" && r.coveredByReserve > 0 && (
+            <span className="muted small"> · {t("card.coveredByReserve", { amount: formatEur(r.coveredByReserve, locale) })}</span>
+          )}
+        </span>
+        <span className={(r.amount as number) < 0 ? "neg" : ""}>{formatEur(r.amount as number, locale)}</span>
+      </li>
+    );
     return (
       <div className="stat">
         <button type="button" className="stat-value" onClick={drillAll} title="Show the transactions behind this">
           {formatEur(result.value ?? 0, locale)}
         </button>
         {result.caption && <p className="stat-caption">{result.caption}</p>}
-        <ul className="stat-terms">
-          {result.rows.map((r) => (
-            <li key={String(r.term)}>
-              <span>{r.term}</span>
-              <span className={(r.amount as number) < 0 ? "neg" : ""}>{formatEur(r.amount as number, locale)}</span>
-            </li>
-          ))}
-        </ul>
+        <ul className="stat-terms">{summary.map(term)}</ul>
+        {detail.length > 0 && (
+          <>
+            {/* The precautions are money kept available, not costs: they are in the calculation, not in the list above. */}
+            <p className="stat-note">{t("card.precautionNote")}</p>
+            <details className="stat-calc">
+              <summary>{t("card.calcToggle")}</summary>
+              <ul className="stat-terms">{detail.map(term)}</ul>
+              <p className="muted small">{t("card.precautionPlanning")}</p>
+            </details>
+          </>
+        )}
       </div>
     );
   }
