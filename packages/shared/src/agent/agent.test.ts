@@ -319,6 +319,116 @@ describe("runChat when the model sends one tool call per turn", () => {
   });
 });
 
+describe("runChat with a fast and a stronger model", () => {
+  const results: Record<string, EngineResult> = {
+    whatIf: { rows: [{ month: 12, saved: 444 }], value: 444, unit: "€ / year" },
+    goalPlan: { rows: [{ scenario: "Your plan", monthly: 200, months: 50, reached: "11/2030" }], value: 10000, unit: "€" },
+  };
+  const lookup: Lookup = (fn) => {
+    const result = results[fn];
+    if (!result) throw new Error(`${fn} is not available here`);
+    return result;
+  };
+  type Step = ToolCall[] | Error;
+  function scripted(name: string, ...steps: Step[]) {
+    const requests: ChatModelRequest[] = [];
+    const model: ChatModel = {
+      async generate(req) {
+        requests.push(structuredClone(req));
+        const step = steps[requests.length - 1] ?? [];
+        if (step instanceof Error) throw step;
+        return { calls: step, raw: { from: name, n: requests.length } };
+      },
+    };
+    return { model, requests };
+  }
+  const say = (text: string): ToolCall => ({ name: "reply", args: { text } });
+  const handOver: ToolCall = { name: "hand_over", args: { why: "a savings goal" } };
+  const ask = (fast: ChatModel, strong: ChatModel | undefined, question = "How much on groceries?") =>
+    runChat({ fast, strong }, { question, history: [], blocks: [], today: "2026-09-15", lookup });
+  const toolNames = (req: ChatModelRequest) => req.tools.map((t) => t.name);
+
+  it("lets the fast model answer a simple question by itself", async () => {
+    const fast = scripted("fast", [say("Not much.")]);
+    const strong = scripted("strong");
+    const out = await ask(fast.model, strong.model);
+    expect(toolNames(fast.requests[0])).toContain("hand_over");
+    expect(strong.requests).toHaveLength(0);
+    expect(out).toMatchObject({ text: "Not much.", answeredBy: "fast", checked: true });
+  });
+
+  it("passes the turn to the stronger model when the fast one hands it over", async () => {
+    const fast = scripted("fast", [{ name: "lookup", args: { fn: "whatIf", args: { cutPct: 20 } } }], [handOver]);
+    const strong = scripted("strong", [{ name: "lookup", args: { fn: "goalPlan", args: { target: 12000 } } }], [say("That takes 50 months, to 11/2030.")]);
+    const out = await ask(fast.model, strong.model, "I want to save 12 000 euros for a home.");
+    expect(fast.requests).toHaveLength(2);
+    expect(strong.requests).toHaveLength(2);
+    // The stronger model cannot hand the turn on, and sees what the fast one had looked up: as text, not as that model's own message.
+    expect(toolNames(strong.requests[0])).not.toContain("hand_over");
+    expect(strong.requests[0].turns.map((t) => [t.role, t.raw === undefined])).toEqual([["user", true], ["model", true], ["user", true]]);
+    expect(strong.requests[0].turns[1].text).toContain('"name":"lookup"');
+    expect(strong.requests[0].turns[2].text).toMatch(/^LOOKED UP\nwhatIf/);
+    // Its own lookup comes back to it as its own message.
+    expect(strong.requests[1].turns.at(-2)).toMatchObject({ role: "model", raw: { from: "strong", n: 1 } });
+    expect(out).toMatchObject({ text: "That takes 50 months, to 11/2030.", answeredBy: "strong", checked: true });
+  });
+
+  it("takes a planning turn to the stronger model even when the fast one answers it", async () => {
+    const plan: Block = { id: "home", title: "Home", explanation: "", source: "estimate", data: { kind: "engine", fn: "goalPlan", args: { target: 12000 } }, view: { kind: "template", template: "stat" } };
+    const attempts: ToolCall[][] = [
+      [{ name: "lookup", args: { fn: "goalPlan", args: { target: 12000 } } }],
+      [{ name: "use_component", args: { id: "home", component: "goal_plan", args: { target: 12000 }, reply: "Here is your plan." } }],
+      [{ name: "use_component", args: { id: "cuts", component: "saving_options", args: {}, reply: "Here." } }],
+      [{ name: "update_block", args: { id: "home", args: { extra: 100 }, reply: "Done." } }],
+    ];
+    for (const calls of attempts) {
+      const fast = scripted("fast", calls);
+      const strong = scripted("strong", [say("Let us look at your plan.")]);
+      const out = await runChat({ fast: fast.model, strong: strong.model }, { question: "And 100 more a month?", history: [], blocks: [plan], today: "2026-09-15", lookup });
+      expect(strong.requests, JSON.stringify(calls)).toHaveLength(1);
+      // The stronger model starts from the user's question, not from what the fast one did.
+      expect(strong.requests[0].turns).toEqual([{ role: "user", text: "And 100 more a month?" }]);
+      expect(out).toMatchObject({ text: "Let us look at your plan.", answeredBy: "strong", ops: [] });
+    }
+    // Changing a card that is not a plan stays with the fast model.
+    const other: Block = { ...plan, id: "food", data: { kind: "engine", fn: "spendBy", args: {} } };
+    const fast = scripted("fast", [{ name: "update_block", args: { id: "food", args: { period: "last_month" }, reply: "Done." } }]);
+    const strong = scripted("strong");
+    const out = await runChat({ fast: fast.model, strong: strong.model }, { question: "Last month instead", history: [], blocks: [other], today: "2026-09-15", lookup });
+    expect(strong.requests).toHaveLength(0);
+    expect(out).toMatchObject({ answeredBy: "fast" });
+  });
+
+  it("offers no hand-over when there is no stronger model", async () => {
+    const fast = scripted("fast", [handOver, say("Here you go.")]);
+    const out = await ask(fast.model, undefined);
+    expect(toolNames(fast.requests[0])).not.toContain("hand_over");
+    expect(out).toMatchObject({ text: "Here you go.", answeredBy: "fast", rejected: [] });
+  });
+
+  it("lets the fast model answer after all when the stronger one fails", async () => {
+    const fast = scripted("fast", [handOver], [say("Let me answer that myself.")]);
+    const strong = scripted("strong", new Error("Gemini is busy right now."));
+    const out = await ask(fast.model, strong.model);
+    expect(strong.requests).toHaveLength(1);
+    expect(fast.requests).toHaveLength(2);
+    expect(toolNames(fast.requests[1])).not.toContain("hand_over");
+    expect(out).toMatchObject({ text: "Let me answer that myself.", answeredBy: "fast", checked: true });
+  });
+
+  it("gives second tries to the stronger model", async () => {
+    // The fast model answers with a number from nowhere: the reply alone is asked of the stronger one.
+    const fast = scripted("fast", [say("You spent 999 €.")]);
+    const strong = scripted("strong", [say("I can't see that figure.")]);
+    const out = await ask(fast.model, strong.model);
+    expect(fast.requests).toHaveLength(1);
+    expect(strong.requests).toHaveLength(1);
+    expect(toolNames(strong.requests[0])).toEqual(["reply"]);
+    expect(strong.requests[0].turns.at(-2)).toEqual({ role: "model", text: 'Tool calls: [{"name":"reply","args":{"text":"You spent 999 €."}}]' });
+    expect(out).toMatchObject({ text: "I can't see that figure.", answeredBy: "fast", checked: true });
+  });
+});
+
 describe("Gemini model list", () => {
   function recording(statuses: number[]) {
     const sent: { model: string; body: Record<string, any> }[] = [];
