@@ -40,3 +40,46 @@ describe("profile API", () => {
     assert.deepEqual((await response.json() as { profile: { protectedCategories: string[] } }).profile.protectedCategories, []);
   });
 });
+
+describe("preferences changed from the chat", () => {
+  /** A model that asks to take Restaurants off the keep-as-is list, then says `reply`. */
+  function model(reply: string) {
+    let calls = 0;
+    return {
+      async generate() {
+        calls++;
+        return { calls: calls === 1 ? [{ name: "update_preferences", args: { keep_remove: ["Restaurants"] } }] : [{ name: "reply", args: { text: reply } }] };
+      },
+    };
+  }
+  const chat = (app: ReturnType<typeof createApp>, body: unknown) =>
+    app.request("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  type Answer = { text: string; proposedUnprotect: string[]; profile?: { protectedCategories: string[] } };
+
+  it("asks first, saves the change after the yes, and the settings show it", async () => {
+    const profiles = new MemoryProfileStore();
+    profiles.update("CUST00001", { protect: { add: ["Restaurants", "Travel"] } });
+
+    // The user is willing to cut restaurants: nothing is saved, and the answer says what was asked about.
+    let app = createApp(createFixtureDb(), { profiles, chatModel: model("Restaurants is on your keep-as-is list. Shall I take it off?") });
+    let answer = (await (await chat(app, { customerId: "CUST00001", question: "I could spend less on restaurants." })).json()) as Answer;
+    assert.deepEqual(answer.proposedUnprotect, ["Restaurants"]);
+    assert.equal(answer.profile, undefined);
+    assert.deepEqual(profiles.get("CUST00001")?.protectedCategories, ["Restaurants", "Travel"]);
+
+    // The yes arrives with the question it answers.
+    app = createApp(createFixtureDb(), { profiles, chatModel: model("Done.") });
+    answer = (await (await chat(app, { customerId: "CUST00001", question: "Yes, take it off.", pendingUnprotect: ["Restaurants"] })).json()) as Answer;
+    assert.deepEqual(answer.proposedUnprotect, []);
+    assert.deepEqual(answer.profile?.protectedCategories, ["Travel"]);
+    const shown = (await (await app.request("/api/customers/CUST00001/profile")).json()) as { profile: { protectedCategories: string[] } };
+    assert.deepEqual(shown.profile.protectedCategories, ["Travel"]);
+    // Another customer's preferences are untouched.
+    assert.equal(profiles.get("CUST00002"), null);
+  });
+
+  it("rejects a pending list that is not a list of categories", async () => {
+    const app = createApp(createFixtureDb(), { profiles: new MemoryProfileStore(), chatModel: model("x") });
+    assert.equal((await chat(app, { customerId: "CUST00001", question: "Yes", pendingUnprotect: ["Holidays"] })).status, 400);
+  });
+});
