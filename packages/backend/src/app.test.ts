@@ -315,3 +315,73 @@ describe("voice routes", () => {
     assert.equal((await limited.request("/api/health")).status, 200);
   });
 });
+
+describe("chat model route", () => {
+  const path = "/gemini/v1beta/models/gemini-flash-latest:generateContent";
+  const answer = { candidates: [{ content: { role: "model", parts: [{ text: "ok" }] } }] };
+
+  function appWith(gemini: NonNullable<Parameters<typeof createApp>[1]>["gemini"]) {
+    return createApp(createFixtureDb(), { gemini });
+  }
+  const send = (target: ReturnType<typeof createApp>, url: string, body: string) =>
+    target.request(url, { method: "POST", headers: { "content-type": "application/json" }, body });
+
+  it("forwards generateContent to Google with the server's key and returns the answer", async () => {
+    const seen: { url: string; key: string | null; body: string }[] = [];
+    const target = appWith({
+      apiKey: "secret-key",
+      fetch: async (url, init) => {
+        seen.push({ url: String(url), key: new Headers(init?.headers).get("x-goog-api-key"), body: String(init?.body) });
+        return Response.json(answer);
+      },
+    });
+    const response = await send(target, path, JSON.stringify({ contents: [] }));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), answer);
+    assert.deepEqual(seen, [{
+      url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent",
+      key: "secret-key",
+      body: JSON.stringify({ contents: [] }),
+    }]);
+    // The key never appears in what the caller gets back.
+    assert.equal(JSON.stringify(answer).includes("secret-key"), false);
+  });
+
+  it("passes Google's errors through with their status", async () => {
+    const target = appWith({ apiKey: "k", fetch: async () => Response.json({ error: { message: "quota" } }, { status: 429 }) });
+    const response = await send(target, path, "{}");
+    assert.equal(response.status, 429);
+    assert.deepEqual(await response.json(), { error: { message: "quota" } });
+  });
+
+  it("forwards nothing else", async () => {
+    let called = 0;
+    const target = appWith({ apiKey: "k", fetch: async () => (called++, Response.json(answer)) });
+    assert.equal((await send(target, "/gemini/v1beta/models/gemini-flash-latest:streamGenerateContent", "{}")).status, 404);
+    assert.equal((await send(target, "/gemini/v1beta/models/other-model:generateContent", "{}")).status, 404);
+    assert.equal((await send(target, "/gemini/v1beta/files", "{}")).status, 404);
+    assert.equal((await send(target, path, "not json")).status, 400);
+    assert.equal((await send(target, path, JSON.stringify({ pad: "x".repeat(300_001) }))).status, 413);
+    assert.equal(called, 0);
+  });
+
+  it("answers 503 without a key, 502 when Google cannot be reached, 429 beyond the budget", async () => {
+    const noKey = await send(appWith({}), path, "{}");
+    assert.equal(noKey.status, 503);
+    assert.match(((await noKey.json()) as { error: { message: string } }).error.message, /GEMINI_API_KEY/);
+
+    const down = appWith({ apiKey: "k", fetch: async () => { throw new Error("network"); } });
+    assert.equal((await send(down, path, "{}")).status, 502);
+
+    const limited = appWith({ apiKey: "k", budget: { perMinute: 1, perHour: 10 }, fetch: async () => Response.json(answer) });
+    assert.equal((await send(limited, path, "{}")).status, 200);
+    assert.equal((await send(limited, path, "{}")).status, 429);
+  });
+
+  it("reports in /api/health which services have a key", async () => {
+    const withKey = await appWith({ apiKey: "k" }).request("/api/health");
+    assert.deepEqual(((await withKey.json()) as { services: unknown }).services, { chat: true, voice: false });
+    const without = await app.request("/api/health");
+    assert.deepEqual(((await without.json()) as { services: unknown }).services, { chat: false, voice: false });
+  });
+});

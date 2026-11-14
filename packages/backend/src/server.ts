@@ -18,10 +18,14 @@ if (staticDir && !existsSync(staticDir)) {
   throw new Error(`STATIC_DIR ${staticDir} does not exist. Build the app first: npm run build`);
 }
 
-serve({ fetch: createApp(db, { staticDir }).fetch, port }, (info) => {
+const geminiKey = process.env.GEMINI_API_KEY?.trim() || undefined;
+
+serve({ fetch: createApp(db, { staticDir, gemini: { apiKey: geminiKey } }).fetch, port }, (info) => {
   console.log(
     `Finance API on http://localhost:${info.port} ` +
       `(${db.meta.rows_customers} customers, today is ${db.today})` +
-      (staticDir ? `, serving the app from ${staticDir}` : ""),
+      (staticDir ? `, serving the app from ${staticDir}` : "") +
+      `; chat model ${geminiKey ? "on" : "off (no GEMINI_API_KEY)"}` +
+      `, voice ${process.env.ELEVENLABS_API_KEY ? "on" : "off (no ELEVENLABS_API_KEY)"}`,
   );
 });
