@@ -127,7 +127,7 @@ export interface ChatOutput {
 export const CARD_ONLY_REPLY = "Here is a card for that.";
 
 export const MAX_QUESTION_CHARS = 1000;
-export const MAX_HISTORY_TURNS = 10;
+export const MAX_HISTORY_TURNS = 30;
 /** How many times the coach may ask for more figures before it has to answer. */
 export const MAX_LOOKUP_ROUNDS = 2;
 const MAX_LOOKUPS_PER_ROUND = 4;
@@ -317,7 +317,7 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
   let affordFigures: Figures | null = null;
   if (photo && photo.amount !== null && !photo.monthly && photo.kind !== "home" && lookup) {
     const reserve = statedReserve(input.blocks);
-    const block = catalog.afford({ amount: photo.amount, label: photo.item || undefined, kind: photo.kind === "bill" ? "necessity" : undefined, reserve });
+    const block = catalog.afford({ amount: photo.amount, label: photo.item || undefined, kind: photo.kind === "bill" ? "necessity" : undefined, reserve, price: photo.estimated ? "estimate" : undefined });
     if (block.data.kind === "engine") {
       const found = await runLookup(lookup, "afford", block.data.args);
       if (found.numbers.length) {

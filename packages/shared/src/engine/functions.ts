@@ -1014,6 +1014,7 @@ function afford(ctx: EngineContext, args: Record<string, unknown>): EngineResult
   if (!Number.isFinite(amount)) throw new EngineArgumentError("afford needs amount: the price in euros.");
   const label = str(args.label) ?? "This purchase";
   const necessity = args.kind === "necessity";
+  const estimated = args.price === "estimate";
   const stated = typeof args.reserve === "number";
   const p = plan(ctx, stated ? (args.reserve as number) : undefined);
   const safe = Math.max(0, p.spendable);
@@ -1046,13 +1047,14 @@ function afford(ctx: EngineContext, args: Record<string, unknown>): EngineResult
     rows: [
       { term: `Safe to spend until payday (${payday})`, amount: round2(safe) },
       ...(necessity ? [{ term: "Money kept available for unexpected costs", amount: round2(buffer) }] : []),
-      { term: label, amount: round2(-amount) },
+      { term: estimated ? `${label} (estimated price)` : label, amount: round2(-amount) },
       { term: left >= 0 ? "Left until payday after this" : "Missing from this pay period's money", amount: round2(left) },
     ],
     value: round2(left),
     unit: "€",
-    caption,
+    caption: estimated ? `Based on an estimated price of about ${euros(amount)}, not an exact one. ${caption}` : caption,
     assumptions: [
+      ...(estimated ? ["The price is an estimate of what this typically costs. Give the real price for an exact answer."] : []),
       necessity
         ? "A necessity you could not plan for may use the buffer for unexpected necessities as well as what is safe to spend."
         : "A purchase you choose comes out of everyday spending: what is safe to spend until payday. Bills, essentials and the buffer stay untouched.",
