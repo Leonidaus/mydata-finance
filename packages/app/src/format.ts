@@ -11,3 +11,11 @@ export function formatDate(iso: string, locale: Locale = "en") {
   const [year, month, day] = iso.slice(0, 10).split("-").map(Number);
   return new Intl.DateTimeFormat(intlLocale(locale), { timeZone: "UTC", year: "numeric", month: "numeric", day: "numeric" }).format(new Date(Date.UTC(year, month - 1, day)));
 }
+
+/** A computed headline figure with its unit, e.g. "€312", "€85/month" or "41%". */
+export function formatValue(value: number, unit: string | undefined, locale: Locale = "en"): string {
+  const u = unit ?? "";
+  if (u.startsWith("€")) return formatEur(value, locale) + u.slice(1).replace(/^\s*\/\s*/, "/").replace(/^\s+/, " ");
+  if (u === "%") return `${Math.round(value)}%`;
+  return `${Math.round(value * 100) / 100}${u ? ` ${u}` : ""}`;
+}

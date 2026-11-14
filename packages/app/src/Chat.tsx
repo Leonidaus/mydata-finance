@@ -1,7 +1,20 @@
-import { type ChangeEvent, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
-import type { ChatImage, Mood, PhotoRead, ProtectedCategory } from "@mydata/shared";
+import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { type Block, type ChatImage, MAX_HISTORY_TURNS, type PhotoRead, type ProtectedCategory, type TxFilter } from "@mydata/shared";
 import type { ChatMode } from "./agent";
+import BlockCard, { displayTitle } from "./BlockCard";
 import CoachFace from "./CoachFace";
+import {
+  answerCards,
+  type AskInput,
+  type AskResult,
+  loadConversation,
+  type Message,
+  modelHistory,
+  patchCard,
+  saveConversation,
+  savedState,
+  withoutCards,
+} from "./conversation";
 import { apiBase } from "./data";
 import { formatEurCents } from "./format";
 import { errorMessage } from "./latest";
@@ -9,20 +22,6 @@ import { preparePhoto } from "./photo";
 import { createVoiceClient } from "./voice/client";
 import { useVoice } from "./voice/useVoice";
 import { useI18n } from "./i18n";
-
-type Message = {
-  id: number;
-  role: "user" | "assistant";
-  text: string;
-  question?: string;
-  blocked?: ProtectedCategory[];
-  overrideUsed?: boolean;
-  /** Categories this answer asked about taking off the keep-as-is list. */
-  proposedUnprotect?: ProtectedCategory[];
-  /** A photo sent with the message, as a data URL, and what the coach read from it once it has answered. */
-  photoUrl?: string;
-  photo?: PhotoRead;
-};
 
 /** A photo waiting in the input row: what goes to the coach, and the same picture for the screen. */
 type Attached = { image: ChatImage; url: string };
@@ -39,22 +38,19 @@ function photoReading(photo: PhotoRead, locale: ReturnType<typeof useI18n>["loca
 /** A user's message: the photo, if there is one, above the words. A photo may be sent without words. */
 function UserBubble({ message }: { message: Message }) {
   const { locale, t } = useI18n();
+  // A conversation opened again keeps what was read from a photo, not the photo itself.
+  const photoOnly = !message.text && !message.photoUrl;
   return (
     <div className="bubble bubble-user">
       {message.photoUrl && <img className="bubble-photo" src={message.photoUrl} alt={t("chat.photoSent")} />}
       {message.text}
-      {message.photo && <span className="bubble-photo-read">{photoReading(message.photo, locale, t)}</span>}
+      {photoOnly && !message.photo && t("chat.photoSent")}
+      {message.photo && <span className={photoOnly ? undefined : "bubble-photo-read"}>{photoReading(message.photo, locale, t)}</span>}
     </div>
   );
 }
 
 const voiceClient = createVoiceClient(apiBase);
-const MIN_CHAT_HEIGHT = 160;
-const MIN_CHAT_VIEWPORT = 0.22;
-
-function minimumChatHeight() {
-  return Math.min(MIN_CHAT_HEIGHT, window.innerHeight * MIN_CHAT_VIEWPORT);
-}
 
 /**
  * A single row of chips that scrolls sideways. Touch swipes it natively; a mouse wheel only
@@ -86,48 +82,60 @@ function ChipRow({ className, label, children }: { className: string; label: str
   );
 }
 
-/** How the coach looked and what it offered next in its latest answer. */
-export interface CoachState {
-  mood: Mood | null;
-  suggestions: string[];
+/** The card the user chose to ask about next. */
+export interface Focus {
+  id: string;
+  title: string;
 }
 
 interface Props {
-  /** Resolves to the assistant's reply text; dashboard edits happen as a side effect. */
-  onAsk: (
-    question: string,
-    canned?: boolean,
-    allowProtected?: ProtectedCategory[],
-    /** A photo sent with the message. The question may then be empty. */
-    image?: ChatImage,
-  ) => Promise<{ text: string; blocked?: ProtectedCategory[]; proposedUnprotect?: ProtectedCategory[]; photo?: PhotoRead }>;
-  /** Changing this resets the conversation (e.g. when switching customer). */
-  resetKey: string;
-  /** Send a question from outside the chat (e.g. the dev gallery). A new `n` sends again. */
+  /** Answers a question. Resolves to the reply and the cards that go with it. */
+  onAsk: (input: AskInput) => Promise<AskResult>;
+  /** Whose conversation this is. Another customer opens their own, as it was left. */
+  customerId: string;
+  /** The demo's fixed "today", ISO date; empty until the customer's data has loaded. */
+  today?: string;
+  /** Send a question from outside the conversation (e.g. the dev gallery). A new `n` sends again. */
   request?: { text: string; n: number; canned?: boolean } | null;
   /** What answers typed questions: the backend's model, Gemini through the dev server, or keyword rules. */
   mode: ChatMode;
-  /** The latest answer's mood and suggested next steps, shown with the last reply. */
-  coach?: CoachState | null;
+  /** What comes first in the conversation's scroll: the overview's cards, or the dev gallery. */
+  header?: ReactNode;
+  /** False while the header has the scroll to itself (the dev gallery). */
+  showLog?: boolean;
+  /** What the user keeps, to show on each card whether it is saved. */
+  overview?: Block[];
+  /** Saves a card to the overview, or takes it out when it is saved as shown. */
+  onSave?: (block: Block) => void;
+  onDrill?: (title: string, filter: TxFilter, evidenceNote?: string) => void;
+  focus?: Focus | null;
+  onFocus?: (focus: Focus | null) => void;
+  /** Told when a conversation starts and when it is empty again. */
+  onActive?: (active: boolean) => void;
 }
 
-export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
+const noCards: Block[] = [];
+
+export default function Chat({ onAsk, customerId, today = "", request, mode, header, showLog = true, overview = noCards, onSave, onDrill, focus = null, onFocus, onActive }: Props) {
   const { t, category: categoryName } = useI18n();
-  const [messages, setMessages] = useState<Message[]>([]);
+  // The conversation and the customer it is with are one value, so the messages always belong to that customer.
+  const [conv, setConv] = useState(() => ({ customerId, messages: loadConversation(customerId) }));
+  const messages = conv.customerId === customerId ? conv.messages : [];
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
-  const [chatHeight, setChatHeight] = useState<number | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
   /** A photo the user has taken and not yet sent: it goes out with their next message. */
   const [attached, setAttached] = useState<Attached | null>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
-  const resizeStart = useRef<{ y: number; height: number } | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const nextId = useRef(1);
   const logRef = useRef<HTMLDivElement>(null);
   /** Counts conversation resets, so that a reply can tell whether its conversation is still open. */
   const conversation = useRef(0);
   const pendingRef = useRef(false);
+  // Read when a message is sent, which can be from a callback made on an earlier render (voice).
+  const live = useRef({ customerId, messages, focus });
+  live.current = { customerId, messages, focus };
   const voice = useVoice(voiceClient, (text) => sendOwn(text));
   const starterSuggestions = [
     { label: t("chat.starter.spending"), question: t("chat.starter.spendingQuestion") },
@@ -135,47 +143,125 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
     { label: t("chat.starter.goal"), question: t("chat.starter.goalQuestion") },
   ];
 
-  useEffect(() => {
+  /** Changes the conversation with `forCustomer`. Does nothing if another customer's is open by now. */
+  const setMessages = (forCustomer: string, next: (prev: Message[]) => Message[]) =>
+    setConv((prev) => (prev.customerId === forCustomer ? { customerId: forCustomer, messages: next(prev.messages) } : prev));
+
+  /** Whatever is on its way belongs to the conversation that was open: drop it, and start clean. */
+  function startOver() {
     conversation.current++;
     pendingRef.current = false;
-    setMessages([]);
     setPending(false);
     setPhotoError(null);
     setAttached(null);
+    onFocus?.(null);
     voice.reset();
-  }, [resetKey, voice.reset]);
+  }
+
   useEffect(() => {
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, pending]);
+    startOver();
+    setConv((prev) => (prev.customerId === customerId ? prev : { customerId, messages: loadConversation(customerId) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customerId, voice.reset]);
   useEffect(() => {
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "auto" });
-  }, [chatHeight]);
+    saveConversation(conv.customerId, conv.messages);
+  }, [conv]);
+  const active = messages.length > 0;
+  useEffect(() => {
+    onActive?.(active);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, customerId]);
+
+  // While the coach is thinking, the question and the wait are in view. When the answer is there,
+  // the question that led to it moves to the top, so the answer and its cards read from the start.
+  const lastId = messages.at(-1)?.id;
+  const opened = useRef("");
+  useEffect(() => {
+    const log = logRef.current;
+    if (!log || !showLog) return;
+    const reopened = opened.current !== customerId;
+    opened.current = customerId;
+    const asked = [...log.querySelectorAll<HTMLElement>("[data-asked]")].at(-1);
+    if (pending || !asked) {
+      if (pending) log.scrollTo({ top: log.scrollHeight, behavior: "smooth" });
+      return;
+    }
+    const toQuestion = (behavior: ScrollBehavior) =>
+      log.scrollTo({ top: log.scrollTop + asked.getBoundingClientRect().top - log.getBoundingClientRect().top - 8, behavior });
+    toQuestion(reopened ? "auto" : "smooth");
+    // The answer's cards draw themselves once their figures arrive, and only then is there room to
+    // bring the question all the way up. Follow that for a moment, unless the user takes over.
+    const history = asked.parentElement;
+    if (!history || typeof ResizeObserver === "undefined") return;
+    let first = true;
+    const observer = new ResizeObserver(() => {
+      if (first) first = false;
+      else toQuestion(reopened ? "auto" : "smooth");
+    });
+    observer.observe(history);
+    const stop = () => observer.disconnect();
+    const timer = window.setTimeout(stop, 2500);
+    const taken = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+    for (const event of taken) log.addEventListener(event, stop, { passive: true, once: true });
+    return () => {
+      stop();
+      window.clearTimeout(timer);
+      for (const event of taken) log.removeEventListener(event, stop);
+    };
+  }, [lastId, pending, customerId, showLog]);
+  useEffect(() => {
+    if (focus) inputRef.current?.focus();
+  }, [focus?.id]);
 
   function send(text: string, canned = false, allowProtected?: ProtectedCategory[], photo?: Attached) {
     const trimmed = text.trim();
     // A photo can go without words; the coach then takes it as "can I afford this?".
     if ((!trimmed && !photo) || pendingRef.current) return;
     voice.pause();
+    const { customerId: forCustomer, messages: before, focus: about } = live.current;
     const add = (role: Message["role"], text: string, extra: Omit<Message, "id" | "role" | "text"> = {}) => {
-      const id = nextId.current++;
-      setMessages((prev) => [...prev, { id, role, text, ...extra }]);
+      const id = (nextId.current = Math.max(nextId.current, ...live.current.messages.map((m) => m.id + 1)));
+      nextId.current++;
+      setMessages(forCustomer, (prev) => [...prev, { id, role, text, ...extra }]);
       return id;
     };
-    // A reply that arrives after the conversation was reset belongs to the previous customer: drop it.
+    // A reply that arrives after the conversation was reset belongs to the previous one: drop it.
     const askedIn = conversation.current;
     const current = () => conversation.current === askedIn;
-    const askedId = add("user", trimmed, { photoUrl: photo?.url });
+    const askedId = add("user", trimmed, { photoUrl: photo?.url, about: about?.title });
     setInput("");
+    onFocus?.(null);
     pendingRef.current = true;
     setPending(true);
-    onAsk(trimmed, canned, allowProtected, photo?.image)
+    const previous = before.at(-1);
+    onAsk({
+      question: trimmed,
+      canned,
+      allowProtected,
+      image: photo?.image,
+      history: modelHistory(before, MAX_HISTORY_TURNS),
+      answers: answerCards(before),
+      focusId: about?.id,
+      pendingUnprotect: previous?.role === "assistant" ? (previous.proposedUnprotect ?? []) : [],
+    })
       .then(
-        ({ text: reply, blocked, proposedUnprotect, photo: read }) => {
+        (reply) => {
           if (!current()) return;
           // What the coach read goes under the photo, where the user can check it against the picture.
-          if (read) setMessages((prev) => prev.map((m) => (m.id === askedId ? { ...m, photo: read } : m)));
-          add("assistant", reply, { question: trimmed, blocked, proposedUnprotect, overrideUsed: Boolean(allowProtected?.length) });
-          return voice.speak(reply);
+          setMessages(forCustomer, (prev) =>
+            withoutCards(prev, reply.removed ?? []).map((m) => (m.id === askedId ? { ...m, modelText: reply.userText, ...(reply.photo && { photo: reply.photo }) } : m)),
+          );
+          add("assistant", reply.text, {
+            modelText: reply.modelText,
+            question: trimmed,
+            blocked: reply.blocked,
+            proposedUnprotect: reply.proposedUnprotect,
+            overrideUsed: Boolean(allowProtected?.length),
+            cards: reply.cards,
+            mood: reply.mood,
+            suggestions: reply.suggestions,
+          });
+          return voice.speak(reply.text);
         },
         (e: unknown) => current() && add("assistant", t("chat.error", { error: errorMessage(e) })),
       )
@@ -186,7 +272,6 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
         voice.resume();
       });
   }
-
   useEffect(() => {
     if (request) send(request.text, request.canned ?? true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -237,102 +322,82 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
             : t("chat.voiceOn")
       : modeNote;
 
-  function startResize(e: ReactPointerEvent<HTMLButtonElement>) {
-    const panel = e.currentTarget.closest(".chat");
-    resizeStart.current = { y: e.clientY, height: panel?.getBoundingClientRect().height ?? 300 };
-    e.currentTarget.setPointerCapture(e.pointerId);
-  }
-
-  function resize(e: ReactPointerEvent<HTMLButtonElement>) {
-    if (!resizeStart.current) return;
-    const minHeight = minimumChatHeight();
-    setChatHeight(Math.max(minHeight, Math.min(window.innerHeight * 0.8, resizeStart.current.height + resizeStart.current.y - e.clientY)));
-  }
-
-  function stopResize() {
-    resizeStart.current = null;
-  }
-
-  if (collapsed) {
-    return (
-      <button className="chat-launcher" type="button" onClick={() => setCollapsed(false)} aria-label={t("chat.open")} title={t("chat.openTitle")}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-2 2v-9.5a7.5 7.5 0 0 1 7.5-7.5h2A7.5 7.5 0 0 1 20 11.5Z" />
-          <path d="M8 11h8M8 14.5h5" />
-        </svg>
-      </button>
-    );
-  }
+  const last = messages.at(-1);
+  const lastAnswered = !pending && last?.role === "assistant";
+  // While the coach's question about the keep-as-is list is open, its own buttons are the next steps.
+  const nextSteps = lastAnswered && (last.proposedUnprotect?.length ?? 0) === 0 ? (last.suggestions ?? []) : [];
 
   return (
-    <section className={`chat${messages.length > 0 ? " chat-active" : ""}`} aria-label={t("chat.label")} style={chatHeight !== null ? { height: chatHeight } : undefined}>
-      <div className="chat-panel-controls">
-        <button
-          className="chat-resize"
-          type="button"
-          aria-label={t("chat.resize")}
-          title={t("chat.resizeTitle")}
-          onPointerDown={startResize}
-          onPointerMove={resize}
-          onPointerUp={stopResize}
-          onPointerCancel={stopResize}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-              e.preventDefault();
-              const currentHeight = e.currentTarget.parentElement?.parentElement?.getBoundingClientRect().height ?? 300;
-              const delta = e.key === "ArrowUp" ? 32 : -32;
-              const minHeight = minimumChatHeight();
-              setChatHeight((height) => Math.max(minHeight, Math.min(window.innerHeight * 0.8, (height ?? currentHeight) + delta)));
-            }
-          }}
-        >
-          <span aria-hidden="true" />
-        </button>
-        <span className="chat-panel-label">{t("chat.name")}</span>
-        <button className="chat-collapse" type="button" onClick={() => setCollapsed(true)} aria-label={t("chat.minimize")}>
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-2 2v-9.5a7.5 7.5 0 0 1 7.5-7.5h2A7.5 7.5 0 0 1 20 11.5Z" />
-            <path d="M8 11h8M8 14.5h5" />
-          </svg>
-        </button>
-      </div>
-      {messages.length > 0 && (
-        <div className="chat-log" ref={logRef} role="log" aria-live="polite">
-          <div className="chat-history">
+    <section className="coach" aria-label={t("chat.label")}>
+      <div className="conversation" ref={logRef}>
+        {header}
+        {showLog && messages.length > 0 && (
+          <div className="chat-history" role="log" aria-live="polite">
+            <button
+              type="button"
+              className="ghost-btn reset"
+              onClick={() => {
+                startOver();
+                setMessages(customerId, () => []);
+              }}
+            >
+              {t("chat.newConversation")}
+            </button>
             {messages.map((m, i) => {
-              // The coach shows its face with its latest answer only.
-              const latest = !pending && m.role === "assistant" && i === messages.length - 1;
-              // A comparison, not the length itself: with nothing blocked the length is 0, and React would print that 0.
-              const showOverride = m.role === "assistant" && i === messages.length - 1 && (m.blocked?.length ?? 0) > 0 && !m.overrideUsed && !pending;
-              // The coach asked whether to take something off the keep-as-is list: the answer is one tap, or typed.
-              const asked = m.role === "assistant" && i === messages.length - 1 && !pending ? (m.proposedUnprotect ?? []) : [];
-              const actions = (asked.length > 0 || showOverride) && (
-                <div className="bubble-actions">
-                  {asked.map((category) => (
-                    <button key={category} type="button" className="chip chip-next" onClick={() => send(t("chat.unprotectYesMessage", { category: categoryName(category) }))}>
-                      {t("chat.unprotectYes", { category: categoryName(category) })}
-                    </button>
-                  ))}
-                  {asked.length > 0 && (
-                    <button type="button" className="chip chip-next" onClick={() => send(t("chat.unprotectNoMessage", { category: asked.map(categoryName).join(", ") }))}>
-                      {t("chat.unprotectNo")}
-                    </button>
-                  )}
-                  {showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>{t("chat.showAnyway")}</button>}
-                </div>
-              );
-              return latest ? (
-                <div key={m.id} className="coach-row">
-                  <CoachFace face={coach?.mood ?? "neutral"} />
-                  <div>
-                    <div className="bubble bubble-assistant">{m.text}</div>
-                    {actions}
+              const isLast = i === messages.length - 1;
+              if (m.role === "user") {
+                return (
+                  <div key={m.id} className="turn turn-user" data-asked>
+                    {m.about && <span className="bubble-about">{t("chat.about", { title: m.about })}</span>}
+                    <UserBubble message={m} />
                   </div>
-                </div>
-              ) : (
-                <div key={m.id}>
-                  {m.role === "user" ? <UserBubble message={m} /> : <div className="bubble bubble-assistant">{m.text}</div>}
-                  {actions}
+                );
+              }
+              // A comparison, not the length itself: with nothing blocked the length is 0, and React would print that 0.
+              const showOverride = isLast && (m.blocked?.length ?? 0) > 0 && !m.overrideUsed && !pending;
+              // The coach asked whether to take something off the keep-as-is list: the answer is one tap, or typed.
+              const asked = isLast && !pending ? (m.proposedUnprotect ?? []) : [];
+              return (
+                <div key={m.id} className="turn turn-coach">
+                  {/* The coach shows its face with its latest answer only. */}
+                  {isLast && !pending ? (
+                    <div className="coach-row">
+                      <CoachFace face={m.mood ?? "neutral"} />
+                      <div className="bubble bubble-assistant">{m.text}</div>
+                    </div>
+                  ) : (
+                    <div className="bubble bubble-assistant">{m.text}</div>
+                  )}
+                  {/* What the answer is about, right under it: the card is this answer's own copy. */}
+                  {m.cards?.map((card) => (
+                    <BlockCard
+                      key={card.id}
+                      variant="answer"
+                      block={card}
+                      customerId={customerId}
+                      today={today}
+                      onChange={(patch) => setMessages(customerId, (prev) => patchCard(prev, m.id, card.id, patch))}
+                      onDrill={(title, filter, evidenceNote) => onDrill?.(title, filter, evidenceNote)}
+                      onSave={onSave && (() => onSave(card))}
+                      saved={savedState(overview, card)}
+                      onAsk={onFocus && (() => onFocus({ id: card.id, title: displayTitle(card, t) }))}
+                    />
+                  ))}
+                  {(asked.length > 0 || showOverride) && (
+                    <div className="bubble-actions">
+                      {asked.map((category) => (
+                        <button key={category} type="button" className="chip chip-next" onClick={() => send(t("chat.unprotectYesMessage", { category: categoryName(category) }))}>
+                          {t("chat.unprotectYes", { category: categoryName(category) })}
+                        </button>
+                      ))}
+                      {asked.length > 0 && (
+                        <button type="button" className="chip chip-next" onClick={() => send(t("chat.unprotectNoMessage", { category: asked.map(categoryName).join(", ") }))}>
+                          {t("chat.unprotectNo")}
+                        </button>
+                      )}
+                      {showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>{t("chat.showAnyway")}</button>}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -340,14 +405,13 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
               <div className="coach-row" role="status">
                 <CoachFace face="thinking" />
                 <div className="bubble bubble-assistant">
-                  {mode === "mock" ? t("chat.thinking") : messages.at(-1)?.photoUrl ? t("chat.readingPhoto") : t("chat.looking")}
+                  {mode === "mock" ? t("chat.thinking") : last?.photoUrl ? t("chat.readingPhoto") : t("chat.looking")}
                 </div>
               </div>
             )}
-            {/* While the coach's question about the keep-as-is list is open, its own buttons are the next steps. */}
-            {!pending && messages.at(-1)?.role === "assistant" && (messages.at(-1)?.proposedUnprotect?.length ?? 0) === 0 && (coach?.suggestions.length ?? 0) > 0 && (
+            {nextSteps.length > 0 && (
               <ChipRow className="coach-next" label={t("chat.suggestedSteps")}>
-                {coach?.suggestions.map((s) => (
+                {nextSteps.map((s) => (
                   <button key={s} type="button" className="chip chip-next" onClick={() => send(s)}>
                     {s}
                   </button>
@@ -355,78 +419,90 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
               </ChipRow>
             )}
           </div>
-        </div>
-      )}
-      {/* Starter prompts only: they go away once the conversation has begun. */}
-      {messages.length === 0 && (
-        <details className="suggestions-panel" open>
-          <summary>{t("chat.suggestedTitle")}</summary>
-          <ChipRow className="suggestions" label={t("chat.suggestedQuestions")}>
-            {starterSuggestions.map((suggestion) => (
-              <button key={suggestion.question} type="button" className="chip" onClick={() => send(suggestion.question, true)} disabled={pending}>
-                {suggestion.label}
-              </button>
-            ))}
-          </ChipRow>
-        </details>
-      )}
+        )}
+      </div>
 
-      {attached && (
-        <div className="chat-attached">
-          <img src={attached.url} alt={t("chat.photoPending")} />
-          <span>{t("chat.photoAdd")}</span>
-          <button type="button" onClick={() => setAttached(null)} aria-label={t("chat.photoRemove")} title={t("chat.photoRemove")}>
-            ×
-          </button>
-        </div>
-      )}
-      <form className="chat-input" onSubmit={onSubmit}>
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={attached ? t("chat.photoPlaceholder") : t("chat.placeholder")}
-          aria-label={t("chat.question")}
-        />
-        {mode !== "mock" && (
-          <>
-            {/* capture opens the phone's camera directly; a computer shows its file picker instead. */}
-            <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={onPhoto} />
+      <div className="composer">
+        {/* Starter prompts only: they go away once the conversation has begun. */}
+        {messages.length === 0 && (
+          <details className="suggestions-panel" open>
+            <summary>{t("chat.suggestedTitle")}</summary>
+            <ChipRow className="suggestions" label={t("chat.suggestedQuestions")}>
+              {starterSuggestions.map((suggestion) => (
+                <button key={suggestion.question} type="button" className="chip" onClick={() => send(suggestion.question, true)} disabled={pending}>
+                  {suggestion.label}
+                </button>
+              ))}
+            </ChipRow>
+          </details>
+        )}
+
+        {focus && (
+          <div className="chat-about">
+            <span>{t("chat.about", { title: focus.title })}</span>
+            <button type="button" onClick={() => onFocus?.(null)} aria-label={t("chat.aboutClear")} title={t("chat.aboutClear")}>
+              ×
+            </button>
+          </div>
+        )}
+        {attached && (
+          <div className="chat-attached">
+            <img src={attached.url} alt={t("chat.photoPending")} />
+            <span>{t("chat.photoAdd")}</span>
+            <button type="button" onClick={() => setAttached(null)} aria-label={t("chat.photoRemove")} title={t("chat.photoRemove")}>
+              ×
+            </button>
+          </div>
+        )}
+        <form className="chat-input" onSubmit={onSubmit}>
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={attached ? t("chat.photoPlaceholder") : focus ? t("chat.aboutPlaceholder") : t("chat.placeholder")}
+            aria-label={t("chat.question")}
+          />
+          {mode !== "mock" && (
+            <>
+              {/* capture opens the phone's camera directly; a computer shows its file picker instead. */}
+              <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={onPhoto} />
+              <button
+                type="button"
+                className={`voice-btn${attached ? " on" : ""}`}
+                onClick={() => cameraRef.current?.click()}
+                aria-label={attached ? t("chat.photoRetake") : t("chat.photoAdd")}
+                title={attached ? t("chat.photoRetake") : t("chat.photoAddTitle")}
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" />
+                  <circle cx="12" cy="13.5" r="3.5" />
+                </svg>
+              </button>
+            </>
+          )}
+          {voice.available && (
             <button
               type="button"
-              className={`voice-btn${attached ? " on" : ""}`}
-              onClick={() => cameraRef.current?.click()}
-              aria-label={attached ? t("chat.photoRetake") : t("chat.photoAdd")}
-              title={attached ? t("chat.photoRetake") : t("chat.photoAddTitle")}
+              className={`voice-btn${voice.enabled ? " on" : ""}`}
+              onClick={voice.toggle}
+              aria-pressed={voice.enabled}
+              aria-label={voice.enabled ? t("chat.voiceStop") : t("chat.voiceEnable")}
+              title={voice.enabled ? t("chat.voiceStop") : t("chat.voiceEnable")}
             >
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" />
-                <circle cx="12" cy="13.5" r="3.5" />
+                <rect x="9" y="2" width="6" height="12" rx="3" />
+                <path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8" />
               </svg>
             </button>
-          </>
-        )}
-        {voice.available && (
-          <button
-            type="button"
-            className={`voice-btn${voice.enabled ? " on" : ""}`}
-            onClick={voice.toggle}
-            aria-pressed={voice.enabled}
-            aria-label={voice.enabled ? t("chat.voiceStop") : t("chat.voiceEnable")}
-            title={voice.enabled ? t("chat.voiceStop") : t("chat.voiceEnable")}
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="9" y="2" width="6" height="12" rx="3" />
-              <path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8" />
-            </svg>
+          )}
+          <button type="submit" disabled={(!input.trim() && !attached) || pending}>
+            {t("chat.ask")}
           </button>
-        )}
-        <button type="submit" disabled={(!input.trim() && !attached) || pending}>
-          {t("chat.ask")}
-        </button>
-      </form>
-      <p className="chat-note" role={photoError || voice.error ? "alert" : undefined}>
-        {note}
-      </p>
+        </form>
+        <p className="chat-note" role={photoError || voice.error ? "alert" : undefined}>
+          {note}
+        </p>
+      </div>
     </section>
   );
 }
