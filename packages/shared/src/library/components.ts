@@ -30,8 +30,15 @@ export const COMPONENTS = {
     description: "Headline figure: how much is safe to spend this week or until payday, with how it was worked out.",
     examples: ["What can I spend this week?", "How much do I have left until payday?"],
     fn: "safeToSpend",
-    args: ["horizon"],
-    build: (a) => catalog.safeToSpend(a.horizon === "until_payday" ? "until_payday" : "week"),
+    args: ["horizon", "reserve"],
+    build: (a) => catalog.safeToSpend(a.horizon === "until_payday" ? "until_payday" : "week", n(a.reserve)),
+  },
+  month_so_far: {
+    description: "This calendar month up to today: money in, money out per basket, moved to savings and what is left, with how spending compares with the usual by this day.",
+    examples: ["How is this month going?", "Am I spending more than usual this month?", "How do my income and spending balance?"],
+    fn: "monthSoFar",
+    args: [],
+    build: () => catalog.monthSoFar(),
   },
   category_bars: {
     description:
@@ -114,10 +121,24 @@ export const COMPONENTS = {
       "with a slider for the extra amount. Use it once the user has given the target; goal_progress is for progress counted from the account's own transfers.",
     examples: ["I want to save 25 000 € for a home and I have 10 000 €", "What if I saved 100 € more a month towards it?", "Can I get there in two years?"],
     fn: "goalPlan",
-    args: ["target", "saved", "monthly", "extra", "byMonths", "label"],
+    args: ["target", "saved", "monthly", "extra", "extraFrom", "byMonths", "label", "since"],
     build: (a) => {
       if (n(a.target) === undefined) throw new EngineArgumentError("goal_plan needs target: the amount the user wants to reach. Ask them for it first.");
-      return custom.goalPlan({ target: n(a.target), saved: n(a.saved), monthly: n(a.monthly), extra: n(a.extra), byMonths: n(a.byMonths), label: s(a.label) });
+      return custom.goalPlan({ target: n(a.target), saved: n(a.saved), monthly: n(a.monthly), extra: n(a.extra), extraFrom: a.extraFrom === "spending_cut" ? "spending_cut" : undefined, byMonths: n(a.byMonths), label: s(a.label), since: s(a.since) });
+    },
+  },
+  goal_review: {
+    description:
+      "How a savings plan is going: planned against really moved to savings, month by month since the plan started, with whether the user is on plan. " +
+      "Needs the plan's target and monthly amount; since is the month it started.",
+    examples: ["Am I on track with my savings plan?", "How is my home saving going?", "I have been saving 300 € a month since June: am I keeping to it?"],
+    fn: "goalReview",
+    args: ["target", "saved", "monthly", "since", "label"],
+    build: (a) => {
+      if (n(a.target) === undefined || n(a.monthly) === undefined) {
+        throw new EngineArgumentError("goal_review needs target and monthly: the plan's target and the amount agreed per month. Take them from the plan card or ask the user.");
+      }
+      return custom.goalReview({ target: n(a.target), saved: n(a.saved), monthly: n(a.monthly), since: s(a.since), label: s(a.label) });
     },
   },
   saving_options: {

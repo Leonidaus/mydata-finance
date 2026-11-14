@@ -64,5 +64,7 @@ export const ENGINE_FNS = [
   "goalProgress",
   "goalPlan",
   "savingsOptions",
+  "monthSoFar",
+  "goalReview",
 ] as const;
 export type EngineFn = (typeof ENGINE_FNS)[number];
