@@ -197,14 +197,19 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
             {messages.map((m, i) => {
               // The coach shows its face with its latest answer only.
               const latest = !pending && m.role === "assistant" && i === messages.length - 1;
+              const showOverride = m.role === "assistant" && i === messages.length - 1 && m.blocked?.length && !m.overrideUsed && !pending;
               return latest ? (
                 <div key={m.id} className="coach-row">
                   <CoachFace face={coach?.mood ?? "neutral"} />
-                  <div className="bubble bubble-assistant">{m.text}</div>
+                  <div>
+                    <div className="bubble bubble-assistant">{m.text}</div>
+                    {showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>Show it anyway</button>}
+                  </div>
                 </div>
               ) : (
-                <div key={m.id} className={`bubble bubble-${m.role}`}>
-                  {m.text}
+                <div key={m.id}>
+                  <div className={`bubble bubble-${m.role}`}>{m.text}</div>
+                  {showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>Show it anyway</button>}
                 </div>
               );
             })}
