@@ -53,7 +53,7 @@ export const catalog = {
   }),
 
   /** Whether one price fits what is safe to spend until payday. The id is fixed, so a new price replaces the last check. */
-  afford: (opts: { amount: number; label?: string; kind?: "everyday" | "necessity"; reserve?: number }): Block => ({
+  afford: (opts: { amount: number; label?: string; kind?: "everyday" | "necessity"; reserve?: number; price?: "exact" | "estimate" }): Block => ({
     id: "can-afford",
     title: opts.label ? `Can I afford: ${opts.label}?` : "Can I afford this?",
     explanation:
@@ -62,7 +62,7 @@ export const catalog = {
     data: {
       kind: "engine",
       fn: "afford",
-      args: { amount: opts.amount, ...(opts.label && { label: opts.label }), ...(opts.kind && { kind: opts.kind }), ...(opts.reserve !== undefined && { reserve: opts.reserve }) },
+      args: { amount: opts.amount, ...(opts.label && { label: opts.label }), ...(opts.kind && { kind: opts.kind }), ...(opts.reserve !== undefined && { reserve: opts.reserve }), ...(opts.price === "estimate" && { price: "estimate" }) },
     },
     view: { kind: "template", template: "stat" },
   }),
