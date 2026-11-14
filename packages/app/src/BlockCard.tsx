@@ -1,5 +1,5 @@
 import { type Block, type Control, type EngineResult, PERIOD_OPTIONS, type TxFilter } from "@mydata/shared";
-import { useMemo } from "react";
+import { type ReactNode, useMemo } from "react";
 import type { TopLevelSpec } from "vega-lite";
 import { type Datum, VEGA_TEMPLATES } from "./blocks/templates";
 import { useDataSource } from "./data";
@@ -20,7 +20,7 @@ interface Props {
   onRemove?: () => void;
   /** Omit to hide the pin button. */
   onPin?: () => void;
-  onDrill: (title: string, filter: TxFilter) => void;
+  onDrill: (title: string, filter: TxFilter, evidenceNote?: string) => void;
 }
 
 export default function BlockCard({ block, customerId, today, onChange, onRemove, onPin, onDrill }: Props) {
@@ -41,13 +41,14 @@ export default function BlockCard({ block, customerId, today, onChange, onRemove
     if (block.data.kind !== "engine") return;
     onChange({ data: { ...block.data, args: { ...block.data.args, [arg]: value } } });
   };
+  const title = displayTitle(block, t);
 
   return (
     <article className="block" aria-labelledby={`${block.id}-title`}>
       <header className="block-head">
         <div>
-          <h3 id={`${block.id}-title`}>{block.title}</h3>
-          <span className={`badge badge-${block.source}`}>{t(`card.source.${block.source}`)}</span>
+          <h3 id={`${block.id}-title`}>{title}</h3>
+          <CardBadges source={block.source} />
         </div>
         <div className="block-actions">
           {onPin && (
@@ -114,8 +115,9 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
   if (view.kind === "code") {
     return (
       <>
-        {result.caption && <p className="muted small">{result.caption}</p>}
+        <ResultCaption caption={result.caption} />
         <IframeBlock code={view.code} libs={view.libs} result={result} label={block.title} onSelect={onSelectGeneric} />
+        <CardContext block={block} result={result} onDrill={onDrill} />
       </>
     );
   }
@@ -123,47 +125,28 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
   if (view.kind === "spec") {
     return (
       <>
-        {result.caption && <p className="muted small">{result.caption}</p>}
+        <ResultCaption caption={result.caption} />
         {spec && <VegaBlock spec={spec} onSelect={onSelectGeneric} label={block.title} />}
+        <CardContext block={block} result={result} onDrill={onDrill} />
       </>
     );
   }
 
   if (view.template === "stat") {
-    // What has happened and what is expected comes first, up to a subtotal when the engine gives one.
-    // What follows it (the precautions and the suggestion they lead to) is shown on request.
-    const cut = result.rows.findIndex((r) => r.kind === "subtotal");
-    const summary = cut >= 0 ? result.rows.slice(0, cut + 1) : result.rows;
-    const detail = cut >= 0 ? result.rows.slice(cut + 1) : [];
-    const term = (r: (typeof result.rows)[number]) => (
-      <li key={String(r.term)}>
-        <span>
-          {r.term}
-          {typeof r.coveredByReserve === "number" && r.coveredByReserve > 0 && (
-            <span className="muted small"> · {t("card.coveredByReserve", { amount: formatEur(r.coveredByReserve, locale) })}</span>
-          )}
-        </span>
-        <span className={(r.amount as number) < 0 ? "neg" : ""}>{formatEur(r.amount as number, locale)}</span>
-      </li>
-    );
+    const isMonthSummary = block.data.kind === "engine" && block.data.fn === "monthSoFar";
+    const isSafeToSpend = block.data.kind === "engine" && block.data.fn === "safeToSpend";
+    const value = isMonthSummary ? monthSpend(result) : result.value ?? 0;
     return (
       <div className="stat">
-        <button type="button" className="stat-value" onClick={drillAll} title="Show the transactions behind this">
-          {formatEur(result.value ?? 0, locale)}
-        </button>
-        {result.caption && <p className="stat-caption">{result.caption}</p>}
-        <ul className="stat-terms">{summary.map(term)}</ul>
-        {detail.length > 0 && (
-          <>
-            {/* The precautions are money kept available, not costs: they are in the calculation, not in the list above. */}
-            <p className="stat-note">{t("card.precautionNote")}</p>
-            <details className="stat-calc">
-              <summary>{t("card.calcToggle")}</summary>
-              <ul className="stat-terms">{detail.map(term)}</ul>
-              <p className="muted small">{t("card.precautionPlanning")}</p>
-            </details>
-          </>
-        )}
+        <p className="stat-value">{formatEur(value, locale)}</p>
+        <ResultCaption caption={result.caption} className="stat-caption" />
+        {isMonthSummary && <p className="stat-note">{t("card.monthNotAllowance")}</p>}
+        <CardContext
+          block={block}
+          result={result}
+          onDrill={onDrill}
+          calculation={isSafeToSpend ? <SafeToSpendCalculation rows={result.rows} /> : <StatTerms rows={result.rows} />}
+        />
       </div>
     );
   }
@@ -171,7 +154,7 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
   if (view.template === "recurring_list") {
     return (
       <>
-        {result.caption && <p className="muted small">{result.caption}</p>}
+        <ResultCaption caption={result.caption} />
         <table className="list">
           <thead>
             <tr>
@@ -196,6 +179,7 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
             ))}
           </tbody>
         </table>
+        <CardContext block={block} result={result} onDrill={onDrill} />
       </>
     );
   }
@@ -217,15 +201,122 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
           {result.unit && result.unit !== "€" && result.unit !== "%" && <span className="muted"> {result.unit.replace("€", "")}</span>}
         </p>
       )}
-      {result.caption && <p className="muted small">{result.caption}</p>}
+      <ResultCaption caption={result.caption} />
       <VegaBlock spec={spec} onSelect={onSelect} label={block.title} />
       {view.template === "goal_progress" && result.value !== undefined && (
         <p className="block-figure">
           <strong>{Math.round(result.value)}%</strong> <span className="muted">{t("card.goalProgress")}</span>
         </p>
       )}
+      <CardContext block={block} result={result} onDrill={onDrill} />
     </>
   );
+}
+
+function CardBadges({ source }: { source: Block["source"] }) {
+  const { t } = useI18n();
+  const origin = source === "estimate" ? t("card.basedOnYourData") : source === "own" ? t("card.source.own") : source === "peer" ? t("card.source.peer") : t("card.source.public");
+  const status = source === "estimate" ? t("card.status.estimated") : source === "own" ? t("card.status.recorded") : t("card.status.benchmark");
+  return (
+    <div className="card-badges">
+      <span className={`badge badge-${source}`}>{origin}</span>
+      <span className="badge badge-status">{status}</span>
+    </div>
+  );
+}
+
+function CardContext({ block, result, onDrill, calculation }: { block: Block; result: EngineResult; onDrill: Props["onDrill"]; calculation?: ReactNode }) {
+  const { t } = useI18n();
+  const hasExplanation = Boolean(block.explanation || result.assumptions?.length || calculation);
+  return (
+    <div className="card-context">
+      {hasExplanation && (
+        <details className="how">
+          <summary>{t("card.howCalculated")}</summary>
+          {block.explanation && <p>{block.explanation}</p>}
+          {calculation}
+          {(result.assumptions?.length ?? 0) > 0 && (
+            <>
+              <h4>{t("card.assumptions")}</h4>
+              <ul className="card-assumptions">
+                {result.assumptions?.map((assumption) => <li key={assumption}>{assumption}</li>)}
+              </ul>
+            </>
+          )}
+        </details>
+      )}
+      {result.filter && (
+        <button
+          type="button"
+          className="evidence-btn"
+          onClick={() => onDrill(`${block.title}: ${t("card.transactionEvidence")}`, result.filter!, t("drawer.evidenceNote"))}
+        >
+          {t("card.viewTransactions")}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ResultCaption({ caption, className = "muted small card-scope" }: { caption?: string; className?: string }) {
+  const { t } = useI18n();
+  return caption ? <p className={className}><strong>{t("card.scope")}:</strong> {caption}</p> : null;
+}
+
+function SafeToSpendCalculation({ rows }: { rows: EngineResult["rows"] }) {
+  const { t } = useI18n();
+  // Recorded and expected activity is shown before the subtotal. Precautions are planning
+  // allowances, rather than costs, so they remain in a separate disclosure.
+  const cut = rows.findIndex((row) => row.kind === "subtotal");
+  const summary = cut >= 0 ? rows.slice(0, cut + 1) : rows;
+  const detail = cut >= 0 ? rows.slice(cut + 1) : [];
+  return (
+    <>
+      <StatTerms rows={summary} />
+      {detail.length > 0 && (
+        <>
+          <p className="stat-note">{t("card.precautionNote")}</p>
+          <details className="stat-calc">
+            <summary>{t("card.calcToggle")}</summary>
+            <StatTerms rows={detail} />
+            <p className="muted small">{t("card.precautionPlanning")}</p>
+          </details>
+        </>
+      )}
+    </>
+  );
+}
+
+function StatTerms({ rows }: { rows: EngineResult["rows"] }) {
+  const { locale, t } = useI18n();
+  return (
+    <ul className="stat-terms">
+      {rows.map((r) => (
+        <li key={String(r.term)}>
+          <span>
+            {r.term}
+            {typeof r.coveredByReserve === "number" && r.coveredByReserve > 0 && (
+              <span className="muted small"> · {t("card.coveredByReserve", { amount: formatEur(r.coveredByReserve, locale) })}</span>
+            )}
+          </span>
+          <span className={(r.amount as number) < 0 ? "neg" : ""}>{formatEur(r.amount as number, locale)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function monthSpend(result: EngineResult): number {
+  // `monthSoFar` returns income, the three spending baskets, saving and the remaining balance
+  // in that order. The three baskets are the recorded spend; saving is deliberately excluded.
+  return result.rows.slice(1, 4).reduce((total, row) => total - Number(row.amount), 0);
+}
+
+function displayTitle(block: Block, t: ReturnType<typeof useI18n>["t"]): string {
+  if (block.data.kind !== "engine") return block.title;
+  if (block.data.fn === "safeToSpend") return block.data.args.horizon === "until_payday" ? t("card.safeTitlePayday") : t("card.safeTitleWeek");
+  if (block.data.fn === "monthSoFar") return t("card.monthTitle");
+  return block.title;
 }
 
 /** A free-form spec without its own `data` gets the engine rows injected as `data.values`. */
