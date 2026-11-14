@@ -16,6 +16,7 @@ import {
   DEFAULT_STRONG_GEMINI_MODELS,
   ENGINE_FNS,
   type Lookup,
+  type PreferenceAccess,
   MAX_HISTORY_TURNS,
   MAX_QUESTION_CHARS,
   type CoachingProfile,
@@ -60,6 +61,8 @@ export interface ChatRequest {
   history: { role: "user" | "assistant"; text: string }[];
   blocks: Block[];
   allowProtected?: ProtectedCategory[];
+  /** Categories the previous answer asked the user about taking off the keep-as-is list. */
+  pendingUnprotect?: ProtectedCategory[];
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -132,6 +135,7 @@ export function parseChatRequest(body: unknown): ChatRequest {
       history: readHistory(body.history),
       blocks: readBlocks(body.blocks),
       ...(body.allowProtected !== undefined && { allowProtected: parseCategoryList(body.allowProtected, "allowProtected") }),
+      ...(body.pendingUnprotect !== undefined && { pendingUnprotect: parseCategoryList(body.pendingUnprotect, "pendingUnprotect") }),
     };
   } catch (error) {
     if (error instanceof ProfileError) throw new ChatRequestError(error.message);
@@ -148,6 +152,8 @@ export interface AnswerOptions {
   lookup: Lookup;
   profile?: CoachingProfile;
   allowProtected?: readonly ProtectedCategory[];
+  /** Lets the coach change the saved preferences when the user asks for it in the chat. */
+  preferences?: PreferenceAccess;
   signal?: AbortSignal;
 }
 
@@ -174,6 +180,7 @@ export async function answerChat(model: ChatModel | ChatModels, request: ChatReq
       lookup: options.lookup,
       profile: options.profile,
       allowProtected: options.allowProtected,
+      preferences: options.preferences,
     },
     options.signal,
   );
