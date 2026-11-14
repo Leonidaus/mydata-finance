@@ -98,6 +98,7 @@ describe("parseToolCalls", () => {
     expect(block?.view).toEqual({ kind: "template", template: "peer_compare" });
     expect(r.errors[0]).toMatch(/category must be one of: Housing, Utilities, Groceries, Restaurants, Transportation/);
     expect(buildSystemPrompt([], "2026-09-15")).toMatch(/finland_compare/);
+    expect(buildSystemPrompt([], "2026-09-15", { language: "fi" })).toMatch(/app language is Finnish/);
   });
 
   it("builds a savings plan only from a target the user gave", () => {

@@ -8,13 +8,7 @@ import { useLatest } from "./latest";
 import LoadError from "./LoadError";
 import IframeBlock from "./renderers/IframeBlock";
 import VegaBlock from "./renderers/VegaBlock";
-
-const SOURCE_LABELS: Record<Block["source"], string> = {
-  own: "Your data",
-  peer: "Peer average",
-  public: "Statistics Finland",
-  estimate: "Estimate",
-};
+import { useI18n } from "./i18n";
 
 interface Props {
   block: Block;
@@ -30,6 +24,7 @@ interface Props {
 }
 
 export default function BlockCard({ block, customerId, today, onChange, onRemove, onPin, onDrill }: Props) {
+  const { t } = useI18n();
   const source = useDataSource();
   // The answer is kept together with the block it was computed for, so that the two always match.
   const outcome = useLatest(
@@ -52,7 +47,7 @@ export default function BlockCard({ block, customerId, today, onChange, onRemove
       <header className="block-head">
         <div>
           <h3 id={`${block.id}-title`}>{block.title}</h3>
-          <span className={`badge badge-${block.source}`}>{SOURCE_LABELS[block.source]}</span>
+          <span className={`badge badge-${block.source}`}>{t(`card.source.${block.source}`)}</span>
         </div>
         <div className="block-actions">
           {onPin && (
@@ -61,13 +56,13 @@ export default function BlockCard({ block, customerId, today, onChange, onRemove
               className={`pin-btn${block.pinned ? " on" : ""}`}
               onClick={onPin}
               aria-pressed={!!block.pinned}
-              title={block.pinned ? "Unpin this card in the coach's context" : "Pin this card in the coach's context"}
+              title={block.pinned ? t("card.unpinTitle") : t("card.pinTitle")}
             >
-              {block.pinned ? "Pinned" : "Pin"}
+              {block.pinned ? t("card.pinned") : t("card.pin")}
             </button>
           )}
           {onRemove && (
-            <button type="button" className="icon-btn" onClick={onRemove} aria-label={`Remove ${block.title}`}>
+            <button type="button" className="icon-btn" onClick={onRemove} aria-label={t("card.remove", { title: block.title })}>
               ×
             </button>
           )}
@@ -90,7 +85,7 @@ export default function BlockCard({ block, customerId, today, onChange, onRemove
         </div>
       ) : (
         <p className="muted" role="status">
-          Loading…
+          {t("card.loading")}
         </p>
       )}
     </article>
@@ -98,6 +93,7 @@ export default function BlockCard({ block, customerId, today, onChange, onRemove
 }
 
 function BlockBody({ block, result, onDrill }: { block: Block; result: EngineResult; onDrill: Props["onDrill"] }) {
+  const { locale, t } = useI18n();
   const view = block.view;
   const template = view.kind === "template" ? VEGA_TEMPLATES[view.template] : undefined;
   const spec = useMemo(
@@ -137,14 +133,14 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
     return (
       <div className="stat">
         <button type="button" className="stat-value" onClick={drillAll} title="Show the transactions behind this">
-          {formatEur(result.value ?? 0)}
+          {formatEur(result.value ?? 0, locale)}
         </button>
         {result.caption && <p className="stat-caption">{result.caption}</p>}
         <ul className="stat-terms">
           {result.rows.map((r) => (
             <li key={String(r.term)}>
               <span>{r.term}</span>
-              <span className={(r.amount as number) < 0 ? "neg" : ""}>{formatEur(r.amount as number)}</span>
+              <span className={(r.amount as number) < 0 ? "neg" : ""}>{formatEur(r.amount as number, locale)}</span>
             </li>
           ))}
         </ul>
@@ -159,8 +155,8 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
         <table className="list">
           <thead>
             <tr>
-              <th>Payment</th>
-              <th>Usually</th>
+              <th>{t("card.payment")}</th>
+              <th>{t("card.usually")}</th>
               <th className="num">€</th>
             </tr>
           </thead>
@@ -174,8 +170,8 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
                   {r.label}
                   <span className="muted small"> · {r.type}</span>
                 </td>
-                <td>day {r.day}</td>
-                <td className="num">{formatEur(r.amount as number)}</td>
+                <td>{t("card.day", { day: String(r.day) })}</td>
+                <td className="num">{formatEur(r.amount as number, locale)}</td>
               </tr>
             ))}
           </tbody>
@@ -184,7 +180,7 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
     );
   }
 
-  if (!template || !spec) return <p className="block-error">Unknown template {view.template}.</p>;
+  if (!template || !spec) return <p className="block-error">{t("card.unknownTemplate", { template: view.template })}</p>;
 
   const onSelect = (datum: Datum) => {
     const extra = template.drill?.(datum, block);
@@ -197,7 +193,7 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
     <>
       {result.value !== undefined && view.template !== "goal_progress" && (
         <p className="block-figure">
-          <strong>{result.unit === "%" ? `${result.value}%` : formatEur(result.value)}</strong>
+          <strong>{result.unit === "%" ? `${result.value}%` : formatEur(result.value, locale)}</strong>
           {result.unit && result.unit !== "€" && result.unit !== "%" && <span className="muted"> {result.unit.replace("€", "")}</span>}
         </p>
       )}
@@ -205,7 +201,7 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
       <VegaBlock spec={spec} onSelect={onSelect} label={block.title} />
       {view.template === "goal_progress" && result.value !== undefined && (
         <p className="block-figure">
-          <strong>{Math.round(result.value)}%</strong> <span className="muted">of the goal</span>
+          <strong>{Math.round(result.value)}%</strong> <span className="muted">{t("card.goalProgress")}</span>
         </p>
       )}
     </>
@@ -232,6 +228,7 @@ function genericDrill(datum: Datum, block: Block): Partial<TxFilter> | null {
 }
 
 function ControlInput({ control, value, onChange }: { control: Control; value: unknown; onChange: (v: unknown) => void }) {
+  const { t } = useI18n();
   if (control.kind === "slider") {
     const v = typeof value === "number" ? value : control.min;
     return (
@@ -244,7 +241,7 @@ function ControlInput({ control, value, onChange }: { control: Control; value: u
     );
   }
   const options = control.kind === "period" ? PERIOD_OPTIONS : control.options;
-  const label = control.kind === "period" ? "Period" : control.label;
+  const label = control.kind === "period" ? t("controls.period") : control.label;
   return (
     <label className="control">
       <span className="sr-only">{label}</span>

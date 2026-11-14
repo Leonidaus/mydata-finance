@@ -65,6 +65,8 @@ export interface PromptContext {
   snapshot?: string;
   profile?: CoachingProfile;
   allowProtected?: readonly ProtectedCategory[];
+  /** Explicit UI choice. Do not infer this from a mixed-language question. */
+  language?: "en" | "fi";
 }
 
 export function buildSystemPrompt(blocks: Block[], today: string, context: PromptContext = {}): string {
@@ -75,6 +77,7 @@ WHAT YOU KNOW
 - You see totals and rows, never single transactions. The user can open those by tapping a card.
 - Need a figure you do not have (another period, one category, one merchant type, a what-if)? Call lookup first, on its own, and answer when the result arrives. Do not look up what SNAPSHOT already has.
 - Today is ${today}. All data is up to today.
+- The app language is ${context.language === "fi" ? "Finnish" : "English"}. Answer and write suggestions and new card titles in that language, even if a category or an older card title is in another language.
 
 HOW TO ANSWER
 - Every answer is spoken: the reply tool, or the reply field of a card call. Two to four short sentences in the user's language (Finnish or English). Plain text, no markdown, no lists.

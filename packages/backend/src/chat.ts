@@ -60,6 +60,7 @@ export interface ChatRequest {
   history: { role: "user" | "assistant"; text: string }[];
   blocks: Block[];
   allowProtected?: ProtectedCategory[];
+  language: "en" | "fi";
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -131,6 +132,7 @@ export function parseChatRequest(body: unknown): ChatRequest {
       question: body.question,
       history: readHistory(body.history),
       blocks: readBlocks(body.blocks),
+      language: body.language === "fi" ? "fi" : "en",
       ...(body.allowProtected !== undefined && { allowProtected: parseCategoryList(body.allowProtected, "allowProtected") }),
     };
   } catch (error) {
@@ -174,6 +176,7 @@ export async function answerChat(model: ChatModel | ChatModels, request: ChatReq
       lookup: options.lookup,
       profile: options.profile,
       allowProtected: options.allowProtected,
+      language: request.language,
     },
     options.signal,
   );

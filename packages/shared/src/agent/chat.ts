@@ -80,6 +80,7 @@ export interface ChatInput {
   lookup?: Lookup;
   profile?: CoachingProfile;
   allowProtected?: readonly ProtectedCategory[];
+  language?: "en" | "fi";
 }
 
 export interface ChatOutput {
@@ -288,6 +289,7 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
     snapshot: snapshot?.text,
     profile: input.profile,
     allowProtected: input.allowProtected,
+    language: input.language,
   });
   // Every number the reply may quote: what the coach was shown, and what was said in the conversation.
   const backed = [...(snapshot?.numbers ?? []), ...numbersIn(question), ...history.flatMap((t) => numbersIn(t.text)), ...numbersIn(input.today)];

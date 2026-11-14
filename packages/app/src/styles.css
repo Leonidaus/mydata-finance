@@ -156,6 +156,31 @@ body {
 
 .topbar-icon svg { width: 24px; height: 24px; }
 
+button.topbar-icon {
+  position: relative;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 50%;
+}
+
+button.topbar-icon:hover,
+button.topbar-icon:focus-visible { background: var(--green-100); }
+
+.topbar-language-code {
+  position: absolute;
+  right: 0;
+  bottom: 3px;
+  padding: 1px 3px;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--green-900);
+  font-size: 0.5625rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
 /* Not part of the product: lets the presenter switch between demo customers. */
 .demo-bar {
   display: flex;

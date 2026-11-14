@@ -20,6 +20,7 @@ import { apiBase } from "../data";
 import { gemini, geminiAvailable } from "./gemini";
 import { type AgentReply, type RunEngine, respond } from "./mockAgent";
 import { createServerChat } from "./server";
+import type { Locale } from "../i18n";
 
 export type { AgentReply, RunEngine };
 export { geminiAvailable };
@@ -35,6 +36,7 @@ export interface AgentContext {
   /** Whether the app is using the backend for this customer (API mode, not dev mode). */
   useBackend: boolean;
   allowProtected?: ProtectedCategory[];
+  language: Locale;
 }
 
 const serverChat = createServerChat(apiBase);
@@ -59,10 +61,10 @@ export const cannedReply = (prompt: string, ctx: AgentContext): Promise<AgentRep
 export async function askAgent(question: string, ctx: AgentContext): Promise<AgentReply> {
   const mode = await chatMode(ctx.useBackend);
   if (mode === "server") {
-    return report(await serverChat.ask({ customerId: ctx.customerId, question, history: ctx.history, blocks: ctx.blocks, allowProtected: ctx.allowProtected }));
+    return report(await serverChat.ask({ customerId: ctx.customerId, question, history: ctx.history, blocks: ctx.blocks, allowProtected: ctx.allowProtected, language: ctx.language }));
   }
   if (mode === "browser") {
-    return report(await runChat(gemini, { question, history: ctx.history, blocks: ctx.blocks, today: ctx.today, lookup: (fn, args) => ctx.run(fn, args) }));
+    return report(await runChat(gemini, { question, history: ctx.history, blocks: ctx.blocks, today: ctx.today, lookup: (fn, args) => ctx.run(fn, args), language: ctx.language }));
   }
   return respond(question, ctx.blocks, ctx.run);
 }
