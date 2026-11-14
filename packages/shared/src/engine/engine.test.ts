@@ -247,7 +247,7 @@ describe.each(contexts)("financial definitions on $label", ({ ctx }) => {
   it("returns the columns the coach is told each function has", () => {
     // Custom views may only read ENGINE_COLUMNS, so a column listed there must really be in the rows.
     for (const fn of ENGINE_FNS) {
-      const { rows } = runEngine(ctx, fn, fn === "goalPlan" ? { target: 20000 } : {});
+      const { rows } = runEngine(ctx, fn, fn === "goalPlan" ? { target: 20000 } : fn === "goalReview" ? { target: 20000, monthly: 300, since: "2026-05" } : {});
       if (rows.length === 0) continue;
       const present = new Set(rows.flatMap((row) => Object.keys(row)));
       for (const column of ENGINE_COLUMNS[fn]) expect(present.has(column), `${fn}.${column}`).toBe(true);
@@ -271,6 +271,12 @@ describe.each(contexts)("financial definitions on $label", ({ ctx }) => {
     close((plan.rows[0].leftOver as number) - (plan.rows[1].leftOver as number), 100);
     for (const row of plan.rows) expect(row.fits).toBe((row.leftOver as number) >= 0 ? "yes" : "no");
     expect(plan.assumptions!.join(" ")).toMatch(/No interest[\s\S]*10\s000 € already set aside is what the user said[\s\S]*the one the user chose/);
+
+    // Extra saving paid for by spending less leaves as much over as the plan without it.
+    const funded = runEngine(ctx, "goalPlan", { target: 25000, saved: 10000, monthly: 400, extra: 100, extraFrom: "spending_cut" });
+    expect(funded.rows[1].leftOver).toBe(funded.rows[0].leftOver);
+    expect(funded.rows[1].fits).toBe(funded.rows[0].fits);
+    expect(funded.rows[1].months).toBe(30);
 
     // Without figures from the user: nothing saved, and the pace is the account's own saving.
     const bare = runEngine(ctx, "goalPlan", { target: 25000 });
@@ -313,6 +319,84 @@ describe.each(contexts)("financial definitions on $label", ({ ctx }) => {
       expect(runEngine(ctx, "savingsOptions", { protect: `${categories[0]}, Groceries`, cutPct: 10 }).rows).toEqual(kept.rows);
     }
     expect(() => runEngine(ctx, "savingsOptions", { protect: ["Holidays"] })).toThrow(/list of categories/);
+  });
+
+  it("shows the month so far as money in, money out and what is left, next to the usual", () => {
+    const r = runEngine(ctx, "monthSoFar");
+    const [from, to] = ["2026-09-01", ctx.today];
+    const inMonth = filterTransactions(ctx, { from, to });
+    const amount = (term: string) => r.rows.find((row) => row.term === term)!.amount as number;
+    close(amount("Money in so far"), sum(inMonth.filter((t) => t.category === "Salary" || t.category === "Other Income").map((t) => t.tx_amount_eur)));
+    // The three basket lines are exactly this month's spending.
+    const spending = -sum(filterTransactions(ctx, { from, to, kind: "spending" }).map((t) => t.tx_amount_eur));
+    close(-(amount("Regular essentials") + amount("Unexpected necessities") + amount("Everyday spending")), spending);
+    // The lines add up to what is left, which is also the headline.
+    close(sum(r.rows.slice(0, -1).map((row) => row.amount as number)), r.rows.at(-1)!.amount as number);
+    close(r.value!, r.rows.at(-1)!.amount as number);
+    // "Usual" is the same days of the three months before.
+    const usual = [1, 2, 3].map((k) => {
+      const month = `2026-0${9 - k}`;
+      return -sum(filterTransactions(ctx, { from: `${month}-01`, to: `${month}-15`, kind: "spending" }).map((t) => t.tx_amount_eur));
+    });
+    const usualSpending = -sum(r.rows.slice(1, 4).map((row) => row.usualByNow as number));
+    close(usualSpending, sum(usual) / 3);
+    expect(r.caption).toMatch(/^September so far · /);
+    // The sentence compares the same two figures the rows show.
+    const said = /you have spent ([\d\s]+) €(?:, ([\d\s]+) € (more|less) than usual| , about the same)?/.exec(r.caption!.replace(/\u00a0/g, " "));
+    expect(Number(said![1].replace(/\s/g, ""))).toBe(Math.round(spending));
+    if (said![2]) {
+      expect(Number(said![2].replace(/\s/g, ""))).toBe(Math.round(Math.abs(spending - sum(usual) / 3)));
+      expect(said![3]).toBe(spending > sum(usual) / 3 ? "more" : "less");
+    } else {
+      expect(Math.abs(spending - sum(usual) / 3)).toBeLessThan(Math.max(20, (sum(usual) / 3) * 0.05) + 1);
+    }
+  });
+
+  it("lets the customer say how much of the account is savings", () => {
+    const inferred = planUntilPayday(ctx);
+    const none = runEngine(ctx, "safeToSpend", { horizon: "until_payday", reserve: 0 });
+    // With nothing kept as savings, the whole balance is for spending, as before the reserve existed.
+    close(none.rows.at(-1)!.amount as number, inferred.available);
+    expect(none.rows.some((row) => /Reserve|Savings you keep/.test(String(row.term)))).toBe(false);
+    if (inferred.balance > 200) {
+      const some = runEngine(ctx, "safeToSpend", { horizon: "until_payday", reserve: 150 });
+      expect(some.rows[1]).toEqual({ term: "Savings you keep on this account", amount: -150 });
+      expect(some.assumptions![0]).toMatch(/you said you keep on this account as savings/);
+      // More than is on the account counts as all of it.
+      const all = runEngine(ctx, "safeToSpend", { horizon: "until_payday", reserve: 10_000_000 });
+      close(all.rows[1].amount as number, -inferred.balance);
+    }
+  });
+
+  it("reviews a savings plan month by month against what was moved to savings", () => {
+    expect(() => runEngine(ctx, "goalReview", { target: 20000 })).toThrow(/needs target and monthly/);
+    const r = runEngine(ctx, "goalReview", { target: 20000, saved: 5000, monthly: 300, since: "2026-05" });
+    expect(r.rows.map((row) => [row.month, row.planned, row.status])).toEqual([
+      ["2026-05", 300, "complete"],
+      ["2026-06", 600, "complete"],
+      ["2026-07", 900, "complete"],
+      ["2026-08", 1200, "complete"],
+      ["2026-09", 1500, "in progress"],
+    ]);
+    // "Moved" is the transfers to savings behind the drill-down, added up month by month.
+    const net = (from: string, to: string) =>
+      sum(filterTransactions(ctx, { from, to }).map((t) => (t.category === "Invest Deposit" || t.category === "Salary Sweep" ? -t.tx_amount_eur : t.category === "Invest Withdraw" ? -t.tx_amount_eur : 0)));
+    close(r.rows[3].moved as number, net("2026-05-01", "2026-08-31"));
+    close(r.rows[4].moved as number, net("2026-05-01", ctx.today));
+    close(r.rows[4].movedThisMonth as number, net("2026-09-01", ctx.today));
+    // The verdict is on the four complete months only.
+    const movedComplete = r.rows[3].moved as number;
+    expect(r.caption).toMatch(movedComplete >= 1199 ? /^On plan: / : /^Behind plan by /);
+    close(r.value!, 5000 + Math.max(0, r.rows[4].moved as number));
+    expect(r.assumptions!.join(" ")).toMatch(/At the agreed 300 € a month/);
+
+    // A plan that starts this month has nothing to judge yet, and one "starting" in the future starts now.
+    for (const since of [undefined, "2026-09", "2031-01"]) {
+      const fresh = runEngine(ctx, "goalReview", { target: 20000, monthly: 300, ...(since && { since }) });
+      expect(fresh.rows).toHaveLength(1);
+      expect(fresh.caption).toMatch(/^The plan starts this month/);
+    }
+    expect(() => runEngine(ctx, "goalReview", { target: 20000, monthly: 300, since: "June" })).toThrow(/YYYY-MM/);
   });
 
   it("peer comparison covers the same 12 months on both sides", () => {

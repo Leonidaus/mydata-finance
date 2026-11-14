@@ -59,6 +59,8 @@ jobs:
       ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
       IMAGE: ${{ needs.image.outputs.image }}:${{ github.sha }}
     steps:
+      - uses: actions/checkout@v7
+
       - name: Skip when no host is configured
         if: env.DEPLOY_HOST == ''
         run: echo "No DEPLOY_HOST secret, so the image was published but nothing was deployed."
@@ -80,6 +82,9 @@ jobs:
             true
           } | ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new "$target" \
             "umask 077 && cat > /srv/mydata/keys.env"
+
+          ssh -i ~/.ssh/deploy_key "$target" "install -d -o 1000 -g 1000 /srv/mydata/profiles"
+          scp -i ~/.ssh/deploy_key deploy/docker-compose.yml "$target:/srv/mydata/docker-compose.yml"
 
           ssh -i ~/.ssh/deploy_key "$target" \
             "cd /srv/mydata && IMAGE='$IMAGE' docker compose pull app && IMAGE='$IMAGE' docker compose up -d && docker image prune -f"

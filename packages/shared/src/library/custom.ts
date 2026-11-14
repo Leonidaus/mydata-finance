@@ -96,7 +96,7 @@ export const custom = {
    * A savings plan towards a target the user gave: one band per scenario (the current pace or
    * the chosen amount, saving more, meeting a deadline) with how long each takes.
    */
-  goalPlan: (opts: { target?: number; saved?: number; monthly?: number; extra?: number; byMonths?: number; label?: string } = {}): Block => ({
+  goalPlan: (opts: { target?: number; saved?: number; monthly?: number; extra?: number; byMonths?: number; label?: string; since?: string; extraFrom?: "spending_cut" } = {}): Block => ({
     id: id("plan"),
     title: opts.label ?? "Your savings plan",
     explanation:
@@ -112,6 +112,8 @@ export const custom = {
         extra: opts.extra ?? 0,
         ...(opts.byMonths !== undefined && { byMonths: opts.byMonths }),
         ...(opts.label && { label: opts.label }),
+        ...(opts.since && { since: opts.since }),
+        ...(opts.extraFrom && { extraFrom: opts.extraFrom }),
       },
     },
     view: {
@@ -143,6 +145,54 @@ export const custom = {
     },
     controls: [{ kind: "slider", arg: "extra", label: "Save more each month", min: 0, max: 500, step: 10, unit: "€" }],
     // A plan is something to come back to: it stays on the dashboard when later answers replace other cards.
+    pinned: true,
+  }),
+
+  /** How a savings plan is going: what was planned and what was really moved to savings, month by month. */
+  goalReview: (opts: { target?: number; saved?: number; monthly?: number; since?: string; label?: string } = {}): Block => ({
+    id: id("review"),
+    title: opts.label ? `${opts.label}: how it is going` : "How your plan is going",
+    explanation:
+      "The two lines add up, month by month, what your plan asked for and what you really moved from this account to savings since the plan started. Where the green line is below the grey one you are behind plan. The month in progress is included but not judged. Money left on the account is not counted until it is moved.",
+    source: "own",
+    data: {
+      kind: "engine",
+      fn: "goalReview",
+      args: {
+        ...(opts.target !== undefined && { target: opts.target }),
+        ...(opts.saved !== undefined && { saved: opts.saved }),
+        ...(opts.monthly !== undefined && { monthly: opts.monthly }),
+        ...(opts.since && { since: opts.since }),
+        ...(opts.label && { label: opts.label }),
+      },
+    },
+    view: {
+      kind: "spec",
+      spec: {
+        height: 170,
+        transform: [
+          { fold: ["planned", "moved"], as: ["line", "amount"] },
+          { calculate: "datum.line === 'planned' ? 'Planned' : 'Moved to savings'", as: "what" },
+        ],
+        mark: { type: "line", point: true, strokeWidth: 2.5 },
+        encoding: {
+          x: { field: "month", type: "ordinal", title: null, axis: { labelAngle: 0, labelOverlap: true } },
+          y: { field: "amount", type: "quantitative", title: "€, added up", axis: { format: ",.0f", tickCount: 4 } },
+          color: {
+            field: "what",
+            type: "nominal",
+            title: null,
+            scale: { domain: ["Planned", "Moved to savings"], range: ["var(--chart-4)", "var(--chart-1)"] },
+            legend: { orient: "top", direction: "horizontal" },
+          },
+          tooltip: [
+            { field: "month", title: "Month" },
+            { field: "what", title: "" },
+            { field: "amount", title: "€, added up", format: ",.0f" },
+          ],
+        },
+      },
+    },
     pinned: true,
   }),
 

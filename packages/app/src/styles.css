@@ -527,7 +527,8 @@ body {
   gap: 6px;
   padding-left: 52px;
   overflow-x: auto;
-  scrollbar-width: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) var(--surface-weak);
 }
 .chip-next {
   flex: none;
@@ -542,7 +543,17 @@ body {
   gap: 8px;
   padding: 12px 16px 2px;
   overflow-x: auto;
-  scrollbar-width: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) var(--surface-weak);
+}
+
+.coach-next::-webkit-scrollbar,
+.suggestions::-webkit-scrollbar { height: 8px; }
+
+.coach-next::-webkit-scrollbar-thumb,
+.suggestions::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--border-strong);
 }
 
 .chip {
@@ -556,15 +567,6 @@ body {
   color: var(--green-700);
   cursor: pointer;
   white-space: nowrap;
-}
-
-/* With a mouse there is no swipe: show a thin scrollbar so the row can be seen to scroll and dragged. */
-@media (hover: hover) and (pointer: fine) {
-  .coach-next,
-  .suggestions {
-    scrollbar-width: thin;
-    padding-bottom: 4px;
-  }
 }
 
 .chip:hover { background: var(--green-100); }

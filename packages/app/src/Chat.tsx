@@ -44,7 +44,7 @@ function ChipRow({ className, label, children }: { className: string; label: str
     return () => row.removeEventListener("wheel", onWheel);
   }, []);
   return (
-    <div ref={ref} className={className} aria-label={label}>
+    <div ref={ref} className={className} role="group" aria-label={label} tabIndex={0}>
       {children}
     </div>
   );
@@ -224,10 +224,16 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
               return latest ? (
                 <div key={m.id} className="coach-row">
                   <CoachFace face={coach?.mood ?? "neutral"} />
-                  <div><div className="bubble bubble-assistant">{m.text}</div>{showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>Show it anyway</button>}</div>
+                  <div>
+                    <div className="bubble bubble-assistant">{m.text}</div>
+                    {showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>Show it anyway</button>}
+                  </div>
                 </div>
               ) : (
-                <div key={m.id}><div className={`bubble bubble-${m.role}`}>{m.text}</div>{showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>Show it anyway</button>}</div>
+                <div key={m.id}>
+                  <div className={`bubble bubble-${m.role}`}>{m.text}</div>
+                  {showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>Show it anyway</button>}
+                </div>
               );
             })}
             {pending && (
