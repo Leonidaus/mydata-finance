@@ -15,7 +15,7 @@
  * customer's figures: totals computed by the finance engine, never the transaction list. In
  * "server" mode the backend computes them; in "browser" mode the app does.
  */
-import { type Block, type ChatOutput, runChat } from "@mydata/shared";
+import { type Block, type ChatOutput, type ProtectedCategory, runChat } from "@mydata/shared";
 import { apiBase } from "../data";
 import { gemini, geminiAvailable } from "./gemini";
 import { type AgentReply, type RunEngine, respond } from "./mockAgent";
@@ -34,6 +34,7 @@ export interface AgentContext {
   run: RunEngine;
   /** Whether the app is using the backend for this customer (API mode, not dev mode). */
   useBackend: boolean;
+  allowProtected?: ProtectedCategory[];
 }
 
 const serverChat = createServerChat(apiBase);
@@ -44,13 +45,13 @@ export async function chatMode(useBackend: boolean): Promise<ChatMode> {
   return geminiAvailable ? "browser" : "mock";
 }
 
-function report(out: ChatOutput): AgentReply {
+function report(out: ChatOutput & { blocked?: ProtectedCategory[] }): AgentReply {
   if (out.rejected.length) console.warn("Model tool calls rejected:", out.rejected);
   for (const p of out.picks ?? []) {
     if (p.via === "library") console.info(`[agent] ${p.blockId}: library component ${p.component}`);
     else console.info(`[agent] ${p.blockId}: custom ${p.view}${p.why ? ` (why: ${p.why})` : ""}`);
   }
-  return { text: out.text, ops: out.ops, mood: out.mood, suggestions: out.suggestions };
+  return { text: out.text, ops: out.ops, mood: out.mood, suggestions: out.suggestions, blocked: out.blocked };
 }
 
 export const cannedReply = (prompt: string, ctx: AgentContext): Promise<AgentReply> => respond(prompt, ctx.blocks, ctx.run);
@@ -58,7 +59,7 @@ export const cannedReply = (prompt: string, ctx: AgentContext): Promise<AgentRep
 export async function askAgent(question: string, ctx: AgentContext): Promise<AgentReply> {
   const mode = await chatMode(ctx.useBackend);
   if (mode === "server") {
-    return report(await serverChat.ask({ customerId: ctx.customerId, question, history: ctx.history, blocks: ctx.blocks }));
+    return report(await serverChat.ask({ customerId: ctx.customerId, question, history: ctx.history, blocks: ctx.blocks, allowProtected: ctx.allowProtected }));
   }
   if (mode === "browser") {
     return report(await runChat(gemini, { question, history: ctx.history, blocks: ctx.blocks, today: ctx.today, lookup: (fn, args) => ctx.run(fn, args) }));
