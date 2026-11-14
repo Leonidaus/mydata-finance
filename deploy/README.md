@@ -4,17 +4,20 @@
 which publishes the Docker image to GitHub's container registry and, when a host is
 configured, redeploys it there.
 
+The demo is at **https://s-pankki-demo.duckdns.org/**. The previous
+https://135.181.63.189.compute.verda.run/ address remains available as an alias.
+
 ## One-time host setup
 
 Any Linux machine with a public address and Docker works (for example a small CPU
 instance on Verda or Aiven).
 
 1. Install Docker with the compose plugin, and open ports 80 and 443.
-2. Create the directory and copy the compose file:
+2. Create the directory and copy the Compose file and proxy configuration:
    ```bash
    mkdir -p /srv/mydata/data /srv/mydata/profiles
    chown 1000:1000 /srv/mydata/profiles
-   scp deploy/docker-compose.yml <user>@<host>:/srv/mydata/
+   scp deploy/docker-compose.yml deploy/Caddyfile <user>@<host>:/srv/mydata/
    ```
 3. Copy the database. The full one is 663 MB; `build_database.py --keep-customers`
    makes a 2 MB one with only the demo customers (see the main README):
@@ -23,7 +26,7 @@ instance on Verda or Aiven).
    ```
 4. Create `/srv/mydata/.env` on the host:
    ```
-   DOMAIN=203-0-113-7.sslip.io      # the host's address, or your own domain
+   DOMAIN=demo.example.com        # a hostname whose DNS points to this server
    ```
    The service keys do not go here; the deploy workflow writes them (see below).
 5. Let the host pull the image. Either make the package public (GitHub → the
@@ -31,6 +34,38 @@ instance on Verda or Aiven).
    visibility), or run `docker login ghcr.io` on the host with a token that can read
    packages.
 6. Start it: `cd /srv/mydata && docker compose up -d`, then open `https://<DOMAIN>`.
+
+## Custom domain and aliases
+
+Point the hostname's DNS A record to the server's public IP before starting Caddy.
+It obtains and renews HTTPS certificates automatically when the name resolves to
+this server and ports 80 and 443 are reachable. No DuckDNS token is needed on the
+server when the DNS record is maintained through the DuckDNS dashboard.
+
+For the current demo, the public DNS record points to `135.181.63.189` and the
+host's `/srv/mydata/.env` contains:
+
+```dotenv
+DOMAIN=s-pankki-demo.duckdns.org
+DOMAIN_ALIASES=135.181.63.189.compute.verda.run
+```
+
+`DOMAIN_ALIASES` is optional. For several aliases, use a quoted, space-separated
+list. A single `DOMAIN` without aliases continues to work. Both the web app and
+`/api` use the hostname the visitor opened, so this change needs no app rebuild or
+API base URL override. Browser-local dashboard and language settings remain scoped
+to each hostname; both names use the same backend and stored coaching profiles.
+
+After changing hostnames, validate and recreate only the proxy:
+
+```bash
+cd /srv/mydata
+docker compose config --quiet
+docker compose run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+docker compose up -d --no-deps caddy
+```
+
+Check the page and `/api/health` over HTTPS for the primary name and each alias.
 
 ## Automatic redeploys
 
@@ -49,6 +84,9 @@ On every deploy the workflow writes the service keys that are set to
 `/srv/mydata/keys.env` on the host (readable only by the deploy user), and the app
 container reads that file. A missing key just leaves that service off; `/api/health`
 shows which are on. To change a key, update the secret and re-run the Deploy workflow.
+
+The workflow refreshes both `docker-compose.yml` and `Caddyfile`. Hostnames stay in
+the host's `.env`, so a new release retains the configured primary name and aliases.
 
 The public half of the deploy key is in [`deploy_key.pub`](deploy_key.pub). Allow it on
 the host, for the user the workflow logs in as:
