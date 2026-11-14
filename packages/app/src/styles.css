@@ -374,6 +374,18 @@ button.topbar-icon:focus-visible { background: var(--green-100); }
 .stat-terms li:last-child { font-weight: 700; }
 .neg { color: var(--muted); }
 
+/* What follows the subtotal of a stat card: a sentence, and the rest of the calculation on request. */
+.stat-note { margin: 10px 0 4px; color: var(--muted); font-size: 0.875rem; }
+.stat-calc summary {
+  padding: 6px 0;
+  color: var(--green-700);
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.stat-calc .stat-terms { margin-top: 2px; }
+.stat-calc p { margin: 8px 0 0; }
+
 /* recurring_list template */
 .list {
   width: 100%;

@@ -45,12 +45,15 @@ export const ENGINE_DOCS: Record<EngineFn, EngineDoc> = {
       "How much of this pay period's money is left to spend this week or until payday, after bills, essentials, saving and a buffer. " +
       "Money that was on the account before the last salary is a reserve and is not counted, so a large balance does not make a large figure. " +
       "reserve: how much of the account the USER says is savings (0 when all of it is for spending); it replaces the reserve worked out from the last salary.",
-    rows: "term (text), amount (€; negative terms are deductions). The last row is the result.",
+    rows:
+      "term (text), amount (€; negative terms are deductions), kind (balance | reserve | expected | subtotal | precaution | result). " +
+      "expected rows are bills and living costs still to come. precaution rows are money the app suggests keeping available (planned = the full allowance, " +
+      "coveredByReserve = the part the reserve pays for); they are not bills or spending. The subtotal is what is left after expected costs, before precautions. The last row is the result.",
     unit: "€",
   },
   safeToSave: {
     description: "How much can be moved to savings now, keeping a cushion of one month of regular essentials.",
-    rows: "term (text), amount (€). The last row is the result.",
+    rows: "term (text), amount (€), kind (balance | expected | precaution | result). precaution rows are money kept available, not bills. The last row is the result.",
     unit: "€",
   },
   balanceForecast: {
@@ -131,8 +134,8 @@ export const ENGINE_COLUMNS: Record<EngineFn, readonly string[]> = {
   monthlyTrend: ["month", "amount"],
   baskets: ["basket", "label", "amount", "count"],
   dailySpend: ["date", "amount"],
-  safeToSpend: ["term", "amount"],
-  safeToSave: ["term", "amount"],
+  safeToSpend: ["term", "amount", "kind"],
+  safeToSave: ["term", "amount", "kind"],
   balanceForecast: ["date", "balance", "kind"],
   whatIf: ["month", "saved"],
   peerCompare: ["category", "who", "amount"],
