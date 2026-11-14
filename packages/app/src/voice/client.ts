@@ -1,6 +1,8 @@
+import type { Locale } from "../i18n";
+
 export interface VoiceClient {
   available(): Promise<boolean>;
-  speak(text: string): Promise<Blob>;
+  speak(text: string, languageCode: Locale): Promise<Blob>;
   transcribe(audio: Blob): Promise<string>;
 }
 
@@ -38,11 +40,11 @@ export function createVoiceClient(base = "", fetchFn: typeof fetch = (...args) =
       return availability;
     },
 
-    async speak(text) {
+    async speak(text, languageCode) {
       const response = await request("/api/tts", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, languageCode }),
       });
       if (!response.ok) throw await failure(response);
       return response.blob();
