@@ -103,9 +103,7 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
       enabledRef.current = true;
       paused.current = false;
       setEnabled(true);
-      speechEnabledRef.current = true;
-      setSpeechEnabled(true);
-      playback.current.unlock();
+      // Reply narration is opt-in. Turning on microphone input must not also turn it on.
       setError(null);
       setProcessing(false);
       startCapture.current();
