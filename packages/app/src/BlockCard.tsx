@@ -93,16 +93,6 @@ export default function BlockCard({ block, customerId, today, onChange, onRemove
           Loading…
         </p>
       )}
-
-      <details className="how">
-        <summary>How was this made?</summary>
-        <p>{block.explanation}</p>
-        <p className="muted small">
-          Computed from your transactions up to {today}. The AI chose what to show; the numbers come from the
-          calculation below, not from the AI.
-        </p>
-        <pre>{JSON.stringify({ data: block.data, view: block.view }, null, 2)}</pre>
-      </details>
     </article>
   );
 }
