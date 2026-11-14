@@ -84,7 +84,7 @@ jobs:
             "umask 077 && cat > /srv/mydata/keys.env"
 
           ssh -i ~/.ssh/deploy_key "$target" "install -d -o 1000 -g 1000 /srv/mydata/profiles"
-          scp -i ~/.ssh/deploy_key deploy/docker-compose.yml "$target:/srv/mydata/docker-compose.yml"
+          scp -i ~/.ssh/deploy_key deploy/docker-compose.yml deploy/Caddyfile "$target:/srv/mydata/"
 
           ssh -i ~/.ssh/deploy_key "$target" \
             "cd /srv/mydata && IMAGE='$IMAGE' docker compose pull app && IMAGE='$IMAGE' docker compose up -d && docker image prune -f"

@@ -1,0 +1,5 @@
+# DOMAIN is the primary hostname; DOMAIN_ALIASES optionally lists other hostnames
+# separated by spaces. Every name must resolve to this server for automatic HTTPS.
+{$DOMAIN} {$DOMAIN_ALIASES:} {
+	reverse_proxy app:8787
+}
