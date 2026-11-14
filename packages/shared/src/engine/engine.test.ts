@@ -7,7 +7,8 @@ import { contextFromFixture, type FixtureBundle, type FixtureIndex } from "./fix
 import { EngineArgumentError } from "./args";
 import { basketOf, classifyBasket } from "./baskets";
 import { filterTransactions, runEngine } from "./functions";
-import type { Cohorts } from "./types";
+import { ENGINE_COLUMNS } from "../agent/catalog";
+import { type Cohorts, ENGINE_FNS } from "./types";
 import { resolvePeriod, sum } from "./util";
 
 const dir = fileURLToPath(new URL("../../../app/public/fixtures/", import.meta.url));
@@ -200,6 +201,17 @@ describe.each(contexts)("financial definitions on $label", ({ ctx }) => {
     // A category without a national counterpart is an error, not an empty chart.
     expect(() => runEngine(ctx, "nationalCompare", { category: "Travel" })).toThrow(EngineArgumentError);
     expect(() => runEngine(ctx, "nationalCompare", { basis: "family" })).toThrow(/one_adult, household/);
+  });
+
+  it("returns the columns the coach is told each function has", () => {
+    // Custom views may only read ENGINE_COLUMNS, so a column listed there must really be in the rows.
+    for (const fn of ENGINE_FNS) {
+      const { rows } = runEngine(ctx, fn);
+      if (rows.length === 0) continue;
+      const present = new Set(rows.flatMap((row) => Object.keys(row)));
+      for (const column of ENGINE_COLUMNS[fn]) expect(present.has(column), `${fn}.${column}`).toBe(true);
+    }
+    expect(Object.keys(ENGINE_COLUMNS).sort()).toEqual([...ENGINE_FNS].sort());
   });
 
   it("peer comparison covers the same 12 months on both sides", () => {
