@@ -5,6 +5,7 @@ import { serve } from "@hono/node-server";
 import { createApp } from "./app";
 import { createServerChatModels } from "./chat";
 import { openDatabase, resolveFromInvocationDir } from "./db";
+import { SqliteProfileStore } from "./profiles";
 
 // Keys for outside services (ELEVENLABS_API_KEY, ...) may live in a .env file at the
 // repository root. It is gitignored; see .env.example. Variables already set win.
@@ -12,6 +13,8 @@ const envFile = resolve(dirname(fileURLToPath(import.meta.url)), "../../../.env"
 if (existsSync(envFile)) process.loadEnvFile(envFile);
 
 const db = openDatabase();
+const profilePath = resolveFromInvocationDir(process.env.PROFILE_DB ?? "data/out/profiles.sqlite");
+const profiles = new SqliteProfileStore(profilePath);
 const port = Number(process.env.PORT ?? 8787);
 // STATIC_DIR: the built web app to serve alongside the API (set in the Docker image).
 const staticDir = process.env.STATIC_DIR && resolveFromInvocationDir(process.env.STATIC_DIR);
@@ -25,7 +28,7 @@ const geminiKey = process.env.GEMINI_API_KEY?.trim() || undefined;
 // several models, comma-separated; the next one is tried when one is overloaded.
 const chatModel = geminiKey ? createServerChatModels(geminiKey, process.env) : undefined;
 
-serve({ fetch: createApp(db, { staticDir, chatModel }).fetch, port }, (info) => {
+serve({ fetch: createApp(db, { staticDir, chatModel, profiles }).fetch, port }, (info) => {
   console.log(
     `Finance API on http://localhost:${info.port} ` +
       `(${db.meta.rows_customers} customers, today is ${db.today})` +

@@ -551,7 +551,8 @@ answers are cut off at the demo's "today", so later transactions never appear.
 | `POST /api/transactions` | The transactions behind an engine result: `{ customerId, filter, limit }` |
 | `POST /api/tts` | Text to speech: `{ text, languageCode? }` → MP3 audio (ElevenLabs, from `packages/voice`) |
 | `POST /api/stt` | Speech to text: an `audio` form file or a raw audio body → `{ text, languageCode }` |
-| `POST /api/chat` | The coach: `{ customerId, question, history, blocks }` → `{ text, ops, mood, suggestions, checked, answeredBy, rejected, picks }` |
+| `GET/PATCH /api/customers/:id/profile` | Stored coaching style and protected spending categories |
+| `POST /api/chat` | The coach: `{ customerId, question, history, blocks, allowProtected? }` → `{ text, ops, mood, suggestions, checked, answeredBy, rejected, picks, blocked }` |
 
 The spending endpoint takes `period` (`this_month`, `last_month`, `last_30_days`,
 `last_3_months`, `last_12_months`, `this_year`, `all`) or `from` and `to`, and the
@@ -600,6 +601,12 @@ The caller cannot supply instructions, pick the model or reach Gemini directly. 
 whole conversation logic is in `packages/shared/src/agent` (`chat.ts` for the steps
 above, `snapshot.ts`, `figures.ts` for the number check, `viewChecks.ts`); the
 backend adds the model and the engine for the customer who is asking.
+
+Coaching preferences are stored separately in a small writable SQLite database. A customer can
+choose an encouraging, direct or exploratory style and categories to keep as-is. The server applies
+those category protections to savings and what-if lookups, including cards; `allowProtected` only
+shows one protected category in one chat answer and never changes the stored profile. This demo API
+has no authentication, so profile routes are intentionally open like the rest of the demo API.
 
 Two models share the work. A fast one (`GEMINI_MODEL`) answers most turns in about
 two seconds. A stronger one (`GEMINI_STRONG_MODEL`) takes the turns that gain from

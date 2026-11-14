@@ -462,10 +462,12 @@ function balanceForecast(ctx: EngineContext): EngineResult {
 
 // ---------- what-if, peers, recurring, goals ----------
 
+export const WHATIF_DEFAULT_CATEGORY = "Restaurants";
+
 function whatIf(ctx: EngineContext, args: Record<string, unknown>): EngineResult {
   const merchantType = str(args.mcc);
   // One merchant type (e.g. fast food) when given, otherwise a whole category.
-  const category = merchantType ? undefined : (str(args.category) ?? "Restaurants");
+  const category = merchantType ? undefined : (str(args.category) ?? WHATIF_DEFAULT_CATEGORY);
   const subject = merchantType ? (lookupMcc(merchantType)?.label ?? merchantType) : (category as string);
   const cutPct = num(args.cutPct, 20);
   const [from, to] = resolvePeriod("last_12_months", ctx.today);
