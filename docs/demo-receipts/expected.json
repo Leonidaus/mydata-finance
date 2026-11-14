@@ -1,0 +1,342 @@
+{
+  "customer": "CUST01700",
+  "today": "2026-09-15",
+  "receipts": [
+    {
+      "kind": "grocery",
+      "merchant": "RUOKAKAUPPA KAMPPI",
+      "mcc": "5411",
+      "date": "2026-09-14",
+      "time": "13:20",
+      "total": 62.52,
+      "paidBy": "card",
+      "lines": [
+        {
+          "name": "Maitosuklaa 200g",
+          "amount": 3.99,
+          "type": "item",
+          "subcategory": "snacks_sweets"
+        },
+        {
+          "name": "Irtokarkit 380g",
+          "amount": 4.18,
+          "type": "item",
+          "subcategory": "snacks_sweets"
+        },
+        {
+          "name": "Perunalastut 275g",
+          "amount": 3.49,
+          "type": "item",
+          "subcategory": "snacks_sweets"
+        },
+        {
+          "name": "Cola 1,5l",
+          "amount": 2.49,
+          "type": "item",
+          "subcategory": "soft_drinks"
+        },
+        {
+          "name": "PANTTI",
+          "amount": 0.4,
+          "type": "deposit"
+        },
+        {
+          "name": "Energiajuoma 0,5l",
+          "amount": 2.19,
+          "type": "item",
+          "subcategory": "soft_drinks"
+        },
+        {
+          "name": "PANTTI",
+          "amount": 0.15,
+          "type": "deposit"
+        },
+        {
+          "name": "Maito 1l",
+          "amount": 1.25,
+          "type": "item",
+          "subcategory": "dairy_eggs"
+        },
+        {
+          "name": "Ruisleipä 6kpl",
+          "amount": 2.39,
+          "type": "item",
+          "subcategory": "bread_bakery"
+        },
+        {
+          "name": "Pakastepizza",
+          "amount": 3.89,
+          "type": "item",
+          "subcategory": "ready_meals"
+        },
+        {
+          "name": "Spagetti 500g",
+          "amount": 1.29,
+          "type": "item",
+          "subcategory": "pantry"
+        },
+        {
+          "name": "Kananmunat 10kpl",
+          "amount": 3.19,
+          "type": "item",
+          "subcategory": "dairy_eggs"
+        },
+        {
+          "name": "Lohifilee 300g",
+          "amount": 7.95,
+          "type": "item",
+          "subcategory": "meat_fish"
+        },
+        {
+          "name": "Juusto 500g",
+          "amount": 5.89,
+          "type": "item",
+          "subcategory": "dairy_eggs"
+        },
+        {
+          "name": "Banaani 1,02kg",
+          "amount": 1.94,
+          "type": "item",
+          "subcategory": "produce"
+        },
+        {
+          "name": "Talouspaperi 4rl",
+          "amount": 3.95,
+          "type": "item",
+          "subcategory": "household"
+        },
+        {
+          "name": "Kahvi 500g",
+          "amount": 6.49,
+          "type": "item",
+          "subcategory": "coffee_tea"
+        },
+        {
+          "name": "Hammastahna",
+          "amount": 2.49,
+          "type": "item",
+          "subcategory": "hygiene_beauty"
+        },
+        {
+          "name": "Kurkku",
+          "amount": 1.49,
+          "type": "item",
+          "subcategory": "produce"
+        },
+        {
+          "name": "Hedelmät irto",
+          "amount": 3.42,
+          "type": "item",
+          "subcategory": "produce"
+        }
+      ],
+      "matches": {
+        "tx_timestamp": "2026-09-14T13:22:45",
+        "amount": 62.52
+      }
+    },
+    {
+      "kind": "restaurant",
+      "merchant": "BISTRO ESPLANADI",
+      "mcc": "5812",
+      "date": "2026-09-13",
+      "time": "21:36",
+      "total": 48.97,
+      "paidBy": "card",
+      "lines": [
+        {
+          "name": "Hampurilaisateria",
+          "amount": 14.9,
+          "type": "item",
+          "subcategory": "meal"
+        },
+        {
+          "name": "Olut 0,5l",
+          "amount": 8.5,
+          "type": "item",
+          "subcategory": "restaurant_alcohol"
+        },
+        {
+          "name": "Lasi punaviiniä",
+          "amount": 9.5,
+          "type": "item",
+          "subcategory": "restaurant_alcohol"
+        },
+        {
+          "name": "Virvoitusjuoma",
+          "amount": 4.5,
+          "type": "item",
+          "subcategory": "restaurant_drinks"
+        },
+        {
+          "name": "Päivän annos",
+          "amount": 11.57,
+          "type": "item",
+          "subcategory": "meal"
+        }
+      ],
+      "matches": {
+        "tx_timestamp": "2026-09-13T21:38:10",
+        "amount": 48.97
+      }
+    },
+    {
+      "kind": "fuel",
+      "merchant": "ASEMA LAUTTASAARI",
+      "mcc": "5542",
+      "date": "2026-09-12",
+      "time": "17:09",
+      "total": 31.78,
+      "paidBy": "card",
+      "lines": [
+        {
+          "name": "Kahvi iso",
+          "amount": 2.9,
+          "type": "item",
+          "subcategory": "cafe_snack"
+        },
+        {
+          "name": "Korvapuusti",
+          "amount": 3.2,
+          "type": "item",
+          "subcategory": "cafe_snack"
+        },
+        {
+          "name": "Suklaapatukka",
+          "amount": 2.19,
+          "type": "item",
+          "subcategory": "snacks_sweets"
+        },
+        {
+          "name": "Energiajuoma 0,33l",
+          "amount": 2.79,
+          "type": "item",
+          "subcategory": "soft_drinks"
+        },
+        {
+          "name": "PANTTI",
+          "amount": 0.15,
+          "type": "deposit"
+        },
+        {
+          "name": "Polttoaine 95E10",
+          "amount": 20.55,
+          "type": "item",
+          "subcategory": "fuel"
+        }
+      ],
+      "matches": {
+        "tx_timestamp": "2026-09-12T17:11:33",
+        "amount": 31.78
+      }
+    },
+    {
+      "kind": "grocery",
+      "merchant": "RUOKAKAUPPA KAMPPI",
+      "mcc": "5411",
+      "date": "2026-10-02",
+      "time": "17:43",
+      "total": 62.52,
+      "paidBy": "card",
+      "lines": [
+        {
+          "name": "Maitosuklaa 200g",
+          "amount": 3.99,
+          "type": "item",
+          "subcategory": "snacks_sweets"
+        },
+        {
+          "name": "Irtokarkit 380g",
+          "amount": 4.18,
+          "type": "item",
+          "subcategory": "snacks_sweets"
+        },
+        {
+          "name": "Juusto 500g",
+          "amount": 5.89,
+          "type": "item",
+          "subcategory": "dairy_eggs"
+        },
+        {
+          "name": "Pakastepizza",
+          "amount": 3.89,
+          "type": "item",
+          "subcategory": "ready_meals"
+        },
+        {
+          "name": "Hammastahna",
+          "amount": 2.49,
+          "type": "item",
+          "subcategory": "hygiene_beauty"
+        },
+        {
+          "name": "Kahvi 500g",
+          "amount": 6.49,
+          "type": "item",
+          "subcategory": "coffee_tea"
+        },
+        {
+          "name": "Banaani 1,02kg",
+          "amount": 1.94,
+          "type": "item",
+          "subcategory": "produce"
+        },
+        {
+          "name": "Ruisleipä 6kpl",
+          "amount": 2.39,
+          "type": "item",
+          "subcategory": "bread_bakery"
+        },
+        {
+          "name": "Jauheliha 400g",
+          "amount": 4.89,
+          "type": "item",
+          "subcategory": "meat_fish"
+        },
+        {
+          "name": "Maito 1l",
+          "amount": 1.25,
+          "type": "item",
+          "subcategory": "dairy_eggs"
+        },
+        {
+          "name": "Talouspaperi 4rl",
+          "amount": 3.95,
+          "type": "item",
+          "subcategory": "household"
+        },
+        {
+          "name": "Kananmunat 10kpl",
+          "amount": 3.19,
+          "type": "item",
+          "subcategory": "dairy_eggs"
+        },
+        {
+          "name": "Spagetti 500g",
+          "amount": 1.29,
+          "type": "item",
+          "subcategory": "pantry"
+        },
+        {
+          "name": "Lohifilee 300g",
+          "amount": 7.95,
+          "type": "item",
+          "subcategory": "meat_fish"
+        },
+        {
+          "name": "Kurkku",
+          "amount": 1.49,
+          "type": "item",
+          "subcategory": "produce"
+        },
+        {
+          "name": "Hedelmät irto",
+          "amount": 7.25,
+          "type": "item",
+          "subcategory": "produce"
+        }
+      ],
+      "matches": null
+    }
+  ]
+}
