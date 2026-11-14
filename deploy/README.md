@@ -12,7 +12,8 @@ instance on Verda or Aiven).
 1. Install Docker with the compose plugin, and open ports 80 and 443.
 2. Create the directory and copy the compose file:
    ```bash
-   mkdir -p /srv/mydata/data
+   mkdir -p /srv/mydata/data /srv/mydata/profiles
+   chown 1000:1000 /srv/mydata/profiles
    scp deploy/docker-compose.yml <user>@<host>:/srv/mydata/
    ```
 3. Copy the database. The full one is 663 MB; `build_database.py --keep-customers`

@@ -1,6 +1,6 @@
 import { type FormEvent, type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
 import { DEMO_PROMPTS } from "./agent/mockAgent";
-import type { Mood } from "@mydata/shared";
+import type { Mood, ProtectedCategory } from "@mydata/shared";
 import type { ChatMode } from "./agent";
 import CoachFace from "./CoachFace";
 import { apiBase } from "./data";
@@ -8,7 +8,7 @@ import { errorMessage } from "./latest";
 import { createVoiceClient } from "./voice/client";
 import { useVoice } from "./voice/useVoice";
 
-type Message = { id: number; role: "user" | "assistant"; text: string };
+type Message = { id: number; role: "user" | "assistant"; text: string; question?: string; blocked?: ProtectedCategory[]; overrideUsed?: boolean };
 
 /** A few of each kind, so the chips show templates, custom charts and widgets. */
 const SUGGESTIONS = [
@@ -28,7 +28,7 @@ export interface CoachState {
 
 interface Props {
   /** Resolves to the assistant's reply text; dashboard edits happen as a side effect. */
-  onAsk: (question: string, canned?: boolean) => Promise<string>;
+  onAsk: (question: string, canned?: boolean, allowProtected?: ProtectedCategory[]) => Promise<{ text: string; blocked?: ProtectedCategory[] }>;
   /** Changing this resets the conversation (e.g. when switching customer). */
   resetKey: string;
   /** Send a question from outside the chat (e.g. the dev gallery). A new `n` sends again. */
@@ -67,13 +67,13 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "auto" });
   }, [chatHeight]);
 
-  function send(text: string, canned = false) {
+  function send(text: string, canned = false, allowProtected?: ProtectedCategory[]) {
     const trimmed = text.trim();
     if (!trimmed || pendingRef.current) return;
     voice.pause();
-    const add = (role: Message["role"], text: string) => {
+    const add = (role: Message["role"], text: string, extra: Omit<Message, "id" | "role" | "text"> = {}) => {
       const id = nextId.current++;
-      setMessages((prev) => [...prev, { id, role, text }]);
+      setMessages((prev) => [...prev, { id, role, text, ...extra }]);
     };
     // A reply that arrives after the conversation was reset belongs to the previous customer: drop it.
     const askedIn = conversation.current;
@@ -82,11 +82,11 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
     setInput("");
     pendingRef.current = true;
     setPending(true);
-    onAsk(trimmed, canned)
+    onAsk(trimmed, canned, allowProtected)
       .then(
-        (reply) => {
+        ({ text: reply, blocked }) => {
           if (!current()) return;
-          add("assistant", reply);
+          add("assistant", reply, { question: trimmed, blocked, overrideUsed: Boolean(allowProtected?.length) });
           return voice.speak(reply);
         },
         (e: unknown) => current() && add("assistant", `I couldn't answer that: ${errorMessage(e)} Please ask again.`),
@@ -190,15 +190,14 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
             {messages.map((m, i) => {
               // The coach shows its face with its latest answer only.
               const latest = !pending && m.role === "assistant" && i === messages.length - 1;
+              const showOverride = m.role === "assistant" && i === messages.length - 1 && m.blocked?.length && !m.overrideUsed && !pending;
               return latest ? (
                 <div key={m.id} className="coach-row">
                   <CoachFace face={coach?.mood ?? "neutral"} />
-                  <div className="bubble bubble-assistant">{m.text}</div>
+                  <div><div className="bubble bubble-assistant">{m.text}</div>{showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>Show it anyway</button>}</div>
                 </div>
               ) : (
-                <div key={m.id} className={`bubble bubble-${m.role}`}>
-                  {m.text}
-                </div>
+                <div key={m.id}><div className={`bubble bubble-${m.role}`}>{m.text}</div>{showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>Show it anyway</button>}</div>
               );
             })}
             {pending && (
