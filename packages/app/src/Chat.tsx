@@ -1,4 +1,4 @@
-import { type FormEvent, type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { DEMO_PROMPTS } from "./agent/mockAgent";
 import type { Mood, ProtectedCategory } from "@mydata/shared";
 import type { ChatMode } from "./agent";
@@ -19,6 +19,36 @@ const SUGGESTIONS = [
 ];
 
 const voiceClient = createVoiceClient(apiBase);
+
+/**
+ * A single row of chips that scrolls sideways. Touch swipes it natively; a mouse wheel only
+ * scrolls up and down, so here the wheel moves the row sideways while it has room to move.
+ */
+function ChipRow({ className, label, children }: { className: string; label: string; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const row = ref.current;
+    if (!row) return;
+    const onWheel = (e: WheelEvent) => {
+      // Trackpads and shift+wheel already scroll sideways.
+      if (e.deltaY === 0 || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+      const max = row.scrollWidth - row.clientWidth;
+      if (max <= 0) return;
+      const to = Math.max(0, Math.min(max, row.scrollLeft + e.deltaY));
+      if (to === row.scrollLeft) return; // at the end: let the conversation scroll
+      e.preventDefault();
+      row.scrollLeft = to;
+    };
+    // Not React's onWheel: that listener is passive and cannot stop the conversation scrolling.
+    row.addEventListener("wheel", onWheel, { passive: false });
+    return () => row.removeEventListener("wheel", onWheel);
+  }, []);
+  return (
+    <div ref={ref} className={className} aria-label={label}>
+      {children}
+    </div>
+  );
+}
 
 /** How the coach looked and what it offered next in its latest answer. */
 export interface CoachState {
@@ -207,24 +237,27 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
               </div>
             )}
             {!pending && messages.at(-1)?.role === "assistant" && (coach?.suggestions.length ?? 0) > 0 && (
-              <div className="coach-next" aria-label="Suggested next steps">
+              <ChipRow className="coach-next" label="Suggested next steps">
                 {coach?.suggestions.map((s) => (
                   <button key={s} type="button" className="chip chip-next" onClick={() => send(s)}>
                     {s}
                   </button>
                 ))}
-              </div>
+              </ChipRow>
             )}
           </div>
         </div>
       )}
-      <div className="suggestions" aria-label="Suggested questions (answered instantly)">
-        {SUGGESTIONS.map((s) => (
-          <button key={s} type="button" className="chip" onClick={() => send(s, true)} disabled={pending}>
-            {s}
-          </button>
-        ))}
-      </div>
+      {/* Starter prompts only: they go away once the conversation has begun. */}
+      {messages.length === 0 && (
+        <ChipRow className="suggestions" label="Suggested questions (answered instantly)">
+          {SUGGESTIONS.map((s) => (
+            <button key={s} type="button" className="chip" onClick={() => send(s, true)} disabled={pending}>
+              {s}
+            </button>
+          ))}
+        </ChipRow>
+      )}
 
       <form className="chat-input" onSubmit={onSubmit}>
         <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask about your money…" aria-label="Your question" />

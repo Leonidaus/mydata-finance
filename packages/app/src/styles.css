@@ -558,6 +558,15 @@ body {
   white-space: nowrap;
 }
 
+/* With a mouse there is no swipe: show a thin scrollbar so the row can be seen to scroll and dragged. */
+@media (hover: hover) and (pointer: fine) {
+  .coach-next,
+  .suggestions {
+    scrollbar-width: thin;
+    padding-bottom: 4px;
+  }
+}
+
 .chip:hover { background: var(--green-100); }
 .chip:disabled { border-color: var(--border); color: var(--border-strong); cursor: default; }
 
