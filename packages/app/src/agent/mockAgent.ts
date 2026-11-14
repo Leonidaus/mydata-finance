@@ -25,6 +25,10 @@ export interface AgentReply {
   mood?: Mood | null;
   suggestions?: string[];
   blocked?: string[];
+  /** Categories the coach asked about taking off the keep-as-is list; sent back with the next question. */
+  proposedUnprotect?: string[];
+  /** True when the coach changed the saved coaching profile in this answer. */
+  profileChanged?: boolean;
 }
 
 /** Runs an engine function for the customer being answered, through the app's data source. */

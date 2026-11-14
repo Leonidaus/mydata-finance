@@ -8,7 +8,16 @@ import { errorMessage } from "./latest";
 import { createVoiceClient } from "./voice/client";
 import { useVoice } from "./voice/useVoice";
 
-type Message = { id: number; role: "user" | "assistant"; text: string; question?: string; blocked?: ProtectedCategory[]; overrideUsed?: boolean };
+type Message = {
+  id: number;
+  role: "user" | "assistant";
+  text: string;
+  question?: string;
+  blocked?: ProtectedCategory[];
+  overrideUsed?: boolean;
+  /** Categories this answer asked about taking off the keep-as-is list. */
+  proposedUnprotect?: ProtectedCategory[];
+};
 
 /** A few of each kind, so the chips show templates, custom charts and widgets. */
 const SUGGESTIONS = [
@@ -58,7 +67,7 @@ export interface CoachState {
 
 interface Props {
   /** Resolves to the assistant's reply text; dashboard edits happen as a side effect. */
-  onAsk: (question: string, canned?: boolean, allowProtected?: ProtectedCategory[]) => Promise<{ text: string; blocked?: ProtectedCategory[] }>;
+  onAsk: (question: string, canned?: boolean, allowProtected?: ProtectedCategory[]) => Promise<{ text: string; blocked?: ProtectedCategory[]; proposedUnprotect?: ProtectedCategory[] }>;
   /** Changing this resets the conversation (e.g. when switching customer). */
   resetKey: string;
   /** Send a question from outside the chat (e.g. the dev gallery). A new `n` sends again. */
@@ -114,9 +123,9 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
     setPending(true);
     onAsk(trimmed, canned, allowProtected)
       .then(
-        ({ text: reply, blocked }) => {
+        ({ text: reply, blocked, proposedUnprotect }) => {
           if (!current()) return;
-          add("assistant", reply, { question: trimmed, blocked, overrideUsed: Boolean(allowProtected?.length) });
+          add("assistant", reply, { question: trimmed, blocked, proposedUnprotect, overrideUsed: Boolean(allowProtected?.length) });
           return voice.speak(reply);
         },
         (e: unknown) => current() && add("assistant", `I couldn't answer that: ${errorMessage(e)} Please ask again.`),
@@ -222,18 +231,35 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
               const latest = !pending && m.role === "assistant" && i === messages.length - 1;
               // A comparison, not the length itself: with nothing blocked the length is 0, and React would print that 0.
               const showOverride = m.role === "assistant" && i === messages.length - 1 && (m.blocked?.length ?? 0) > 0 && !m.overrideUsed && !pending;
+              // The coach asked whether to take something off the keep-as-is list: the answer is one tap, or typed.
+              const asked = m.role === "assistant" && i === messages.length - 1 && !pending ? (m.proposedUnprotect ?? []) : [];
+              const actions = (asked.length > 0 || showOverride) && (
+                <div className="bubble-actions">
+                  {asked.map((category) => (
+                    <button key={category} type="button" className="chip chip-next" onClick={() => send(`Yes, take ${category} off my keep-as-is list.`)}>
+                      Yes, stop keeping {category} as is
+                    </button>
+                  ))}
+                  {asked.length > 0 && (
+                    <button type="button" className="chip chip-next" onClick={() => send(`No, keep ${asked.join(" and ")} as it is.`)}>
+                      No, keep it
+                    </button>
+                  )}
+                  {showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>Show it anyway</button>}
+                </div>
+              );
               return latest ? (
                 <div key={m.id} className="coach-row">
                   <CoachFace face={coach?.mood ?? "neutral"} />
                   <div>
                     <div className="bubble bubble-assistant">{m.text}</div>
-                    {showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>Show it anyway</button>}
+                    {actions}
                   </div>
                 </div>
               ) : (
                 <div key={m.id}>
                   <div className={`bubble bubble-${m.role}`}>{m.text}</div>
-                  {showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>Show it anyway</button>}
+                  {actions}
                 </div>
               );
             })}
@@ -243,7 +269,8 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
                 <div className="bubble bubble-assistant">{mode === "mock" ? "Thinking…" : "Let me look at your figures…"}</div>
               </div>
             )}
-            {!pending && messages.at(-1)?.role === "assistant" && (coach?.suggestions.length ?? 0) > 0 && (
+            {/* While the coach's question about the keep-as-is list is open, its own buttons are the next steps. */}
+            {!pending && messages.at(-1)?.role === "assistant" && (messages.at(-1)?.proposedUnprotect?.length ?? 0) === 0 && (coach?.suggestions.length ?? 0) > 0 && (
               <ChipRow className="coach-next" label="Suggested next steps">
                 {coach?.suggestions.map((s) => (
                   <button key={s} type="button" className="chip chip-next" onClick={() => send(s)}>

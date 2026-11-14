@@ -673,6 +673,21 @@ those category protections to savings and what-if lookups, including cards; `all
 shows one protected category in one chat answer and never changes the stored profile. This demo API
 has no authentication, so profile routes are intentionally open like the rest of the demo API.
 
+The preferences can also be changed in the chat, and the change is saved the same way:
+
+- "Leave my travel alone" or "be more direct with me" is saved straight away, and the coach says
+  what it changed.
+- When the customer says they would be willing to cut something on their keep-as-is list, the coach
+  does not refuse and does not calculate. It asks whether to take that category off the list, with
+  a yes and a no under the question. After the yes the category is removed, the coaching settings
+  show it, and the coach carries on with the cut that was asked about.
+- A category only comes off the list after that question: the coach's first attempt is recorded as
+  "to ask", and the removal goes through when the next message arrives with that category marked
+  as asked about (`pendingUnprotect` in the chat request; the answer lists what it asked about in
+  `proposedUnprotect`). The model cannot remove a protection in one go.
+
+The rules are in `packages/shared/src/agent/preferences.ts`.
+
 Two models share the work. A fast one (`GEMINI_MODEL`) answers most turns in about
 two seconds. A stronger one (`GEMINI_STRONG_MODEL`) takes the turns that gain from
 it, in six to nine seconds:

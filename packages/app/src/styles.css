@@ -807,3 +807,11 @@ body {
   cursor: pointer;
 }
 .pin-btn.on { background: var(--green-300); border-color: var(--green-300); color: var(--green-900); }
+
+/* Answers to a question the coach asked (yes / no / show it anyway), under its bubble. */
+.bubble-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
