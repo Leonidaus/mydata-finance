@@ -247,7 +247,7 @@ describe.each(contexts)("financial definitions on $label", ({ ctx }) => {
   it("returns the columns the coach is told each function has", () => {
     // Custom views may only read ENGINE_COLUMNS, so a column listed there must really be in the rows.
     for (const fn of ENGINE_FNS) {
-      const { rows } = runEngine(ctx, fn, fn === "goalPlan" ? { target: 20000 } : fn === "goalReview" ? { target: 20000, monthly: 300, since: "2026-05" } : {});
+      const { rows } = runEngine(ctx, fn, fn === "goalPlan" ? { target: 20000 } : fn === "afford" ? { amount: 100 } : fn === "goalReview" ? { target: 20000, monthly: 300, since: "2026-05" } : {});
       if (rows.length === 0) continue;
       const present = new Set(rows.flatMap((row) => Object.keys(row)));
       for (const column of ENGINE_COLUMNS[fn]) expect(present.has(column), `${fn}.${column}`).toBe(true);
@@ -366,6 +366,26 @@ describe.each(contexts)("financial definitions on $label", ({ ctx }) => {
       const all = runEngine(ctx, "safeToSpend", { horizon: "until_payday", reserve: 10_000_000 });
       close(all.rows[1].amount as number, -inferred.balance);
     }
+  });
+
+  it("says whether a price fits what is safe to spend, and lets a necessity use the buffer", () => {
+    expect(() => runEngine(ctx, "afford")).toThrow(/needs amount/);
+    const p = planUntilPayday(ctx);
+    const safe = Math.max(0, p.spendable);
+    const small = runEngine(ctx, "afford", { amount: 10, label: "Coffee beans" });
+    expect(small.rows.map((row) => row.term)).toEqual([expect.stringMatching(/^Safe to spend until payday/), "Coffee beans", expect.stringMatching(/^(Left until payday|Missing from)/)]);
+    close(small.value!, safe - 10);
+    close(small.rows.at(-1)!.amount as number, safe - 10);
+    expect(small.caption).toMatch(safe >= 10 ? /^Fits/ : /^(More than|Not from)/);
+    // A necessity may use the buffer on top of what is safe to spend.
+    const bill = runEngine(ctx, "afford", { amount: 10, kind: "necessity" });
+    close(bill.value!, safe + p.buffer - 10);
+    expect(bill.rows[1].term).toBe("Buffer for unexpected necessities");
+    // Far more than the account holds is a savings goal, never a purchase.
+    const flat = runEngine(ctx, "afford", { amount: 250_000 });
+    expect(flat.value!).toBeLessThan(0);
+    expect(flat.caption).toMatch(/^Not from this pay period's money/);
+    expect(flat.rows.at(-1)!.term).toBe("Missing from this pay period's money");
   });
 
   it("reviews a savings plan month by month against what was moved to savings", () => {

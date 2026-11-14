@@ -1,10 +1,12 @@
-import { type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { DEMO_PROMPTS } from "./agent/mockAgent";
-import type { Mood, ProtectedCategory } from "@mydata/shared";
+import type { ChatImage, Mood, PhotoRead, ProtectedCategory } from "@mydata/shared";
 import type { ChatMode } from "./agent";
 import CoachFace from "./CoachFace";
 import { apiBase } from "./data";
+import { formatEurCents } from "./format";
 import { errorMessage } from "./latest";
+import { preparePhoto } from "./photo";
 import { createVoiceClient } from "./voice/client";
 import { useVoice } from "./voice/useVoice";
 
@@ -17,7 +19,31 @@ type Message = {
   overrideUsed?: boolean;
   /** Categories this answer asked about taking off the keep-as-is list. */
   proposedUnprotect?: ProtectedCategory[];
+  /** A photo sent with the message, as a data URL, and what the coach read from it once it has answered. */
+  photoUrl?: string;
+  photo?: PhotoRead;
 };
+
+/** A photo waiting in the input row: what goes to the coach, and the same picture for the screen. */
+type Attached = { image: ChatImage; url: string };
+
+/** What was read from a photo, under the picture: the user checks it against what they see. */
+function photoReading(photo: PhotoRead): string {
+  if (photo.amount === null) return "No price found in the photo";
+  const price = `${formatEurCents(photo.amount)}${photo.monthly ? " a month" : ""}`;
+  return `Read from the photo: ${photo.item ? `${photo.item}, ` : ""}${price}`;
+}
+
+/** A user's message: the photo, if there is one, above the words. A photo may be sent without words. */
+function UserBubble({ message }: { message: Message }) {
+  return (
+    <div className="bubble bubble-user">
+      {message.photoUrl && <img className="bubble-photo" src={message.photoUrl} alt="The photo you sent" />}
+      {message.text}
+      {message.photo && <span className="bubble-photo-read">{photoReading(message.photo)}</span>}
+    </div>
+  );
+}
 
 /** A few of each kind, so the chips show templates, custom charts and widgets. */
 const SUGGESTIONS = [
@@ -73,7 +99,13 @@ export interface CoachState {
 
 interface Props {
   /** Resolves to the assistant's reply text; dashboard edits happen as a side effect. */
-  onAsk: (question: string, canned?: boolean, allowProtected?: ProtectedCategory[]) => Promise<{ text: string; blocked?: ProtectedCategory[]; proposedUnprotect?: ProtectedCategory[] }>;
+  onAsk: (
+    question: string,
+    canned?: boolean,
+    allowProtected?: ProtectedCategory[],
+    /** A photo sent with the message. The question may then be empty. */
+    image?: ChatImage,
+  ) => Promise<{ text: string; blocked?: ProtectedCategory[]; proposedUnprotect?: ProtectedCategory[]; photo?: PhotoRead }>;
   /** Changing this resets the conversation (e.g. when switching customer). */
   resetKey: string;
   /** Send a question from outside the chat (e.g. the dev gallery). A new `n` sends again. */
@@ -90,19 +122,25 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
   const [pending, setPending] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [chatHeight, setChatHeight] = useState<number | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  /** A photo the user has taken and not yet sent: it goes out with their next message. */
+  const [attached, setAttached] = useState<Attached | null>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
   const resizeStart = useRef<{ y: number; height: number } | null>(null);
   const nextId = useRef(1);
   const logRef = useRef<HTMLDivElement>(null);
   /** Counts conversation resets, so that a reply can tell whether its conversation is still open. */
   const conversation = useRef(0);
   const pendingRef = useRef(false);
-  const voice = useVoice(voiceClient, (text) => send(text));
+  const voice = useVoice(voiceClient, (text) => sendOwn(text));
 
   useEffect(() => {
     conversation.current++;
     pendingRef.current = false;
     setMessages([]);
     setPending(false);
+    setPhotoError(null);
+    setAttached(null);
     voice.reset();
   }, [resetKey, voice.reset]);
   useEffect(() => {
@@ -112,25 +150,29 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "auto" });
   }, [chatHeight]);
 
-  function send(text: string, canned = false, allowProtected?: ProtectedCategory[]) {
+  function send(text: string, canned = false, allowProtected?: ProtectedCategory[], photo?: Attached) {
     const trimmed = text.trim();
-    if (!trimmed || pendingRef.current) return;
+    // A photo can go without words; the coach then takes it as "can I afford this?".
+    if ((!trimmed && !photo) || pendingRef.current) return;
     voice.pause();
     const add = (role: Message["role"], text: string, extra: Omit<Message, "id" | "role" | "text"> = {}) => {
       const id = nextId.current++;
       setMessages((prev) => [...prev, { id, role, text, ...extra }]);
+      return id;
     };
     // A reply that arrives after the conversation was reset belongs to the previous customer: drop it.
     const askedIn = conversation.current;
     const current = () => conversation.current === askedIn;
-    add("user", trimmed);
+    const askedId = add("user", trimmed, { photoUrl: photo?.url });
     setInput("");
     pendingRef.current = true;
     setPending(true);
-    onAsk(trimmed, canned, allowProtected)
+    onAsk(trimmed, canned, allowProtected, photo?.image)
       .then(
-        ({ text: reply, blocked, proposedUnprotect }) => {
+        ({ text: reply, blocked, proposedUnprotect, photo: read }) => {
           if (!current()) return;
+          // What the coach read goes under the photo, where the user can check it against the picture.
+          if (read) setMessages((prev) => prev.map((m) => (m.id === askedId ? { ...m, photo: read } : m)));
           add("assistant", reply, { question: trimmed, blocked, proposedUnprotect, overrideUsed: Boolean(allowProtected?.length) });
           return voice.speak(reply);
         },
@@ -149,16 +191,40 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request?.n]);
 
+  /** The user's own message, typed or spoken: it takes the waiting photo with it. Chips and buttons do not. */
+  function sendOwn(text: string) {
+    if ((!text.trim() && !attached) || pendingRef.current) return;
+    send(text, false, undefined, attached ?? undefined);
+    setAttached(null);
+  }
+
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    send(input);
+    sendOwn(input);
+  }
+
+  /** A photo from the camera waits in the input row, so the user can ask what they like about it. */
+  async function onPhoto(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // so that the same photo can be chosen again
+    if (!file) return;
+    const askedIn = conversation.current;
+    setPhotoError(null);
+    try {
+      const photo = await preparePhoto(file);
+      if (conversation.current === askedIn) setAttached(photo);
+    } catch (error) {
+      setPhotoError(errorMessage(error));
+    }
   }
 
   const modeNote =
     mode === "mock"
       ? "Demo coach: keyword-based. Set GEMINI_API_KEY (in .env for the backend, or packages/app/.env.local for dev mode) to use Gemini."
       : "Typed questions go to Gemini. It sees totals worked out from your account, never single transactions. Chips are instant keyword answers.";
-  const note = voice.error
+  const note = photoError
+    ? photoError
+    : voice.error
     ? voice.error
     : voice.processing
       ? "Transcribing your question…"
@@ -264,7 +330,7 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
                 </div>
               ) : (
                 <div key={m.id}>
-                  <div className={`bubble bubble-${m.role}`}>{m.text}</div>
+                  {m.role === "user" ? <UserBubble message={m} /> : <div className="bubble bubble-assistant">{m.text}</div>}
                   {actions}
                 </div>
               );
@@ -272,7 +338,9 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
             {pending && (
               <div className="coach-row" role="status">
                 <CoachFace face="thinking" />
-                <div className="bubble bubble-assistant">{mode === "mock" ? "Thinking…" : "Let me look at your figures…"}</div>
+                <div className="bubble bubble-assistant">
+                  {mode === "mock" ? "Thinking…" : messages.at(-1)?.photoUrl ? "Reading your photo…" : "Let me look at your figures…"}
+                </div>
               </div>
             )}
             {/* While the coach's question about the keep-as-is list is open, its own buttons are the next steps. */}
@@ -302,8 +370,40 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
         </details>
       )}
 
+      {attached && (
+        <div className="chat-attached">
+          <img src={attached.url} alt="The photo you are about to send" />
+          <span>Ask anything about it, or send it as it is to check whether you can afford it.</span>
+          <button type="button" onClick={() => setAttached(null)} aria-label="Remove the photo" title="Remove the photo">
+            ×
+          </button>
+        </div>
+      )}
       <form className="chat-input" onSubmit={onSubmit}>
-        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask about your money…" aria-label="Your question" />
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder={attached ? "Ask about the photo…" : "Ask about your money…"}
+          aria-label="Your question"
+        />
+        {mode !== "mock" && (
+          <>
+            {/* capture opens the phone's camera directly; a computer shows its file picker instead. */}
+            <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={onPhoto} />
+            <button
+              type="button"
+              className={`voice-btn${attached ? " on" : ""}`}
+              onClick={() => cameraRef.current?.click()}
+              aria-label={attached ? "Take another photo instead" : "Add a photo of a price, a bill or a listing to your message"}
+              title={attached ? "Take another photo instead" : "Add a photo to your message"}
+            >
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" />
+                <circle cx="12" cy="13.5" r="3.5" />
+              </svg>
+            </button>
+          </>
+        )}
         {voice.available && (
           <button
             type="button"
@@ -319,11 +419,11 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
             </svg>
           </button>
         )}
-        <button type="submit" disabled={!input.trim() || pending}>
+        <button type="submit" disabled={(!input.trim() && !attached) || pending}>
           Ask
         </button>
       </form>
-      <p className="chat-note" role={voice.error ? "alert" : undefined}>
+      <p className="chat-note" role={photoError || voice.error ? "alert" : undefined}>
         {note}
       </p>
     </section>
