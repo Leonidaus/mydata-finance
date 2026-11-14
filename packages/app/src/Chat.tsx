@@ -1,4 +1,4 @@
-import { type FormEvent, type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useEffect, useRef, useState } from "react";
 import { DEMO_PROMPTS } from "./agent/mockAgent";
 import type { Mood, ProtectedCategory } from "@mydata/shared";
 import type { ChatMode } from "./agent";
@@ -141,6 +141,13 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
     resizeStart.current = null;
   }
 
+  function scrollChipRow(e: ReactWheelEvent<HTMLDivElement>) {
+    if (e.deltaY !== 0 && e.currentTarget.scrollWidth > e.currentTarget.clientWidth) {
+      e.currentTarget.scrollLeft += e.deltaY;
+      e.preventDefault();
+    }
+  }
+
   if (collapsed) {
     return (
       <button className="chat-launcher" type="button" onClick={() => setCollapsed(false)} aria-label="Open chat with your money coach" title="Open chat">
@@ -194,10 +201,16 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
               return latest ? (
                 <div key={m.id} className="coach-row">
                   <CoachFace face={coach?.mood ?? "neutral"} />
-                  <div><div className="bubble bubble-assistant">{m.text}</div>{showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>Show it anyway</button>}</div>
+                  <div>
+                    <div className="bubble bubble-assistant">{m.text}</div>
+                    {showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>Show it anyway</button>}
+                  </div>
                 </div>
               ) : (
-                <div key={m.id}><div className={`bubble bubble-${m.role}`}>{m.text}</div>{showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>Show it anyway</button>}</div>
+                <div key={m.id}>
+                  <div className={`bubble bubble-${m.role}`}>{m.text}</div>
+                  {showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>Show it anyway</button>}
+                </div>
               );
             })}
             {pending && (
@@ -207,7 +220,7 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
               </div>
             )}
             {!pending && messages.at(-1)?.role === "assistant" && (coach?.suggestions.length ?? 0) > 0 && (
-              <div className="coach-next" aria-label="Suggested next steps">
+              <div className="coach-next" role="group" aria-label="Suggested next steps" tabIndex={0} onWheel={scrollChipRow}>
                 {coach?.suggestions.map((s) => (
                   <button key={s} type="button" className="chip chip-next" onClick={() => send(s)}>
                     {s}
@@ -218,13 +231,15 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
           </div>
         </div>
       )}
-      <div className="suggestions" aria-label="Suggested questions (answered instantly)">
-        {SUGGESTIONS.map((s) => (
-          <button key={s} type="button" className="chip" onClick={() => send(s, true)} disabled={pending}>
-            {s}
-          </button>
-        ))}
-      </div>
+      {messages.length === 0 && (
+        <div className="suggestions" role="group" aria-label="Suggested questions (answered instantly)" tabIndex={0} onWheel={scrollChipRow}>
+          {SUGGESTIONS.map((s) => (
+            <button key={s} type="button" className="chip" onClick={() => send(s, true)} disabled={pending}>
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
 
       <form className="chat-input" onSubmit={onSubmit}>
         <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask about your money…" aria-label="Your question" />

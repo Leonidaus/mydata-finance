@@ -3,7 +3,7 @@
  * plus the demo prompts and a playground for pasting Block JSON (e.g. copied from an LLM
  * response) before the backend exists. Open with ?dev in the URL or the Dev button.
  */
-import { type Block, catalog, custom, type TxFilter, widgets } from "@mydata/shared";
+import { investmentDownsideScenario, investmentGoalScenario, type Block, catalog, custom, type TxFilter, widgets } from "@mydata/shared";
 import { useState } from "react";
 import { geminiAvailable } from "./agent/gemini";
 import { DEMO_PROMPTS } from "./agent/mockAgent";
@@ -20,6 +20,11 @@ interface Props {
 
 function gallery(): { section: string; note: string; blocks: Block[] }[] {
   return [
+    {
+      section: "Investment scenarios · prototypes",
+      note: "Illustrative examples with invented values and adjustable assumptions; not forecasts or investment advice.",
+      blocks: [investmentDownsideScenario(), investmentGoalScenario()],
+    },
     {
       section: "Templates",
       note: "view.kind = \"template\": fixed views the app knows how to draw.",
@@ -52,7 +57,7 @@ function gallery(): { section: string; note: string; blocks: Block[] }[] {
     {
       section: "Animated widgets",
       note: "Code widgets with view.libs: GSAP, Matter.js and Three.js are injected into the sandbox only for cards that name them. Motion runs while the card is on screen and pauses off screen; the corner button opens a widget full screen.",
-      blocks: [widgets.city(), widgets.story(), widgets.jar(), widgets.gauge(), widgets.flow(), widgets.coins()],
+      blocks: [widgets.story(), widgets.jar(), widgets.gauge(), widgets.flow(), widgets.coins()],
     },
   ];
 }
