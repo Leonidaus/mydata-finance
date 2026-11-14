@@ -1,7 +1,7 @@
 import { applyProtections, DEFAULT_PROFILE, ProtectedCategoryError, type EngineFn, type EngineResult, type ProtectedCategory } from "@mydata/shared";
 import type { FinanceDb } from "../db";
 import type { ProfileStore } from "../profiles";
-import { runEngineFor } from "./engine";
+import { loadEngineContext, runEngineFor } from "./engine";
 
 /** Finance execution bound to a profile store. The shared engine remains profile-free. */
 export class ProtectedEngine {
@@ -15,7 +15,12 @@ export class ProtectedEngine {
   ): EngineResult | null {
     try {
       const profile = this.profiles.get(customerId) ?? DEFAULT_PROFILE;
-      const safeArgs = applyProtections(fn, args, { protectedCategories: profile.protectedCategories, allow: options.allow });
+      const safeArgs = applyProtections(fn, args, {
+        protectedCategories: profile.protectedCategories,
+        allow: options.allow,
+        // For a merchant type the code table has no category for: where this customer's payments there sit.
+        categoryOfMcc: (mcc) => loadEngineContext(this.db, customerId)?.tx.find((t) => t.mcc_code === mcc)?.category,
+      });
       return runEngineFor(this.db, customerId, fn, safeArgs);
     } catch (error) {
       if (error instanceof ProtectedCategoryError) options.onBlocked?.(error.categories);
