@@ -440,6 +440,8 @@ answers are cut off at the demo's "today", so later transactions never appear.
 | `GET /api/customers/:id/engine/:fn` | One finance engine function, arguments in the query string |
 | `POST /api/data` | A dashboard block's data request: `{ customerId, data: { kind: "engine", fn, args } }` |
 | `POST /api/transactions` | The transactions behind an engine result: `{ customerId, filter, limit }` |
+| `POST /api/tts` | Text to speech: `{ text, languageCode? }` → MP3 audio (ElevenLabs, from `packages/voice`) |
+| `POST /api/stt` | Speech to text: an `audio` form file or a raw audio body → `{ text, languageCode }` |
 
 The spending endpoint takes `period` (`this_month`, `last_month`, `last_30_days`,
 `last_3_months`, `last_12_months`, `this_year`, `all`) or `from` and `to`, and the
@@ -450,6 +452,11 @@ optional filters `category`, `mcc` and `basket`. `groupBy` (`category`, `mcc`,
 ```bash
 curl 'http://localhost:8787/api/customers/CUST04488/spending?mcc=4121&period=last_month'
 ```
+
+The two voice routes need `ELEVENLABS_API_KEY`; put it in a `.env` file at the
+repository root (copy `.env.example`), which the backend reads at startup. Without the
+key they answer 503 and everything else works. Because they spend credits, they share
+a request budget (30 a minute, 400 an hour, across all callers) and answer 429 beyond it.
 
 The engine endpoints run the finance engine from `packages/shared/src/engine` for
 any of the 5,100 customers: `spendBy`, `monthlyTrend`, `baskets`, `safeToSpend`,

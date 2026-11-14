@@ -280,3 +280,38 @@ describe("paths from environment variables", () => {
     assert.equal(resolveFromInvocationDir("/data/finance.sqlite", { INIT_CWD: "/repo" }), "/data/finance.sqlite");
   });
 });
+
+describe("voice routes", () => {
+  // No key in the test environment: the handlers must say so, not crash.
+  delete process.env.ELEVENLABS_API_KEY;
+
+  it("validates input and reports a missing key", async () => {
+    assert.equal((await post("/api/tts", "not json")).status, 400);
+    assert.equal((await post("/api/tts", { text: "" })).status, 400);
+    const noKey = await post<{ error: string }>("/api/tts", { text: "Paljonko käytin takseihin?" });
+    assert.equal(noKey.status, 503);
+    assert.match(noKey.body.error, /ELEVENLABS_API_KEY/);
+    assert.equal((await get("/api/tts")).status, 404);
+  });
+
+  it("rejects an oversized upload before reading it", async () => {
+    const response = await app.request("/api/stt", {
+      method: "POST",
+      headers: { "content-type": "audio/webm", "content-length": String(26 * 1024 * 1024) },
+      body: "x",
+    });
+    assert.equal(response.status, 413);
+  });
+
+  it("stops answering when the request budget is used up", async () => {
+    const limited = createApp(createFixtureDb(), { voiceBudget: { perMinute: 2, perHour: 100 } });
+    const call = () => limited.request("/api/tts", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    assert.equal((await call()).status, 400);
+    assert.equal((await call()).status, 400);
+    const third = await call();
+    assert.equal(third.status, 429);
+    assert.ok(Number(third.headers.get("retry-after")) >= 1);
+    // The finance routes are not affected.
+    assert.equal((await limited.request("/api/health")).status, 200);
+  });
+});
