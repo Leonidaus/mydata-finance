@@ -58,11 +58,14 @@ export function ageBand(age: number): string {
 function spendBy(ctx: EngineContext, args: Record<string, unknown>): EngineResult {
   const p = period(args, "last_month");
   const [from, to] = resolvePeriod(p, ctx.today);
-  const by = args.by === "merchant_type" ? "merchant_type" : "category";
+  const merchantType = str(args.mcc);
+  // Asking about one merchant type implies looking at merchant types.
+  const by = args.by === "merchant_type" || (merchantType && args.by === undefined) ? "merchant_type" : "category";
   const category = str(args.category);
   const groups = new Map<string, { label: string; amount: number; count: number }>();
   for (const t of ctx.tx) {
     if (!isSpending(t) || !inRange(t, from, to) || (category && t.category !== category)) continue;
+    if (merchantType && t.mcc_code !== merchantType) continue;
     const mcc = lookupMcc(t.mcc_code);
     const key = by === "category" ? t.category : (t.mcc_code ?? `none:${t.category}`);
     const label = by === "category" ? t.category : (mcc?.label ?? `${t.category} (no merchant type)`);
@@ -78,8 +81,8 @@ function spendBy(ctx: EngineContext, args: Record<string, unknown>): EngineResul
     rows,
     value: round2(sum(rows.map((r) => r.amount as number))),
     unit: "€",
-    caption: `${PERIODS[p]}${category ? `, ${category}` : ""}`,
-    filter: { from, to, kind: "spending", category },
+    caption: `${PERIODS[p]}${merchantType ? `, ${lookupMcc(merchantType)?.label ?? merchantType}` : category ? `, ${category}` : ""}`,
+    filter: { from, to, kind: "spending", category, ...(merchantType && { mcc: merchantType }) },
   };
 }
 
@@ -87,6 +90,8 @@ function monthlyTrend(ctx: EngineContext, args: Record<string, unknown>): Engine
   const months = num(args.months, 12);
   const metric = (args.metric as (typeof TREND_METRICS)[number] | undefined) ?? "spending";
   const category = str(args.category);
+  const merchantType = str(args.mcc);
+  const subject = merchantType ? (lookupMcc(merchantType)?.label ?? merchantType) : category;
   const thisMonth = startOfMonth(ctx.today);
   const from = addMonths(thisMonth, -months);
   const to = addDays(thisMonth, -1);
@@ -94,6 +99,7 @@ function monthlyTrend(ctx: EngineContext, args: Record<string, unknown>): Engine
   for (let i = 0; i < months; i++) totals.set(monthOf(addMonths(from, i)), 0);
   for (const t of ctx.tx) {
     if (!inRange(t, from, to) || (category && t.category !== category)) continue;
+    if (merchantType && t.mcc_code !== merchantType) continue;
     const m = monthOf(t.tx_date);
     let v = 0;
     if (metric === "spending" && isSpending(t)) v = out(t);
@@ -110,8 +116,8 @@ function monthlyTrend(ctx: EngineContext, args: Record<string, unknown>): Engine
     caption:
       metric === "net"
         ? `Average left over per month (income minus spending, before saving), last ${months} full months`
-        : `Average ${metric}${category ? ` on ${category}` : ""} per month, last ${months} full months`,
-    filter: { from, to, kind: metric, category },
+        : `Average ${metric}${subject ? ` on ${subject}` : ""} per month, last ${months} full months`,
+    filter: { from, to, kind: metric, category, ...(merchantType && { mcc: merchantType }) },
   };
 }
 
@@ -454,20 +460,24 @@ function balanceForecast(ctx: EngineContext): EngineResult {
 // ---------- what-if, peers, recurring, goals ----------
 
 function whatIf(ctx: EngineContext, args: Record<string, unknown>): EngineResult {
-  const category = str(args.category) ?? "Restaurants";
+  const merchantType = str(args.mcc);
+  // One merchant type (e.g. fast food) when given, otherwise a whole category.
+  const category = merchantType ? undefined : (str(args.category) ?? "Restaurants");
+  const subject = merchantType ? (lookupMcc(merchantType)?.label ?? merchantType) : (category as string);
   const cutPct = num(args.cutPct, 20);
   const [from, to] = resolvePeriod("last_12_months", ctx.today);
   const months = monthsOfHistory(ctx);
-  const monthly = sum(ctx.tx.filter((t) => isSpending(t) && t.category === category && inRange(t, from, to)).map(out)) / months;
+  const matches = (t: Transaction) => (merchantType ? t.mcc_code === merchantType : t.category === category);
+  const monthly = sum(ctx.tx.filter((t) => isSpending(t) && matches(t) && inRange(t, from, to)).map(out)) / months;
   const perMonth = (monthly * cutPct) / 100;
   const rows: Row[] = Array.from({ length: 12 }, (_, k) => ({ month: k + 1, saved: round2(perMonth * (k + 1)) }));
   return {
     rows,
     value: round2(perMonth * 12),
     unit: "€ / year",
-    caption: `Cutting ${category} by ${cutPct}% (now about €${Math.round(monthly)}/month) saves about €${Math.round(perMonth)} a month`,
-    assumptions: [`Based on your average ${category} spending over the last ${months} full months continuing unchanged.`],
-    filter: { from, to, kind: "spending", category },
+    caption: `Cutting ${subject} by ${cutPct}% (now about €${Math.round(monthly)}/month) saves about €${Math.round(perMonth)} a month`,
+    assumptions: [`Based on your average ${subject} spending over the last ${months} full months continuing unchanged.`],
+    filter: { from, to, kind: "spending", category, ...(merchantType && { mcc: merchantType }) },
   };
 }
 
