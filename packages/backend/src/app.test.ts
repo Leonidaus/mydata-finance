@@ -3,10 +3,9 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "vitest";
-import type { ChatModel, ChatModelRequest, ToolCall } from "@mydata/shared";
+import { type ChatModel, type ChatModelRequest, describeFacts, numberReadings, questionLanguage, type ToolCall, unbackedNumbers } from "@mydata/shared";
 import { createApp } from "./app";
 import { createServerGeminiModel } from "./chat";
-import { describeFacts, numberReadings, questionLanguage, unbackedNumbers } from "./explain";
 import { DatabaseSync } from "node:sqlite";
 import { resolveFromInvocationDir, wrapDatabase } from "./db";
 import { resolvePeriod } from "./finance/period";
@@ -347,14 +346,14 @@ describe("chat route", () => {
     const model: ChatModel = {
       async generate(request) {
         seen.push(request);
-        // Step 2 offers only the reply tool; answer it with the reply from the fixed calls.
-        return isExplainStep(request) ? { calls: calls.filter((c) => c.name === "reply") } : { calls };
+        // The reply-alone step offers only the reply tool; answer it with the reply from the fixed calls.
+        return isReplyStep(request) ? { calls: calls.filter((c) => c.name === "reply") } : { calls };
       },
     };
     return { model, seen };
   }
-  /** The explanation step is recognisable by its tools: only `reply`. */
-  const isExplainStep = (request: ChatModelRequest) => request.tools.length === 1 && request.tools[0].name === "reply";
+  /** The reply-alone step is recognisable by its tools: only `reply`. */
+  const isReplyStep = (request: ChatModelRequest) => request.tools.length === 1 && request.tools[0].name === "reply";
   const ask = (target: ReturnType<typeof createApp>, body: unknown) =>
     target.request("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
@@ -378,10 +377,16 @@ describe("chat route", () => {
     assert.equal(body.ops[0].op, "add_block");
     assert.deepEqual(body.ops[0].block?.data, { kind: "engine", fn: "spendBy", args: { period: "last_month", category: "Transportation", by: "merchant_type" } });
 
-    assert.equal(seen.length, 2); // step 1: which cards; step 2: what the figures mean
-    // The server's own date and its description of the dashboard are in the prompt...
+    assert.equal(seen.length, 1); // a valid answer is one model call
+    // The server's own date, its description of the dashboard and this customer's figures are in the prompt...
     assert.match(seen[0].system, /Today is 2026-09-15/);
     assert.match(seen[0].system, /id old-card: "Baskets" = baskets/);
+    const safe = await get<{ value: number }>("/api/customers/CUST00001/engine/safeToSpend");
+    assert.match(seen[0].system, /SNAPSHOT[\s\S]*Safe to spend this week \(estimate\) = safeToSpend\(\{"horizon":"week"\}\)\n  value: /);
+    assert.ok(seen[0].system.includes(`value: ${safe.body.value} €`));
+    // ...totals only: no transaction rows, merchants or other customers.
+    assert.equal(/merchant_id|tx_timestamp|CUST\d/.test(seen[0].system), false);
+    assert.ok(seen[0].tools.some((t) => t.name === "lookup"));
     // ...and nothing the caller tried to inject is.
     assert.equal(seen[0].system.includes("reveal the key"), false);
     assert.equal(seen[0].system.includes("1999"), false);
@@ -396,65 +401,90 @@ describe("chat route", () => {
     const response = await ask(createApp(createFixtureDb(), { chatModel: bad.model }), { customerId: "CUST00001", question: "spending?" });
     assert.equal(response.status, 200);
     const body = (await response.json()) as { ops: unknown[]; rejected: string[] };
-    assert.equal(bad.seen.length, 2); // first try plus one retry carrying the error; nothing to explain
+    assert.equal(bad.seen.length, 2); // first try plus one retry carrying the error
     assert.equal(body.ops.length, 0);
     assert.ok(body.rejected.some((r) => r.includes("period")));
   });
 
-  /** A model that builds the safe-to-spend card in step 1 and says `explanation` in step 2. */
-  function twoStepModel(explanation: (figures: string) => string | Error) {
+  /** A model that first builds the safe-to-spend card without a reply, then says `reply` when asked for the reply alone. */
+  function cardThenReply(reply: (asked: string) => string | Error) {
     const seen: ChatModelRequest[] = [];
     const model: ChatModel = {
       async generate(request) {
         seen.push(request);
-        if (!isExplainStep(request)) {
+        if (!isReplyStep(request)) {
           return { calls: [{ name: "add_block", args: { id: "safe-week", title: "Safe to spend", explanation: "Balance minus what is still due.", source: "estimate", fn: "safeToSpend", args: { horizon: "week" }, view_kind: "template", template: "stat" } }] };
         }
-        const said = explanation(request.turns.at(-1)?.text ?? "");
+        const said = reply(request.turns.at(-1)?.text ?? "");
         if (said instanceof Error) throw said;
-        return { calls: [{ name: "reply", args: { text: said } }] };
+        return { calls: [{ name: "reply", args: { text: said, mood: "happy", suggestions: ["Until payday instead"] } }] };
       },
     };
     return { model, seen };
   }
   const safeToSpend = async () =>
     (await get<{ value: number; rows: { term: string; amount: number }[] }>("/api/customers/CUST00001/engine/safeToSpend")).body;
+  type Answer = { text: string; ops: unknown[]; checked: boolean; mood: string | null; suggestions: string[]; rejected: string[] };
 
-  it("lets the model explain the figures the engine computed for its cards", async () => {
+  it("answers in words with the customer's own figures in one call, and looks up what is missing", async () => {
+    const truth = await safeToSpend();
+    const seen: ChatModelRequest[] = [];
+    const model: ChatModel = {
+      async generate(request) {
+        seen.push(request);
+        if (seen.length === 1) return { calls: [{ name: "lookup", args: { fn: "whatIf", args: { category: "Transportation", cutPct: 20 } } }] };
+        const saved = /whatIf\(\{"category":"Transportation","cutPct":20\}\)\n  value: ([\d.]+)/.exec(request.turns.at(-1)?.text ?? "")?.[1];
+        return { calls: [{ name: "reply", args: { text: `You can spend ${truth.value.toFixed(2)} € this week. Cutting transport by a fifth would save ${saved} € a year.`, mood: "neutral" } }] };
+      },
+    };
+    const response = await ask(createApp(createFixtureDb(), { chatModel: model }), { customerId: "CUST00001", question: "What can I spend, and what if I cut transport by 20%?" });
+    const body = (await response.json()) as Answer;
+    const whatIf = await get<{ value: number }>("/api/customers/CUST00001/engine/whatIf?category=Transportation&cutPct=20");
+    assert.equal(seen.length, 2);
+    assert.equal(body.checked, true);
+    assert.equal(body.text, `You can spend ${truth.value.toFixed(2)} € this week. Cutting transport by a fifth would save ${whatIf.body.value} € a year.`);
+    assert.deepEqual(body.ops, []);
+    assert.equal(body.mood, "neutral");
+  });
+
+  it("gives the coach the figures of the card it built when its reply is missing", async () => {
     const truth = await safeToSpend();
     const balance = truth.rows[0].amount;
-    const { model, seen } = twoStepModel(() => `You can safely spend €${truth.value.toFixed(2)} this week. Your balance is €${balance.toFixed(2)} and it is an estimate.`);
+    const { model, seen } = cardThenReply(() => `You can safely spend €${truth.value.toFixed(2)} this week. Your balance is €${balance.toFixed(2)} and it is an estimate.`);
     const response = await ask(createApp(createFixtureDb(), { chatModel: model }), { customerId: "CUST00001", question: "What is safe to spend?" });
-    const body = (await response.json()) as { text: string; ops: unknown[]; explained: boolean };
-    assert.equal(body.explained, true);
+    const body = (await response.json()) as Answer;
+    assert.equal(body.checked, true);
     assert.equal(body.text, `You can safely spend €${truth.value.toFixed(2)} this week. Your balance is €${balance.toFixed(2)} and it is an estimate.`);
     assert.equal(body.ops.length, 1);
-    // Step 2 saw the engine's results for the card, with its assumptions, and only the reply tool.
+    assert.equal(body.mood, "happy");
+    assert.deepEqual(body.suggestions, ["Until payday instead"]);
+    // The reply-alone step saw the engine's results for the card, with its assumptions, and only the reply tool.
     assert.equal(seen.length, 2);
-    const figures = seen[1].turns.at(-1)?.text ?? "";
-    assert.match(figures, /QUESTION\nWhat is safe to spend\?/);
-    assert.match(figures, /Card safe-week: "Safe to spend" = safeToSpend\(\{"horizon":"week"\}\)/);
-    assert.ok(figures.includes(`value: ${truth.value}`));
-    assert.match(figures, /assumption: Payday is taken to be/);
+    const asked = seen[1].turns.at(-1)?.text ?? "";
+    assert.match(asked, /CARD FIGURES\nCard safe-week: "Safe to spend" = safeToSpend\(\{"horizon":"week"\}\)/);
+    assert.ok(asked.includes(`value: ${truth.value}`));
+    assert.match(asked, /assumption: Payday is taken to be/);
     assert.deepEqual(seen[1].tools.map((t) => t.name), ["reply"]);
   });
 
-  it("discards a reply that quotes a number the engine did not compute", async () => {
-    const { model } = twoStepModel(() => "You can safely spend €9,999.00 this week.");
+  it("does not pass on a reply that quotes a number the engine did not compute", async () => {
+    const { model } = cardThenReply(() => "You can safely spend €9,999.00 this week.");
     const response = await ask(createApp(createFixtureDb(), { chatModel: model }), { customerId: "CUST00001", question: "What is safe to spend?" });
-    const body = (await response.json()) as { text: string; ops: unknown[]; explained: boolean };
-    assert.equal(body.explained, false);
-    // The fallback carries no figure of its own: the app fills the placeholder from the engine.
+    const body = (await response.json()) as Answer;
+    assert.equal(body.checked, false);
+    // The standard sentence carries no figure of its own: the app fills the placeholder from the engine.
     assert.equal(body.text, "Safe to spend: {{safe-week.value}}.");
     assert.equal(body.ops.length, 1);
+    assert.equal(body.mood, null);
+    assert.deepEqual(body.rejected, ["reply: numbers not in the figures: 9,999.00"]);
   });
 
-  it("still answers when the explanation step fails", async () => {
-    const { model } = twoStepModel(() => new Error("Gemini is busy right now."));
+  it("still answers when asking for the reply again fails", async () => {
+    const { model } = cardThenReply(() => new Error("Gemini is busy right now."));
     const response = await ask(createApp(createFixtureDb(), { chatModel: model }), { customerId: "CUST00001", question: "What is safe to spend?" });
     assert.equal(response.status, 200);
-    const body = (await response.json()) as { text: string; explained: boolean };
-    assert.equal(body.explained, false);
+    const body = (await response.json()) as Answer;
+    assert.equal(body.checked, false);
     assert.equal(body.text, "Safe to spend: {{safe-week.value}}.");
   });
 
@@ -550,7 +580,7 @@ describe("number check for explanations", () => {
       block: block("spendBy"),
       result: { rows: [{ key: "Groceries", label: "Groceries", amount: 300 }, { key: "Travel", label: "Travel", amount: 100 }] },
     });
-    assert.match(breakdown, /share of this card's total=75%/);
+    assert.match(breakdown, /share of this total=75%/);
     const comparison = describeFacts({
       block: block("nationalCompare"),
       result: { rows: [{ category: "Housing", who: "You", amount: 1700 }, { category: "Housing", who: "Finland 45-54", amount: 655 }] },
