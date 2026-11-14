@@ -108,7 +108,7 @@ body {
 
 .topbar {
   display: grid;
-  grid-template-columns: 40px 1fr 40px;
+  grid-template-columns: 80px 1fr 80px;
   align-items: center;
   padding: 10px 12px;
   padding-top: calc(10px + env(safe-area-inset-top));
@@ -156,6 +156,11 @@ body {
 
 .topbar-icon svg { width: 24px; height: 24px; }
 
+.topbar-actions {
+  display: flex;
+  justify-self: end;
+}
+
 button.topbar-icon {
   position: relative;
   padding: 0;
@@ -167,6 +172,8 @@ button.topbar-icon {
 
 button.topbar-icon:hover,
 button.topbar-icon:focus-visible { background: var(--green-100); }
+
+button.topbar-narration.on { background: var(--green-300); color: var(--green-900); }
 
 .topbar-language-code {
   position: absolute;
