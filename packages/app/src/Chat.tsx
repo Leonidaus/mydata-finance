@@ -31,6 +31,7 @@ type Attached = { image: ChatImage; url: string };
 function photoReading(photo: PhotoRead): string {
   if (photo.amount === null) return "No price found in the photo";
   const price = `${formatEurCents(photo.amount)}${photo.monthly ? " a month" : ""}`;
+  if (photo.estimated) return `No price in the photo. Estimate: ${photo.item ? `${photo.item}, ` : ""}about ${price}`;
   return `Read from the photo: ${photo.item ? `${photo.item}, ` : ""}${price}`;
 }
 
