@@ -131,6 +131,7 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
   const messages = conv.customerId === customerId ? conv.messages : [];
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
+  const [showBackToLatest, setShowBackToLatest] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
   /** A photo the user has taken and not yet sent: it goes out with their next message. */
   const [attached, setAttached] = useState<Attached | null>(null);
@@ -166,6 +167,7 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
     setPending(false);
     setPhotoError(null);
     setAttached(null);
+    setShowBackToLatest(false);
     onFocus?.(null);
     voice.reset();
   }
@@ -224,6 +226,16 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
   useEffect(() => {
     if (focus) inputRef.current?.focus();
   }, [focus?.id]);
+
+  function updateBackToLatest(log: HTMLDivElement) {
+    setShowBackToLatest(log.scrollHeight - log.clientHeight - log.scrollTop > 24);
+  }
+
+  function scrollToLatest() {
+    const log = logRef.current;
+    if (!log) return;
+    log.scrollTo({ top: log.scrollHeight, behavior: "smooth" });
+  }
 
   function send(text: string, canned = false, allowProtected?: ProtectedCategory[], photo?: Attached) {
     const trimmed = text.trim();
@@ -341,10 +353,11 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
 
   return (
     <section className="coach" aria-label={t("chat.label")}>
-      <div className="conversation" ref={logRef}>
-        {header}
-        {showLog && messages.length > 0 && (
-          <div className="chat-history" role="log" aria-live="polite">
+      <div className="conversation-wrap">
+        <div className="conversation" ref={logRef} onScroll={(e) => updateBackToLatest(e.currentTarget)}>
+          {header}
+          {showLog && messages.length > 0 && (
+            <div className="chat-history" role="log" aria-live="polite">
             <button
               type="button"
               className="ghost-btn reset"
@@ -430,7 +443,15 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
                 ))}
               </ChipRow>
             )}
-          </div>
+              </div>
+          )}
+        </div>
+        {showLog && showBackToLatest && (
+          <button className="chat-back-to-latest" type="button" onClick={scrollToLatest} aria-label={t("chat.backToLatest")} title={t("chat.backToLatest")}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 5v14M6 13l6 6 6-6" />
+            </svg>
+          </button>
         )}
       </div>
 
