@@ -85,3 +85,10 @@ export function median(xs: number[]): number {
 
 export const round2 = (x: number) => Math.round(x * 100) / 100;
 export const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+
+// ---- amounts and dates in text, as S-mobiili writes them ----
+
+/** Whole euros with a space for thousands and the sign after: "1 913 €". */
+export const euros = (x: number) => `${Math.round(x).toLocaleString("fi-FI").replace("\u2212", "-")} €`;
+/** "2026-10-15" → "15.10.2026". */
+export const displayDate = (iso: string) => `${Number(iso.slice(8, 10))}.${Number(iso.slice(5, 7))}.${iso.slice(0, 4)}`;

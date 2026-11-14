@@ -13,7 +13,9 @@ import {
   addMonths,
   dayOfMonth,
   daysBetween,
+  displayDate,
   endOfMonth,
+  euros,
   inRange,
   isIncome,
   isSaving,
@@ -331,19 +333,19 @@ export type { Plan };
 
 /** The assumptions behind a plan, in plain language. */
 function planAssumptions(ctx: EngineContext, p: Plan): string[] {
-  const bills = p.due.filter((d) => !d.stream.saving).map((d) => `${d.stream.label} about €${Math.round(d.amount)}`);
+  const bills = p.due.filter((d) => !d.stream.saving).map((d) => `${d.stream.label} about ${euros(d.amount)}`);
   return [
-    `Payday is taken to be ${p.payday}, from the day of the month your salary usually arrives.`,
+    `Payday is taken to be ${displayDate(p.payday)}, from the day of the month your salary usually arrives.`,
     ...(p.lateMargin > 0
-      ? [`Your salary has sometimes arrived as late as ${p.latePayday.slice(8)}th of the month, so essentials for those extra days are kept back as a margin.`]
+      ? [`Your salary has sometimes arrived as late as day ${Number(p.latePayday.slice(8))} of the month, so essentials for those extra days are kept back as a margin.`]
       : []),
     bills.length
       ? `Bills still expected before then: ${bills.join(", ")}.`
       : "No bills are expected before then: this pay cycle's housing and utilities are already paid.",
-    `Groceries, transport and routine health costs are set aside at your average of the last 3 full months, about €${Math.round(p.essentialsPerDay)} a day.`,
-    `The buffer covers unexpected necessities: your average of the last 12 months (about €${Math.round(monthlyBasket(ctx, "irregular"))} a month) for the days left, or one typical such purchase if that is more.`,
+    `Groceries, transport and routine health costs are set aside at your average of the last 3 full months, about ${euros(p.essentialsPerDay)} a day.`,
+    `The buffer covers unexpected necessities: your average of the last 12 months (about ${euros(monthlyBasket(ctx, "irregular"))} a month) for the days left, or one typical such purchase if that is more.`,
     p.savingDue > 0
-      ? `Your usual saving transfer of about €${Math.round(p.savingDue)} is treated as already committed.`
+      ? `Your usual saving transfer of about ${euros(p.savingDue)} is treated as already committed.`
       : "No regular saving transfer is expected before payday.",
     "This is an estimate from past patterns, not a guarantee. An unusually large bill would change it.",
   ];
@@ -361,7 +363,7 @@ function safeToSpend(ctx: EngineContext, args: Record<string, unknown>): EngineR
     { term: "Planned saving before payday", amount: round2(-p.savingDue) },
     { term: "Buffer for unexpected necessities", amount: round2(-p.buffer) },
     { term: "Margin in case your salary arrives late", amount: round2(-p.lateMargin) },
-    { term: `Safe to spend until payday (${p.payday})`, amount: round2(p.available) },
+    { term: `Safe to spend until payday (${displayDate(p.payday)})`, amount: round2(p.available) },
   ];
   return {
     rows,
@@ -369,8 +371,8 @@ function safeToSpend(ctx: EngineContext, args: Record<string, unknown>): EngineR
     unit: "€",
     caption:
       p.available <= 0
-        ? `Nothing is safe to spend before payday on ${p.payday}: commitments exceed your balance.`
-        : `${horizon === "week" ? "This week" : `Until payday ${p.payday}`} · about €${Math.round(perDay)} a day for everyday spending`,
+        ? `Nothing is safe to spend before payday on ${displayDate(p.payday)}: commitments exceed your balance.`
+        : `${horizon === "week" ? "This week" : `Until payday ${displayDate(p.payday)}`} · about ${euros(perDay)} a day for everyday spending`,
     assumptions: planAssumptions(ctx, p),
     filter: { from: addDays(ctx.today, -29), to: ctx.today, kind: "all" },
   };
@@ -391,11 +393,11 @@ function safeToSave(ctx: EngineContext): EngineResult {
   const surplus = income - spending - saving;
   const surplusText =
     surplus >= 0
-      ? `Over the last ${months} months about €${Math.round(surplus)} a month was left after spending and your existing saving.`
-      : `Over the last ${months} months you spent about €${Math.round(-surplus)} a month more than came in.`;
+      ? `Over the last ${months} months about ${euros(surplus)} a month was left after spending and your existing saving.`
+      : `Over the last ${months} months you spent about ${euros(-surplus)} a month more than came in.`;
 
   const rows: Row[] = [
-    { term: `Safe to spend until payday (${p.payday})`, amount: round2(p.available) },
+    { term: `Safe to spend until payday (${displayDate(p.payday)})`, amount: round2(p.available) },
     { term: "Everyday spending at your usual pace", amount: round2(-everydayUntilPayday) },
     { term: "Cushion kept: one month of regular essentials", amount: round2(-cushion) },
     { term: left > 0 ? "Safe to move to savings now" : "Short of the cushion", amount: round2(left) },
@@ -406,14 +408,14 @@ function safeToSave(ctx: EngineContext): EngineResult {
     unit: "€",
     caption:
       left > 0
-        ? `You could move about €${Math.round(left)} to savings now and still keep a cushion. ${surplusText}`
+        ? `You could move about ${euros(left)} to savings now and still keep a cushion. ${surplusText}`
         : `Nothing is safe to move right now: after your usual spending you would be below a one-month cushion. ${surplusText}`,
     assumptions: [
       ...planAssumptions(ctx, p),
-      `Everyday spending is assumed to continue at your average of the last 3 full months, about €${Math.round(p.everydayPerDay)} a day.`,
-      `The cushion is one month of your regular essentials, about €${Math.round(cushion)}, kept in the account.`,
+      `Everyday spending is assumed to continue at your average of the last 3 full months, about ${euros(p.everydayPerDay)} a day.`,
+      `The cushion is one month of your regular essentials, about ${euros(cushion)}, kept in the account.`,
       saving > 0
-        ? `Your existing saving, about €${Math.round(saving)} a month, is counted as already committed.`
+        ? `Your existing saving, about ${euros(saving)} a month, is counted as already committed.`
         : "You have no regular saving transfer yet.",
     ],
     filter: { from, to, kind: "net" },
@@ -447,10 +449,10 @@ function balanceForecast(ctx: EngineContext): EngineResult {
     rows,
     value: round2(projected),
     unit: "€",
-    caption: `Projected balance on payday ${p.payday}, before your salary${salary > 0 ? ` of about €${Math.round(salary)}` : ""} arrives`,
+    caption: `Projected balance on payday ${displayDate(p.payday)}, before your salary${salary > 0 ? ` of about ${euros(salary)}` : ""} arrives`,
     assumptions: [
       ...planAssumptions(ctx, p),
-      `Everyday spending is assumed to continue at your average of the last 3 full months, about €${Math.round(p.everydayPerDay)} a day.`,
+      `Everyday spending is assumed to continue at your average of the last 3 full months, about ${euros(p.everydayPerDay)} a day.`,
       "The forecast stops just before payday and does not include the incoming salary.",
     ],
     filter: { from: start, to: ctx.today, kind: "all" },
@@ -475,7 +477,7 @@ function whatIf(ctx: EngineContext, args: Record<string, unknown>): EngineResult
     rows,
     value: round2(perMonth * 12),
     unit: "€ / year",
-    caption: `Cutting ${subject} by ${cutPct}% (now about €${Math.round(monthly)}/month) saves about €${Math.round(perMonth)} a month`,
+    caption: `Cutting ${subject} by ${cutPct}% (now about ${euros(monthly)}/month) saves about ${euros(perMonth)} a month`,
     assumptions: [`Based on your average ${subject} spending over the last ${months} full months continuing unchanged.`],
     filter: { from, to, kind: "spending", category, ...(merchantType && { mcc: merchantType }) },
   };
@@ -560,7 +562,7 @@ function goalProgress(ctx: EngineContext, args: Record<string, unknown>): Engine
         ? "Goal reached"
         : monthsLeft === null
           ? "No regular saving yet: start with a small monthly transfer"
-          : `About ${monthsLeft} months to go at €${Math.round(rate)}/month`,
+          : `About ${monthsLeft} months to go at ${euros(rate)}/month`,
     assumptions: [
       "Every transfer to savings or investments in this account's history counts toward the goal, starting from zero, minus withdrawals.",
       "Money saved before the data starts, or held elsewhere, is not visible here.",
