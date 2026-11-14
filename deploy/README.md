@@ -34,15 +34,26 @@ instance on Verda or Aiven).
 
 ## Automatic redeploys
 
-Add three repository secrets (Settings → Secrets and variables → Actions):
+The workflow reads three repository secrets (Settings → Secrets and variables →
+Actions, or `gh secret set NAME`):
 
-| Secret | Value |
-|---|---|
-| `DEPLOY_HOST` | The host's address |
-| `DEPLOY_USER` | The SSH user (defaults to `root`) |
-| `DEPLOY_SSH_KEY` | A private key whose public half is in that user's `authorized_keys` |
+| Secret | Value | Status |
+|---|---|---|
+| `DEPLOY_SSH_KEY` | The private key the workflow logs in with | Set on 14 November. The private half exists only in GitHub. |
+| `DEPLOY_HOST` | The host's address | To set once a host exists |
+| `DEPLOY_USER` | The SSH user (defaults to `root`) | Optional |
 
-Without `DEPLOY_HOST` the workflow still publishes the image and skips the deploy.
+The public half of the deploy key is in [`deploy_key.pub`](deploy_key.pub). Allow it on
+the host, for the user the workflow logs in as:
+
+```bash
+ssh <user>@<host> 'mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys' < deploy/deploy_key.pub
+gh secret set DEPLOY_HOST --body "<host address>"
+```
+
+Without `DEPLOY_HOST` the workflow still publishes the image and skips the deploy. To
+replace the key, generate a new pair, run `gh secret set DEPLOY_SSH_KEY < new_key`, and
+update `deploy_key.pub` and the host's `authorized_keys`.
 
 ## When the database must be rebuilt
 
