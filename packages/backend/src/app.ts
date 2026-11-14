@@ -6,6 +6,7 @@ import {
   type TxFilter,
 } from "@mydata/shared";
 import { serveStatic } from "@hono/node-server/serve-static";
+import { handleStt, handleTts } from "@mydata/voice";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
@@ -14,6 +15,7 @@ import { getCustomer, listCustomers, monthlySummary } from "./finance/customers"
 import { isEngineFn, runEngineFor, transactionsFor } from "./finance/engine";
 import { isIsoDate, PERIOD_NAMES, resolvePeriod, type Period, type PeriodName } from "./finance/period";
 import { BASKETS, GROUP_BY, spending, type Basket, type GroupBy } from "./finance/spending";
+import { requestBudget, type RequestBudget } from "./rateLimit";
 
 const CUSTOMER_ID = /^CUST\d{5}$/;
 const MCC = /^\d{4}$/;
@@ -86,7 +88,13 @@ export interface AppOptions {
    * the app, so one process and one origin cover both the interface and the API.
    */
   staticDir?: string;
+  /** How often the speech routes may be called. They spend ElevenLabs credits. */
+  voiceBudget?: RequestBudget;
 }
+
+const DEFAULT_VOICE_BUDGET: RequestBudget = { perMinute: 30, perHour: 400 };
+/** Same limit as the voice package applies after reading the upload; checked here before reading it. */
+const MAX_STT_BYTES = 25 * 1024 * 1024;
 
 export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
   const app = new Hono();
@@ -222,6 +230,19 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
     const result = transactionsFor(db, id, parseTxFilter(body.filter), limit as number | undefined);
     if (!result) throw new HTTPException(404, { message: "Customer not found" });
     return c.json(result);
+  });
+
+  // ---- voice: text to speech and speech to text (packages/voice, ElevenLabs) ----
+  // Without ELEVENLABS_API_KEY the handlers answer 503, and the rest of the API is unaffected.
+
+  app.use("/api/tts", requestBudget("voice", options.voiceBudget ?? DEFAULT_VOICE_BUDGET));
+  app.use("/api/stt", requestBudget("voice", options.voiceBudget ?? DEFAULT_VOICE_BUDGET));
+  app.post("/api/tts", (c) => handleTts(c.req.raw));
+  app.post("/api/stt", (c) => {
+    if (Number(c.req.header("content-length") ?? 0) > MAX_STT_BYTES) {
+      return c.json({ error: "Audio exceeds the 25 MB limit" }, 413);
+    }
+    return handleStt(c.req.raw);
   });
 
   if (options.staticDir) {
