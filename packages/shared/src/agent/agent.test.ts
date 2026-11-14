@@ -4,6 +4,7 @@ import { buildComponent, COMPONENT_IDS } from "../library/components";
 import type { EngineResult } from "../engine/types";
 import { type ChatModel, type ChatModelRequest, runChat } from "./chat";
 import type { Lookup } from "./snapshot";
+import { createGeminiModel, DEFAULT_GEMINI_MODELS, parseGeminiModels } from "./gemini";
 import { fillPlaceholders, placeholderBlockIds } from "./placeholders";
 import { buildSystemPrompt } from "./prompt";
 import type { ToolCall } from "./tools";
@@ -315,6 +316,38 @@ describe("runChat when the model sends one tool call per turn", () => {
     expect(seen[1].tools.map((t) => t.name)).toEqual(["reply"]);
     expect(seen[1].turns.at(-1)?.text).toContain("Your answer had no reply. The cards are in place.");
     expect(out.checked).toBe(true);
+  });
+});
+
+describe("Gemini model list", () => {
+  function recording(statuses: number[]) {
+    const sent: { model: string; body: Record<string, any> }[] = [];
+    const model = createGeminiModel(
+      async (name, body) => {
+        sent.push({ model: name, body: JSON.parse(body) });
+        const status = statuses[sent.length - 1] ?? 200;
+        const answer = { candidates: [{ content: { role: "model", parts: [{ functionCall: { name: "reply", args: { text: "Hi." } } }] } }] };
+        return new Response(JSON.stringify(status === 200 ? answer : { error: { message: "busy" } }), { status });
+      },
+      { models: ["fast-model", "strong-model:low"], retryDelayMs: 0 },
+    );
+    return { sent, ask: () => model.generate({ system: "s", turns: [{ role: "user", text: "hi" }], tools: [] }) };
+  }
+
+  it("sends a model's thinking level only to that model, and the name without it", async () => {
+    const { sent, ask } = recording([503, 503, 200]);
+    const out = await ask();
+    expect(out.calls).toEqual([{ name: "reply", args: { text: "Hi." } }]);
+    // The first model twice, then the next one.
+    expect(sent.map((s) => s.model)).toEqual(["fast-model", "fast-model", "strong-model"]);
+    expect(sent[0].body.generationConfig).toEqual({ temperature: 0.4, maxOutputTokens: 8192 });
+    expect(sent[2].body.generationConfig).toEqual({ temperature: 0.4, maxOutputTokens: 8192, thinkingConfig: { thinkingLevel: "low" } });
+  });
+
+  it("reads the list from one text, and falls back to the defaults", () => {
+    expect(parseGeminiModels(" a , b:low ,")).toEqual(["a", "b:low"]);
+    expect(parseGeminiModels("")).toEqual(DEFAULT_GEMINI_MODELS);
+    expect(parseGeminiModels(undefined)).toEqual(DEFAULT_GEMINI_MODELS);
   });
 });
 
