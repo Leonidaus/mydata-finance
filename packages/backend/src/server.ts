@@ -1,7 +1,14 @@
 import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { createApp } from "./app";
 import { openDatabase, resolveFromInvocationDir } from "./db";
+
+// Keys for outside services (ELEVENLABS_API_KEY, ...) may live in a .env file at the
+// repository root. It is gitignored; see .env.example. Variables already set win.
+const envFile = resolve(dirname(fileURLToPath(import.meta.url)), "../../../.env");
+if (existsSync(envFile)) process.loadEnvFile(envFile);
 
 const db = openDatabase();
 const port = Number(process.env.PORT ?? 8787);
