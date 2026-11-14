@@ -52,6 +52,9 @@ jobs:
       DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
       DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
       DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      # Keys for outside services. Each is optional: without one, that service stays off.
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
       IMAGE: ${{ needs.image.outputs.image }}:${{ github.sha }}
     steps:
       - name: Skip when no host is configured
@@ -64,7 +67,19 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new "${DEPLOY_USER:-root}@$DEPLOY_HOST" \
+          target="${DEPLOY_USER:-root}@$DEPLOY_HOST"
+
+          # Write the service keys from the repository secrets to keys.env on the host, so
+          # nobody has to copy keys around or edit files there. Only keys that are set are
+          # written; the values travel over SSH on stdin and never appear in a command line.
+          {
+            [ -n "$GEMINI_API_KEY" ] && printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY"
+            [ -n "$ELEVENLABS_API_KEY" ] && printf 'ELEVENLABS_API_KEY=%s\n' "$ELEVENLABS_API_KEY"
+            true
+          } | ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new "$target" \
+            "umask 077 && cat > /srv/mydata/keys.env"
+
+          ssh -i ~/.ssh/deploy_key "$target" \
             "cd /srv/mydata && IMAGE='$IMAGE' docker compose pull app && IMAGE='$IMAGE' docker compose up -d && docker image prune -f"
 
       - name: Check the deployment answers

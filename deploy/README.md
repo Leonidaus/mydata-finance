@@ -23,9 +23,8 @@ instance on Verda or Aiven).
 4. Create `/srv/mydata/.env` on the host:
    ```
    DOMAIN=203-0-113-7.sslip.io      # the host's address, or your own domain
-   GEMINI_API_KEY=...
-   ELEVENLABS_API_KEY=...
    ```
+   The service keys do not go here; the deploy workflow writes them (see below).
 5. Let the host pull the image. Either make the package public (GitHub → the
    repository owner's Packages → mydata-finance → Package settings → Change
    visibility), or run `docker login ghcr.io` on the host with a token that can read
@@ -34,7 +33,7 @@ instance on Verda or Aiven).
 
 ## Automatic redeploys
 
-The workflow reads three repository secrets (Settings → Secrets and variables →
+The workflow reads these repository secrets (Settings → Secrets and variables →
 Actions, or `gh secret set NAME`):
 
 | Secret | Value | Status |
@@ -42,6 +41,13 @@ Actions, or `gh secret set NAME`):
 | `DEPLOY_SSH_KEY` | The private key the workflow logs in with | Set on 14 November. The private half exists only in GitHub. |
 | `DEPLOY_HOST` | The host's address | To set once a host exists |
 | `DEPLOY_USER` | The SSH user (defaults to `root`) | Optional |
+| `ELEVENLABS_API_KEY` | Key for the voice routes | Set on 14 November |
+| `GEMINI_API_KEY` | Key for the chat | To set |
+
+On every deploy the workflow writes the service keys that are set to
+`/srv/mydata/keys.env` on the host (readable only by the deploy user), and the app
+container reads that file. A missing key just leaves that service off; `/api/health`
+shows which are on. To change a key, update the secret and re-run the Deploy workflow.
 
 The public half of the deploy key is in [`deploy_key.pub`](deploy_key.pub). Allow it on
 the host, for the user the workflow logs in as:
