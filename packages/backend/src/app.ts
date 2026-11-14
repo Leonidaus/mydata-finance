@@ -273,7 +273,22 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
       throw new HTTPException(503, { message: "The chat model is not configured on this server (GEMINI_API_KEY)." });
     }
     try {
-      return c.json(await answerChat(options.chatModel, request, db.today, AbortSignal.timeout(CHAT_TIMEOUT_MS)));
+      return c.json(
+        await answerChat(options.chatModel, request, {
+          today: db.today,
+          signal: AbortSignal.timeout(CHAT_TIMEOUT_MS),
+          // The engine runs here for the cards the model asked for; a card it cannot compute is left unexplained.
+          compute: (block) => {
+            if (block.data.kind !== "engine") return null;
+            try {
+              return runEngineFor(db, id, block.data.fn, block.data.args);
+            } catch (error) {
+              if (error instanceof EngineArgumentError) return null;
+              throw error;
+            }
+          },
+        }),
+      );
     } catch (error) {
       if (error instanceof Error && error.name === "TimeoutError") {
         throw new HTTPException(504, { message: "The coach took too long to answer. Try again in a moment." });

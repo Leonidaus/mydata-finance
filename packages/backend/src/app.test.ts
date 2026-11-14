@@ -6,6 +6,7 @@ import { describe, it } from "vitest";
 import type { ChatModel, ChatModelRequest, ToolCall } from "@mydata/shared";
 import { createApp } from "./app";
 import { createServerGeminiModel } from "./chat";
+import { numberReadings, questionLanguage, unbackedNumbers } from "./explain";
 import { DatabaseSync } from "node:sqlite";
 import { resolveFromInvocationDir, wrapDatabase } from "./db";
 import { resolvePeriod } from "./finance/period";
@@ -329,11 +330,14 @@ describe("chat route", () => {
     const model: ChatModel = {
       async generate(request) {
         seen.push(request);
-        return { calls };
+        // Step 2 offers only the reply tool; answer it with the reply from the fixed calls.
+        return isExplainStep(request) ? { calls: calls.filter((c) => c.name === "reply") } : { calls };
       },
     };
     return { model, seen };
   }
+  /** The explanation step is recognisable by its tools: only `reply`. */
+  const isExplainStep = (request: ChatModelRequest) => request.tools.length === 1 && request.tools[0].name === "reply";
   const ask = (target: ReturnType<typeof createApp>, body: unknown) =>
     target.request("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
@@ -357,7 +361,7 @@ describe("chat route", () => {
     assert.equal(body.ops[0].op, "add_block");
     assert.deepEqual(body.ops[0].block?.data, { kind: "engine", fn: "spendBy", args: { period: "last_month", category: "Transportation", by: "merchant_type" } });
 
-    assert.equal(seen.length, 1);
+    assert.equal(seen.length, 2); // step 1: which cards; step 2: what the figures mean
     // The server's own date and its description of the dashboard are in the prompt...
     assert.match(seen[0].system, /Today is 2026-09-15/);
     assert.match(seen[0].system, /id old-card: "Baskets" = baskets/);
@@ -375,29 +379,66 @@ describe("chat route", () => {
     const response = await ask(createApp(createFixtureDb(), { chatModel: bad.model }), { customerId: "CUST00001", question: "spending?" });
     assert.equal(response.status, 200);
     const body = (await response.json()) as { ops: unknown[]; rejected: string[] };
-    assert.equal(bad.seen.length, 2); // first try plus one retry carrying the error
+    assert.equal(bad.seen.length, 2); // first try plus one retry carrying the error; nothing to explain
     assert.equal(body.ops.length, 0);
     assert.ok(body.rejected.some((r) => r.includes("period")));
   });
 
-  it("asks for the reply alone when the model sends a valid card without one", async () => {
-    // What Gemini's smaller models do in practice: one tool call per turn.
+  /** A model that builds the safe-to-spend card in step 1 and says `explanation` in step 2. */
+  function twoStepModel(explanation: (figures: string) => string | Error) {
     const seen: ChatModelRequest[] = [];
-    const oneCallPerTurn: ChatModel = {
+    const model: ChatModel = {
       async generate(request) {
         seen.push(request);
-        return seen.length === 1
-          ? { calls: [{ name: "add_block", args: { id: "safe-week", title: "Safe to spend", explanation: "Balance minus what is still due.", source: "estimate", fn: "safeToSpend", args: { horizon: "week" }, view_kind: "template", template: "stat" } }] }
-          : { calls: [{ name: "reply", args: { text: "You can safely spend {{safe-week.value}} this week." } }] };
+        if (!isExplainStep(request)) {
+          return { calls: [{ name: "add_block", args: { id: "safe-week", title: "Safe to spend", explanation: "Balance minus what is still due.", source: "estimate", fn: "safeToSpend", args: { horizon: "week" }, view_kind: "template", template: "stat" } }] };
+        }
+        const said = explanation(request.turns.at(-1)?.text ?? "");
+        if (said instanceof Error) throw said;
+        return { calls: [{ name: "reply", args: { text: said } }] };
       },
     };
-    const response = await ask(createApp(createFixtureDb(), { chatModel: oneCallPerTurn }), { customerId: "CUST00001", question: "What is safe to spend?" });
-    const body = (await response.json()) as { text: string; ops: unknown[] };
-    assert.equal(body.text, "You can safely spend {{safe-week.value}} this week.");
-    assert.equal(body.ops.length, 1); // the card is kept, not asked for again
+    return { model, seen };
+  }
+  const safeToSpend = async () =>
+    (await get<{ value: number; rows: { term: string; amount: number }[] }>("/api/customers/CUST00001/engine/safeToSpend")).body;
+
+  it("lets the model explain the figures the engine computed for its cards", async () => {
+    const truth = await safeToSpend();
+    const balance = truth.rows[0].amount;
+    const { model, seen } = twoStepModel(() => `You can safely spend €${truth.value.toFixed(2)} this week. Your balance is €${balance.toFixed(2)} and it is an estimate.`);
+    const response = await ask(createApp(createFixtureDb(), { chatModel: model }), { customerId: "CUST00001", question: "What is safe to spend?" });
+    const body = (await response.json()) as { text: string; ops: unknown[]; explained: boolean };
+    assert.equal(body.explained, true);
+    assert.equal(body.text, `You can safely spend €${truth.value.toFixed(2)} this week. Your balance is €${balance.toFixed(2)} and it is an estimate.`);
+    assert.equal(body.ops.length, 1);
+    // Step 2 saw the engine's results for the card, with its assumptions, and only the reply tool.
     assert.equal(seen.length, 2);
+    const figures = seen[1].turns.at(-1)?.text ?? "";
+    assert.match(figures, /QUESTION\nWhat is safe to spend\?/);
+    assert.match(figures, /Card safe-week: "Safe to spend" = safeToSpend\(\{"horizon":"week"\}\)/);
+    assert.ok(figures.includes(`value: ${truth.value}`));
+    assert.match(figures, /assumption: Payday is taken to be/);
     assert.deepEqual(seen[1].tools.map((t) => t.name), ["reply"]);
-    assert.match(seen[1].turns.at(-1)?.text ?? "", /ids: safe-week/);
+  });
+
+  it("discards a reply that quotes a number the engine did not compute", async () => {
+    const { model } = twoStepModel(() => "You can safely spend €9,999.00 this week.");
+    const response = await ask(createApp(createFixtureDb(), { chatModel: model }), { customerId: "CUST00001", question: "What is safe to spend?" });
+    const body = (await response.json()) as { text: string; ops: unknown[]; explained: boolean };
+    assert.equal(body.explained, false);
+    // The fallback carries no figure of its own: the app fills the placeholder from the engine.
+    assert.equal(body.text, "Safe to spend: {{safe-week.value}}.");
+    assert.equal(body.ops.length, 1);
+  });
+
+  it("still answers when the explanation step fails", async () => {
+    const { model } = twoStepModel(() => new Error("Gemini is busy right now."));
+    const response = await ask(createApp(createFixtureDb(), { chatModel: model }), { customerId: "CUST00001", question: "What is safe to spend?" });
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { text: string; explained: boolean };
+    assert.equal(body.explained, false);
+    assert.equal(body.text, "Safe to spend: {{safe-week.value}}.");
   });
 
   it("skips malformed saved cards instead of failing", async () => {
@@ -473,5 +514,39 @@ describe("database version check", () => {
     const old = new DatabaseSync(":memory:");
     old.exec("CREATE TABLE meta (key TEXT, value TEXT); INSERT INTO meta VALUES ('demo_today', '2026-09-15'), ('rules_version', '1');");
     assert.throws(() => wrapDatabase(old), /built with basket rules version 1.*expects version 2/s);
+  });
+});
+
+describe("number check for explanations", () => {
+  it("reads English and Finnish number formats", () => {
+    assert.deepEqual(numberReadings("5,543.54"), [5543.54]);
+    assert.deepEqual(numberReadings("5 543,54"), [554354, 5543.54]);
+    assert.deepEqual(numberReadings("1,913"), [1913, 1.913]);
+    assert.deepEqual(numberReadings("227.57"), [22757, 227.57]);
+    assert.deepEqual(numberReadings("20"), [20]);
+  });
+
+  it("accepts figures as given or rounded, in either format, and rejects everything else", () => {
+    const sources = [227.57, 5543.54, -826.28, 1913.06, 62];
+    assert.deepEqual(unbackedNumbers("You can spend €227.57, about €228, of €5,543.54.", sources), []);
+    assert.deepEqual(unbackedNumbers("Voit käyttää 227,57 € viikossa; laskuja on 826,28 € ja 1 913,06 € jää.", sources), []);
+    assert.deepEqual(unbackedNumbers("That is 62% of it, over 12 months, until 15 October 2026.", sources), []);
+    assert.deepEqual(unbackedNumbers("You can spend €250.00 this week.", sources), ["250.00"]);
+    assert.deepEqual(unbackedNumbers("That leaves €5,315.97 (5,543.54 minus 227.57).", sources), ["5,315.97"]);
+    assert.deepEqual(unbackedNumbers("Voit käyttää 1 500 €.", sources), ["1 500"]);
+    // A small whole number is fine as a count, but not as an amount or a percentage the model worked out.
+    assert.deepEqual(unbackedNumbers("That was 26 visits in 12 months.", [589.86, 26]), []);
+    assert.deepEqual(unbackedNumbers("That is just over €22 per visit.", [589.86, 26]), ["22"]);
+    assert.deepEqual(unbackedNumbers("Se on noin 23 € käynniltä, eli 4 % menoista.", [589.86, 26]), ["23", "4"]);
+  });
+});
+
+describe("reply language", () => {
+  it("follows the language of the question", () => {
+    assert.equal(questionLanguage("How much did I spend on taxis last month?"), "en");
+    assert.equal(questionLanguage("What kind of spender am I?"), "en");
+    assert.equal(questionLanguage("Paljonko käytin takseihin viime kuussa?"), "fi");
+    assert.equal(questionLanguage("Mihin rahani menivat viime kuussa"), "fi");
+    assert.equal(questionLanguage("Voinko ostaa uuden puhelimen?"), "fi");
   });
 });
