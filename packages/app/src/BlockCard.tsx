@@ -9,7 +9,7 @@ import { useLatest } from "./latest";
 import LoadError from "./LoadError";
 import IframeBlock from "./renderers/IframeBlock";
 import VegaBlock from "./renderers/VegaBlock";
-import { useI18n } from "./i18n";
+import { type TranslationKey, useI18n } from "./i18n";
 import { useReceipts } from "./receipts";
 
 interface Props {
@@ -116,29 +116,30 @@ export default function BlockCard({ block, customerId, today, onChange, onRemove
 
 function BlockBody({ block, result, onDrill }: { block: Block; result: EngineResult; onDrill: Props["onDrill"] }) {
   const { locale, t } = useI18n();
+  const presented = presentResult(block, result, locale, t);
   const view = block.view;
   const template = view.kind === "template" ? VEGA_TEMPLATES[view.template] : undefined;
   const spec = useMemo(
-    () => (view.kind === "spec" ? withRows(view.spec, result) : template?.spec(block, result, locale)),
-    [view, template, block, result, locale],
+    () => (view.kind === "spec" ? withRows(view.spec, presented) : template?.spec(block, presented, locale)),
+    [view, template, block, presented, locale],
   );
 
-  const drillAll = () => result.filter && onDrill(block.title, result.filter);
+  const drillAll = () => presented.filter && onDrill(block.title, presented.filter);
 
   /** Free-form views have no template drill rule, so infer the filter from the tapped datum's fields. */
   const onSelectGeneric = (datum: Datum) => {
     const extra = genericDrill(datum, block);
     if (!extra) return drillAll();
     const what = datum.label ?? datum.category ?? datum.month ?? datum.date;
-    onDrill(what ? `${block.title}: ${String(what)}` : block.title, { ...result.filter, ...extra });
+    onDrill(what ? `${block.title}: ${String(what)}` : block.title, { ...presented.filter, ...extra });
   };
 
   if (view.kind === "code") {
     return (
       <>
-        <ResultCaption caption={result.caption} />
-        <IframeBlock code={view.code} libs={view.libs} result={result} label={block.title} onSelect={onSelectGeneric} />
-        <CardContext block={block} result={result} onDrill={onDrill} />
+        <ResultCaption caption={presented.caption} />
+        <IframeBlock code={view.code} libs={view.libs} result={presented} label={block.title} onSelect={onSelectGeneric} />
+        <CardContext block={block} result={presented} onDrill={onDrill} explanation={presented.explanation} />
       </>
     );
   }
@@ -146,9 +147,9 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
   if (view.kind === "spec") {
     return (
       <>
-        <ResultCaption caption={result.caption} />
+        <ResultCaption caption={presented.caption} />
         {spec && <VegaBlock spec={spec} onSelect={onSelectGeneric} label={block.title} />}
-        <CardContext block={block} result={result} onDrill={onDrill} />
+        <CardContext block={block} result={presented} onDrill={onDrill} explanation={presented.explanation} />
       </>
     );
   }
@@ -156,17 +157,18 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
   if (view.template === "stat") {
     const isMonthSummary = block.data.kind === "engine" && block.data.fn === "monthSoFar";
     const isSafeToSpend = block.data.kind === "engine" && block.data.fn === "safeToSpend";
-    const value = isMonthSummary ? monthSpend(result) : result.value ?? 0;
+    const value = isMonthSummary ? monthSpend(presented) : presented.value ?? 0;
     return (
       <div className="stat">
         <p className="stat-value">{formatEur(value, locale)}</p>
-        <ResultCaption caption={result.caption} className="stat-caption" />
+        <ResultCaption caption={presented.caption} className="stat-caption" />
         {isMonthSummary && <p className="stat-note">{t("card.monthNotAllowance")}</p>}
         <CardContext
           block={block}
-          result={result}
+          result={presented}
           onDrill={onDrill}
-          calculation={isSafeToSpend ? <SafeToSpendCalculation rows={result.rows} /> : <StatTerms rows={result.rows} />}
+          explanation={presented.explanation}
+          calculation={isSafeToSpend ? <SafeToSpendCalculation rows={presented.rows} /> : <StatTerms rows={presented.rows} />}
         />
       </div>
     );
@@ -175,7 +177,7 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
   if (view.template === "recurring_list") {
     return (
       <>
-        <ResultCaption caption={result.caption} />
+        <ResultCaption caption={presented.caption} />
         <table className="list">
           <thead>
             <tr>
@@ -185,10 +187,10 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
             </tr>
           </thead>
           <tbody>
-            {result.rows.map((r) => (
+            {presented.rows.map((r) => (
               <tr
                 key={`${r.category}-${r.label}-${r.day}`}
-                onClick={() => onDrill(String(r.label), { ...result.filter, category: String(r.category) })}
+                onClick={() => onDrill(String(r.label), { ...presented.filter, category: String(r.category) })}
               >
                 <td>
                   {r.label}
@@ -200,7 +202,7 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
             ))}
           </tbody>
         </table>
-        <CardContext block={block} result={result} onDrill={onDrill} />
+        <CardContext block={block} result={presented} onDrill={onDrill} explanation={presented.explanation} />
       </>
     );
   }
@@ -211,25 +213,25 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
     const extra = template.drill?.(datum, block);
     if (extra === undefined) return drillAll();
     const what = datum.label ?? datum.category ?? datum.month ?? datum.iso;
-    if (extra) onDrill(what ? `${block.title}: ${String(what)}` : block.title, { ...result.filter, ...extra });
+    if (extra) onDrill(what ? `${block.title}: ${String(what)}` : block.title, { ...presented.filter, ...extra });
   };
 
   return (
     <>
-      {result.value !== undefined && view.template !== "goal_progress" && (
+      {presented.value !== undefined && view.template !== "goal_progress" && (
         <p className="block-figure">
-          <strong>{result.unit === "%" ? `${result.value}%` : formatEur(result.value, locale)}</strong>
-          {result.unit && result.unit !== "€" && result.unit !== "%" && <span className="muted"> {result.unit.replace("€", "")}</span>}
+          <strong>{presented.unit === "%" ? `${presented.value}%` : formatEur(presented.value, locale)}</strong>
+          {presented.unit && presented.unit !== "€" && presented.unit !== "%" && <span className="muted"> {presented.unit.replace("€", "")}</span>}
         </p>
       )}
-      <ResultCaption caption={result.caption} />
+      <ResultCaption caption={presented.caption} />
       <VegaBlock spec={spec} onSelect={onSelect} label={block.title} />
-      {view.template === "goal_progress" && result.value !== undefined && (
+      {view.template === "goal_progress" && presented.value !== undefined && (
         <p className="block-figure">
-          <strong>{Math.round(result.value)}%</strong> <span className="muted">{t("card.goalProgress")}</span>
+          <strong>{Math.round(presented.value)}%</strong> <span className="muted">{t("card.goalProgress")}</span>
         </p>
       )}
-      <CardContext block={block} result={result} onDrill={onDrill} />
+      <CardContext block={block} result={presented} onDrill={onDrill} explanation={presented.explanation} />
     </>
   );
 }
@@ -246,15 +248,15 @@ function CardBadges({ source }: { source: Block["source"] }) {
   );
 }
 
-function CardContext({ block, result, onDrill, calculation }: { block: Block; result: EngineResult; onDrill: Props["onDrill"]; calculation?: ReactNode }) {
+function CardContext({ block, result, onDrill, calculation, explanation = block.explanation }: { block: Block; result: EngineResult; onDrill: Props["onDrill"]; calculation?: ReactNode; explanation?: string }) {
   const { t } = useI18n();
-  const hasExplanation = Boolean(block.explanation || result.assumptions?.length || calculation);
+  const hasExplanation = Boolean(explanation || result.assumptions?.length || calculation);
   return (
     <div className="card-context">
       {hasExplanation && (
         <details className="how">
           <summary>{t("card.howCalculated")}</summary>
-          {block.explanation && <p>{block.explanation}</p>}
+          {explanation && <p>{explanation}</p>}
           {calculation}
           {(result.assumptions?.length ?? 0) > 0 && (
             <>
@@ -282,6 +284,64 @@ function CardContext({ block, result, onDrill, calculation }: { block: Block; re
 function ResultCaption({ caption, className = "muted small card-scope" }: { caption?: string; className?: string }) {
   const { t } = useI18n();
   return caption ? <p className={className}><strong>{t("card.scope")}:</strong> {caption}</p> : null;
+}
+
+/**
+ * The initial dashboard's engine result has no localized presentation fields. Turn its stable
+ * calculation data into the selected UI language here, alongside the other card presentation.
+ * Model-created cards already arrive in the language passed to the model.
+ */
+type PresentedResult = EngineResult & { explanation?: string };
+type Translate = ReturnType<typeof useI18n>["t"];
+
+export function presentResult(block: Block, result: EngineResult, locale: ReturnType<typeof useI18n>["locale"], t: Translate): PresentedResult {
+  // The engine's current English copy remains the complete English presentation. It carries no
+  // parallel Finnish fields, so only Finnish needs the localized display projection below.
+  if (locale === "en") return result;
+  if (block.data.kind !== "engine") return result;
+  const args = block.data.args;
+
+  if (block.data.fn === "safeToSpend") {
+    let expected = 0;
+    let precaution = 0;
+    const rows = result.rows.map((row) => {
+      let key: TranslationKey | undefined;
+      if (row.kind === "balance") key = "card.term.balanceToday";
+      else if (row.kind === "reserve") key = typeof args.reserve === "number" ? "card.term.statedReserve" : "card.term.reserve";
+      else if (row.kind === "expected") key = (["card.term.billsDue", "card.term.essentialsDue", "card.term.savingDue"] as const)[expected++];
+      else if (row.kind === "subtotal") key = "card.term.payPeriodLeft";
+      else if (row.kind === "precaution") key = (["card.term.unexpectedBuffer", "card.term.latePayday"] as const)[precaution++];
+      else if (row.kind === "result") key = "card.term.safeToSpend";
+      return key ? { ...row, term: t(key) } : row;
+    });
+    return {
+      ...result,
+      rows,
+      caption: t(args.horizon === "until_payday" ? "card.safeScopePayday" : "card.safeScopeWeek"),
+      explanation: t("card.safeDescription"),
+      assumptions: [t("card.safeAssumption")],
+    };
+  }
+
+  if (block.data.fn === "monthSoFar") {
+    const terms: readonly TranslationKey[] = [
+      "card.term.moneyIn",
+      "card.term.regular",
+      "card.term.irregular",
+      "card.term.everyday",
+      "card.term.movedToSavings",
+      "card.term.monthLeft",
+    ];
+    return {
+      ...result,
+      rows: result.rows.map((row, index) => (terms[index] ? { ...row, term: t(terms[index]) } : row)),
+      caption: t("card.monthScope"),
+      explanation: t("card.monthDescription"),
+      assumptions: [t("card.monthAssumptionPeriod"), t("card.monthAssumptionIncome"), t("card.monthAssumptionBalance")],
+    };
+  }
+
+  return result;
 }
 
 function SafeToSpendCalculation({ rows }: { rows: EngineResult["rows"] }) {
