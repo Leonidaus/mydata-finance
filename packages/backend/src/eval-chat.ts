@@ -33,15 +33,22 @@ interface Case {
 }
 
 const CASES: Case[] = [
-  { question: "How much did I spend on taxis last month?", fns: ["spendBy"], args: { mcc: "4121", period: "last_month" }, inWords: { fn: "spendBy", args: { mcc: "4121", period: "last_month" } } },
+  // A card for taxis alone or for transport by merchant type are both fine; the reply has to state the taxi figure.
+  { question: "How much did I spend on taxis last month?", fns: ["spendBy"], args: { period: "last_month" }, inWords: { fn: "spendBy", args: { mcc: "4121", period: "last_month" } } },
   { question: "What is safe for me to spend this week?", fns: ["safeToSpend"], args: { horizon: "week" }, inWords: { fn: "safeToSpend", args: { horizon: "week" } } },
   { question: "What kind of spender am I?", fns: ["baskets", "peerCompare", "spendBy"] },
   { question: "How much could I save if I reduced dining out by 20%?", fns: ["whatIf"], args: { category: "Restaurants", cutPct: 20 }, inWords: { fn: "whatIf", args: { category: "Restaurants", cutPct: 20 } } },
   { question: "Where did my money go last month?", fns: ["spendBy", "baskets"], args: { period: "last_month" }, inWords: { fn: "spendBy", args: { period: "last_month" } } },
-  { question: "How could I save more?", fns: ["safeToSave", "whatIf", "baskets", "spendBy", "peerCompare"] },
+  { question: "How could I save more?", fns: ["savingsOptions", "safeToSave", "whatIf", "baskets", "spendBy", "peerCompare"] },
   { question: "How much did I spend on fast food in the last 12 months?", fns: ["spendBy"], args: { mcc: "5814", period: "last_12_months" }, inWords: { fn: "spendBy", args: { mcc: "5814", period: "last_12_months" } } },
   { question: "Do I spend more on groceries than the average Finn my age?", fns: ["nationalCompare"], args: { category: "Groceries" } },
   { question: "Onko asumiseni kalliimpaa kuin suomalaisilla keskimäärin?", fns: ["nationalCompare"], args: { category: "Housing" } },
+  {
+    question: "I want to save 12 000 euros for a home deposit. I have 2 000 set aside and can put in 200 a month. When do I get there?",
+    fns: ["goalPlan"],
+    args: { target: 12000, saved: 2000, monthly: 200 },
+    inWords: { fn: "goalPlan", args: { target: 12000, saved: 2000, monthly: 200 } },
+  },
   { question: "Paljonko käytin ruokakauppaan viime kuussa?", fns: ["spendBy"], args: { category: "Groceries", period: "last_month" }, inWords: { fn: "spendBy", args: { category: "Groceries", period: "last_month" } } },
 ];
 
@@ -92,7 +99,8 @@ async function main(): Promise<void> {
       } else {
         problems.push(`no card with ${test.fns.join(" or ")} (got ${cards.map((b) => (b.data.kind === "engine" ? b.data.fn : "?")).join(", ") || "none"})`);
       }
-      const truth = asked && runEngineFor(db, customerId, asked.fn, asked.args);
+      const about = test.inWords ?? asked;
+      const truth = about && runEngineFor(db, customerId, about.fn, about.args);
       const usesPlaceholder = /\{\{[^}]+\}\}/.test(answer.text);
       // Only for questions about one figure; an open question ("what kind of spender am I?") can be answered in other terms.
       if (test.inWords && typeof truth?.value === "number" && answer.checked && !usesPlaceholder) {

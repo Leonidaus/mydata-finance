@@ -24,6 +24,8 @@ type ArgSpec =
   | { type: "category"; only?: readonly string[] }
   /** A merchant category code that occurs in the data, e.g. "4121" for taxis. */
   | { type: "mcc" }
+  /** Several spending categories: a list, or one text with commas (as in a query string). Stored as a list. */
+  | { type: "categories" }
   | { type: "number"; min: number; max: number; integer?: boolean; exclusiveMin?: boolean }
   | { type: "text"; maxLength: number };
 
@@ -57,7 +59,21 @@ export const ENGINE_ARG_SPECS: Record<EngineFn, Record<string, ArgSpec>> = {
     target: { type: "number", min: 0, max: 100_000_000, exclusiveMin: true },
     label: { type: "text", maxLength: 80 },
   },
+  goalPlan: {
+    target: { type: "number", min: 0, max: 100_000_000, exclusiveMin: true },
+    saved: { type: "number", min: 0, max: 100_000_000 },
+    monthly: { type: "number", min: 0, max: 1_000_000 },
+    extra: { type: "number", min: 0, max: 1_000_000 },
+    byMonths: { type: "number", min: 1, max: 600, integer: true },
+    label: { type: "text", maxLength: 80 },
+  },
+  savingsOptions: {
+    protect: { type: "categories" },
+    cutPct: { type: "number", min: 0, max: 100, exclusiveMin: true },
+  },
 };
+
+const MAX_LISTED_CATEGORIES = 10;
 
 /**
  * Checks `args` for `fn` and returns them without empty values (undefined, null and ""
@@ -87,6 +103,15 @@ export function validateEngineArgs(fn: EngineFn, args: Record<string, unknown>):
           throw new EngineArgumentError(`${key} must be one of: ${allowed.join(", ")}.`);
         }
         break;
+      }
+      case "categories": {
+        const listed = typeof value === "string" ? value.split(",").map((v) => v.trim()).filter(Boolean) : value;
+        const known = (v: unknown) => typeof v === "string" && (SPENDING_CATEGORIES as readonly string[]).includes(v);
+        if (!Array.isArray(listed) || listed.length > MAX_LISTED_CATEGORIES || !listed.every(known)) {
+          throw new EngineArgumentError(`${key} must be a list of categories from: ${SPENDING_CATEGORIES.join(", ")}.`);
+        }
+        clean[key] = [...new Set(listed as string[])];
+        continue;
       }
       case "mcc":
         if (typeof value !== "string" || !Object.hasOwn(MCC_CODES, value)) {

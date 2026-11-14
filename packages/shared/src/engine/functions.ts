@@ -5,7 +5,7 @@
 import { ageBandLabel, type BenchmarkBasis, nationalBenchmark, STATFIN } from "../benchmark/statfin";
 import { lookupMcc } from "../mcc";
 import type { Transaction } from "../schema";
-import { type TREND_METRICS, validateEngineArgs } from "./args";
+import { EngineArgumentError, type TREND_METRICS, validateEngineArgs } from "./args";
 import { BASKET_LABELS, basketOf } from "./baskets";
 import { detectStreams, SINGLE_PAYMENT_MAX_PER_MONTH, type Stream, streamKey } from "./streams";
 import type { Basket, EngineContext, EngineFn, EngineResult, Row, TxFilter } from "./types";
@@ -615,6 +615,145 @@ function goalProgress(ctx: EngineContext, args: Record<string, unknown>): Engine
   };
 }
 
+// ---------- planning towards a goal ----------
+
+/** Average net transfer to savings per month over the last 6 full months (withdrawals count against it). */
+function savingPace(ctx: EngineContext): number {
+  const from = addMonths(startOfMonth(ctx.today), -6);
+  const to = addDays(startOfMonth(ctx.today), -1);
+  const net = (t: Transaction) => (isSaving(t) ? out(t) : t.category === "Invest Withdraw" ? -t.tx_amount_eur : 0);
+  return sum(ctx.tx.filter((t) => inRange(t, from, to)).map(net)) / 6;
+}
+
+/** What has been left of the income after spending, per month, over the last 12 full months. Saving comes out of this. */
+function leftAfterSpending(ctx: EngineContext): number {
+  const [from, to] = resolvePeriod("last_12_months", ctx.today);
+  const inWindow = ctx.tx.filter((t) => inRange(t, from, to));
+  return (sum(inWindow.filter(isIncome).map((t) => t.tx_amount_eur)) - sum(inWindow.filter(isSpending).map(out))) / monthsOfHistory(ctx);
+}
+
+/**
+ * A plan towards a savings goal from figures the user gives: how long it takes at a monthly
+ * amount, what a change to that amount does to the date, what a deadline needs, and whether
+ * each of those fits what is left over after spending. No interest is assumed.
+ *
+ * Unlike goalProgress, nothing in the account counts as "already saved" here: a transfer to
+ * investments does not show how much is set aside for this goal, so that comes from the user.
+ */
+function goalPlan(ctx: EngineContext, args: Record<string, unknown>): EngineResult {
+  const target = num(args.target, NaN);
+  if (!Number.isFinite(target)) {
+    throw new EngineArgumentError("goalPlan needs target: the amount to reach, in euros. Ask the user for it; do not guess.");
+  }
+  const saved = Math.min(num(args.saved, 0), target);
+  const remaining = target - saved;
+  const chosen = typeof args.monthly === "number";
+  const pace = chosen ? (args.monthly as number) : Math.max(0, savingPace(ctx));
+  const extra = num(args.extra, 0);
+  const byMonths = typeof args.byMonths === "number" ? args.byMonths : null;
+  const room = leftAfterSpending(ctx);
+  const thisMonth = startOfMonth(ctx.today);
+
+  const monthsAt = (monthly: number) => (remaining === 0 ? 0 : monthly > 0 ? Math.ceil(remaining / monthly) : null);
+  const baseline = monthsAt(pace);
+  const scenario = (name: string, monthly: number): Row => {
+    const months = monthsAt(monthly);
+    const reached = months === null ? null : monthLabel(monthOf(addMonths(thisMonth, months)));
+    return {
+      scenario: name,
+      monthly: round2(monthly),
+      months,
+      reached,
+      sooner: baseline !== null && months !== null ? baseline - months : null,
+      leftOver: round2(room - monthly),
+      fits: monthly <= room ? "yes" : "no",
+      summary: months === null ? "no date without a monthly amount" : `${euros(monthly)} a month · ${months} months · ${reached}`,
+    };
+  };
+  const rows: Row[] = [scenario(chosen ? "Your plan" : "Current pace", pace)];
+  if (extra > 0) rows.push(scenario(`With ${euros(extra)} more a month`, pace + extra));
+  if (byMonths !== null) rows.push(scenario(`To get there in ${byMonths} months`, Math.ceil(remaining / byMonths)));
+
+  const [first, ...others] = rows;
+  const caption =
+    remaining === 0
+      ? "The target is already covered by what is set aside."
+      : first.months === null
+        ? `${euros(remaining)} to go. There is no regular saving yet, so there is no date: choose a monthly amount.`
+        : `${euros(remaining)} to go: about ${first.months} months at ${euros(pace)} a month, reached around ${first.reached}.`;
+  const more = others.map((row) =>
+    row.months === null ? "" : ` ${row.scenario}: ${euros(row.monthly as number)} a month, ${row.months} months (${row.reached}).`,
+  );
+  const tooMuch = rows.filter((row) => row.fits === "no");
+  return {
+    rows,
+    value: round2(remaining),
+    unit: "€",
+    caption: caption + more.join(""),
+    assumptions: [
+      "No interest or investment returns are counted, and the target stays as it is.",
+      args.saved === undefined
+        ? "Nothing is counted as already saved: the account cannot tell what is set aside for this goal. Ask the user."
+        : `The ${euros(saved)} already set aside is what the user said; the account cannot confirm it.`,
+      chosen
+        ? `The monthly amount, ${euros(pace)}, is the one the user chose.`
+        : `The monthly amount, ${euros(pace)}, is the average net transfer to savings over the last 6 full months: an estimate of the current pace, not a commitment.`,
+      room > 0
+        ? `About ${euros(room)} a month has been left after spending, on average over the last 12 months. Saving comes out of that; "leftOver" is what remains of it in each scenario.`
+        : "On average over the last 12 months, spending has been as large as income or larger, so nothing has been left to save.",
+      ...(tooMuch.length
+        ? [`Not realistic at today's income and spending: ${tooMuch.map((row) => row.scenario).join("; ")}. A longer timeline, a smaller target or lower spending would be needed.`]
+        : []),
+      "This is planning information from the user's own figures, not advice, and it says nothing about a loan decision.",
+    ],
+    filter: { kind: "saving" },
+  };
+}
+
+/**
+ * Where everyday spending could be cut: one row per category with what a cut of cutPct would
+ * free each month. Only the everyday basket is considered, so essentials stay untouched, and
+ * categories the user wants to keep are left out.
+ */
+function savingsOptions(ctx: EngineContext, args: Record<string, unknown>): EngineResult {
+  const protect = Array.isArray(args.protect) ? (args.protect as string[]) : [];
+  const cutPct = num(args.cutPct, 20);
+  const [from, to] = resolvePeriod("last_12_months", ctx.today);
+  const months = monthsOfHistory(ctx);
+  const everyday = new Map<string, number>();
+  for (const t of ctx.tx) {
+    if (isSpending(t) && inRange(t, from, to) && basketOf(t) === "everyday") everyday.set(t.category, (everyday.get(t.category) ?? 0) + out(t) / months);
+  }
+  const rows: Row[] = [...everyday]
+    .filter(([category, monthly]) => !protect.includes(category) && monthly >= MIN_OPTION_PER_MONTH)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, MAX_OPTIONS)
+    .map(([category, monthly]) => {
+      const saving = round2((monthly * cutPct) / 100);
+      return { category, monthly: round2(monthly), saving, perYear: round2(saving * 12) };
+    });
+  const total = round2(sum(rows.map((row) => row.saving as number)));
+  return {
+    rows,
+    value: total,
+    unit: "€/month",
+    caption: rows.length
+      ? `Cutting everyday spending by ${cutPct}% in ${rows.length === 1 ? "this category" : `these ${rows.length} categories`} would free about ${euros(total)} a month`
+      : "No everyday spending to cut outside what you want to keep",
+    assumptions: [
+      "Only everyday spending is looked at (monthly averages over the last 12 full months). Regular essentials, unexpected necessities and the cash buffer are left alone.",
+      ...(protect.length ? [`Left out because the user wants to keep them: ${protect.join(", ")}.`] : []),
+      "These are possibilities worked out from the spending, not recommendations: the user picks what feels realistic.",
+      "The rows do not overlap, so their savings can be added together. A merchant type (taxis, fast food) is part of its category and must not be added on top.",
+    ],
+    filter: { from, to, kind: "spending", basket: "everyday" },
+  };
+}
+
+/** A category that averages less than this a month is not worth suggesting. */
+const MIN_OPTION_PER_MONTH = 10;
+const MAX_OPTIONS = 5;
+
 // ---------- dispatch and drill-down ----------
 
 const FNS: Record<EngineFn, (ctx: EngineContext, args: Record<string, unknown>) => EngineResult> = {
@@ -630,6 +769,8 @@ const FNS: Record<EngineFn, (ctx: EngineContext, args: Record<string, unknown>) 
   dailySpend,
   recurring,
   goalProgress,
+  goalPlan,
+  savingsOptions,
 };
 
 export function runEngine(ctx: EngineContext, fn: EngineFn, args: Record<string, unknown> = {}): EngineResult {

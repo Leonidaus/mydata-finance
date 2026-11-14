@@ -92,6 +92,96 @@ export const custom = {
     controls: [{ kind: "period", arg: "period" }],
   }),
 
+  /**
+   * A savings plan towards a target the user gave: one band per scenario (the current pace or
+   * the chosen amount, saving more, meeting a deadline) with how long each takes.
+   */
+  goalPlan: (opts: { target?: number; saved?: number; monthly?: number; extra?: number; byMonths?: number; label?: string } = {}): Block => ({
+    id: id("plan"),
+    title: opts.label ?? "Your savings plan",
+    explanation:
+      "What is left to save, and how long it takes at a monthly amount: your current saving pace unless you chose one. The other rows show what saving more a month, or a deadline, would mean. A row turns orange when it needs more than has been left over after your spending. No interest is counted, and what is already set aside is the amount you gave.",
+    source: "estimate",
+    data: {
+      kind: "engine",
+      fn: "goalPlan",
+      args: {
+        ...(opts.target !== undefined && { target: opts.target }),
+        ...(opts.saved !== undefined && { saved: opts.saved }),
+        ...(opts.monthly !== undefined && { monthly: opts.monthly }),
+        extra: opts.extra ?? 0,
+        ...(opts.byMonths !== undefined && { byMonths: opts.byMonths }),
+        ...(opts.label && { label: opts.label }),
+      },
+    },
+    view: {
+      kind: "spec",
+      spec: {
+        height: { step: 58 },
+        // Keep the scenarios in the order the engine gives them: the plan first, then the alternatives.
+        transform: [{ window: [{ op: "row_number", as: "order" }] }],
+        encoding: { y: { field: "scenario", type: "nominal", sort: { field: "order", op: "min", order: "ascending" }, axis: null } },
+        layer: [
+          {
+            mark: { type: "bar", height: 14, cornerRadius: 7 },
+            encoding: {
+              x: { field: "months", type: "quantitative", title: "Months to go", axis: { tickMinStep: 1, format: "d" } },
+              color: { condition: { test: "datum.fits === 'no'", value: "var(--chart-3)" }, value: "var(--chart-1)" },
+              tooltip: [
+                { field: "scenario", title: "Plan" },
+                { field: "monthly", title: "€ a month", format: ",.0f" },
+                { field: "months", title: "Months" },
+                { field: "reached", title: "Reached" },
+                { field: "leftOver", title: "Left over, € a month", format: ",.0f" },
+              ],
+            },
+          },
+          { mark: { type: "text", align: "left", dy: -17, fontWeight: 600, fontSize: 12, color: "var(--text)" }, encoding: { x: { value: 0 }, text: { field: "scenario" } } },
+          { mark: { type: "text", align: "left", dy: 17, fontSize: 11, color: "var(--muted)" }, encoding: { x: { value: 0 }, text: { field: "summary" } } },
+        ],
+      },
+    },
+    controls: [{ kind: "slider", arg: "extra", label: "Save more each month", min: 0, max: 500, step: 10, unit: "€" }],
+    // A plan is something to come back to: it stays on the dashboard when later answers replace other cards.
+    pinned: true,
+  }),
+
+  /** Where everyday spending could be cut, and what each cut would free a month. */
+  savingOptions: (protect: string[] = [], cutPct = 20): Block => ({
+    id: id("options"),
+    title: "Where you could save",
+    explanation:
+      "Your everyday spending per category (monthly average over the last 12 months) and what cutting it by the chosen share would free each month. Rent, bills and other essentials are never included, and neither is anything you said you want to keep.",
+    source: "estimate",
+    data: { kind: "engine", fn: "savingsOptions", args: { protect, cutPct } },
+    view: {
+      kind: "spec",
+      spec: {
+        height: { step: 30 },
+        encoding: { y: { field: "category", type: "nominal", sort: null, title: null, axis: { labelLimit: 110 } } },
+        layer: [
+          {
+            mark: { type: "bar", cornerRadiusEnd: 4, cursor: "pointer", color: "var(--chart-1)" },
+            encoding: {
+              x: { field: "saving", type: "quantitative", title: "€ freed a month", axis: { format: ",.0f", tickCount: 4 } },
+              tooltip: [
+                { field: "category", title: "Category" },
+                { field: "monthly", title: "Now, € a month", format: ",.0f" },
+                { field: "saving", title: "Freed, € a month", format: ",.0f" },
+                { field: "perYear", title: "Freed a year, €", format: ",.0f" },
+              ],
+            },
+          },
+          {
+            mark: { type: "text", align: "left", dx: 5, fontSize: 11, color: "var(--muted)" },
+            encoding: { x: { field: "saving", type: "quantitative" }, text: { field: "saving", format: ",.0f" } },
+          },
+        ],
+      },
+    },
+    controls: [{ kind: "slider", arg: "cutPct", label: "Cut by", min: 5, max: 50, step: 5, unit: "%" }],
+  }),
+
   /** Running total within each month, one line per month, to compare spending pace. */
   pace: (): Block => ({
     id: id("pace"),

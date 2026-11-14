@@ -6,6 +6,11 @@ export type PlaceholderField = "value" | "caption";
 
 const PLACEHOLDER_RE = /\{\{\s*([a-z][a-z0-9-]*)\.(value|caption)\s*\}\}/g;
 
+/** Every placeholder in a reply, in order. */
+export function placeholders(text: string): { id: string; field: PlaceholderField }[] {
+  return [...text.matchAll(PLACEHOLDER_RE)].map((m) => ({ id: m[1], field: m[2] as PlaceholderField }));
+}
+
 /** The block ids a reply refers to, each once. */
 export function placeholderBlockIds(text: string): string[] {
   return [...new Set([...text.matchAll(PLACEHOLDER_RE)].map((m) => m[1]))];
