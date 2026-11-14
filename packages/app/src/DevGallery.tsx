@@ -32,6 +32,7 @@ function gallery(): { section: string; note: string; blocks: Block[] }[] {
         catalog.forecast(),
         catalog.whatIf(),
         catalog.peers(),
+        catalog.national(),
         catalog.calendar(),
         catalog.recurring(),
         catalog.goal(),
