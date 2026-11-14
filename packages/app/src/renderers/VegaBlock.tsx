@@ -79,7 +79,14 @@ export default function VegaBlock({ spec, onSelect, label }: Props) {
           } as TopLevelSpec,
           style,
         );
-        return embed(el, full, { actions: false, renderer: "svg", logLevel: 1 /* errors only */, tooltip: { theme: dark ? "dark" : "light" } }).then((res) => {
+        return embed(el, full, {
+          actions: false,
+          renderer: "svg",
+          logLevel: 1 /* errors only */,
+          tooltip: { theme: dark ? "dark" : "light" },
+          // Numbers as S-mobiili writes them: space for thousands, comma for decimals.
+          formatLocale: { decimal: ",", thousands: "\u00a0", grouping: [3], currency: ["", "\u00a0€"] },
+        }).then((res) => {
           if (cancelled) return res.finalize();
           finalize = res.finalize;
           res.view.addEventListener("click", (_event, item) => {
