@@ -3,7 +3,7 @@
  * with its own key and validates the answer; the app sends the question, the conversation so
  * far and the dashboard's card definitions, and gets back a reply and card operations.
  */
-import type { Block, ChatOutput, ProtectedCategory } from "@mydata/shared";
+import type { Block, ChatImage, ChatOutput, ProtectedCategory } from "@mydata/shared";
 
 export type ServerChatOutput = ChatOutput & { blocked?: ProtectedCategory[] };
 
@@ -12,7 +12,18 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 export interface ServerChat {
   /** Whether the backend has a chat model configured. False when it cannot be reached. */
   available(): Promise<boolean>;
-  ask(input: { customerId: string; question: string; history: { role: "user" | "assistant"; text: string }[]; blocks: Block[]; allowProtected?: ProtectedCategory[]; pendingUnprotect?: ProtectedCategory[] }, signal?: AbortSignal): Promise<ServerChatOutput>;
+  ask(
+    input: {
+      customerId: string;
+      question: string;
+      history: { role: "user" | "assistant"; text: string }[];
+      blocks: Block[];
+      allowProtected?: ProtectedCategory[];
+      pendingUnprotect?: ProtectedCategory[];
+      image?: ChatImage;
+    },
+    signal?: AbortSignal,
+  ): Promise<ServerChatOutput>;
 }
 
 /** `base` is the API origin without a trailing slash; empty means same origin. */
