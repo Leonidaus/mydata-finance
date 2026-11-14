@@ -437,6 +437,22 @@ body {
   cursor: pointer;
 }
 
+.chat-input .voice-btn {
+  flex: none;
+  padding: 0 12px;
+  border: 1px solid var(--green-700);
+  background: var(--surface);
+  color: var(--green-700);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.chat-input .voice-btn.on {
+  border-color: var(--green-300);
+  background: var(--green-300);
+  color: var(--green-900);
+}
+
 .chat-input button:disabled { background: var(--surface-weak); color: var(--border-strong); cursor: default; }
 
 .chat-note {

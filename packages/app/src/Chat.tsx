@@ -1,7 +1,10 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { DEMO_PROMPTS } from "./agent/mockAgent";
 import type { ChatMode } from "./agent";
+import { apiBase } from "./data";
 import { errorMessage } from "./latest";
+import { createVoiceClient } from "./voice/client";
+import { useVoice } from "./voice/useVoice";
 
 type Message = { id: number; role: "user" | "assistant"; text: string };
 
@@ -12,6 +15,8 @@ const SUGGESTIONS = [
   ...DEMO_PROMPTS[2].prompts,
   ...DEMO_PROMPTS[0].prompts.slice(4, 6),
 ];
+
+const voiceClient = createVoiceClient(apiBase);
 
 interface Props {
   /** Resolves to the assistant's reply text; dashboard edits happen as a side effect. */
@@ -32,19 +37,23 @@ export default function Chat({ onAsk, resetKey, request, mode }: Props) {
   const logRef = useRef<HTMLDivElement>(null);
   /** Counts conversation resets, so that a reply can tell whether its conversation is still open. */
   const conversation = useRef(0);
+  const pendingRef = useRef(false);
+  const voice = useVoice(voiceClient);
 
   useEffect(() => {
     conversation.current++;
+    pendingRef.current = false;
     setMessages([]);
     setPending(false);
-  }, [resetKey]);
+    voice.reset();
+  }, [resetKey, voice.reset]);
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, pending]);
 
   function send(text: string, canned = false) {
     const trimmed = text.trim();
-    if (!trimmed || pending) return;
+    if (!trimmed || pendingRef.current) return;
     const add = (role: Message["role"], text: string) => {
       const id = nextId.current++;
       setMessages((prev) => [...prev, { id, role, text }]);
@@ -54,13 +63,22 @@ export default function Chat({ onAsk, resetKey, request, mode }: Props) {
     const current = () => conversation.current === askedIn;
     add("user", trimmed);
     setInput("");
+    pendingRef.current = true;
     setPending(true);
     onAsk(trimmed, canned)
       .then(
-        (reply) => current() && add("assistant", reply),
+        (reply) => {
+          if (!current()) return;
+          add("assistant", reply);
+          void voice.speak(reply);
+        },
         (e: unknown) => current() && add("assistant", `I couldn't answer that: ${errorMessage(e)} Please ask again.`),
       )
-      .finally(() => current() && setPending(false));
+      .finally(() => {
+        if (!current()) return;
+        pendingRef.current = false;
+        setPending(false);
+      });
   }
 
   useEffect(() => {
@@ -71,6 +89,13 @@ export default function Chat({ onAsk, resetKey, request, mode }: Props) {
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     send(input);
+  }
+
+  function onDictate() {
+    const askedIn = conversation.current;
+    void voice.dictate().then((text) => {
+      if (text && conversation.current === askedIn) send(text);
+    });
   }
 
   return (
@@ -99,16 +124,38 @@ export default function Chat({ onAsk, resetKey, request, mode }: Props) {
 
       <form className="chat-input" onSubmit={onSubmit}>
         <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask about your money…" aria-label="Your question" />
+        {voice.available && (
+          <button
+            type="button"
+            className={`voice-btn${voice.enabled ? " on" : ""}`}
+            onClick={voice.toggle}
+            aria-pressed={voice.enabled}
+            title={voice.enabled ? "Disable voice replies and dictation" : "Enable voice replies and dictation"}
+          >
+            Voice
+          </button>
+        )}
+        {voice.available && voice.enabled && (
+          <button
+            type="button"
+            className={`voice-btn${voice.recording ? " on" : ""}`}
+            onClick={onDictate}
+            disabled={pending && !voice.recording}
+          >
+            {voice.recording ? "Stop" : "Speak"}
+          </button>
+        )}
         <button type="submit" disabled={!input.trim() || pending}>
           Ask
         </button>
       </form>
-      <p className="chat-note">
-        {mode === "mock"
-          ? "Demo coach: keyword-based. Set GEMINI_API_KEY (in .env for the backend, or packages/app/.env.local for dev mode) to use Gemini."
-          : mode === "server"
-            ? "Typed questions go to Gemini. It sees the totals on the cards it builds, never your transactions. Chips are instant keyword answers."
-            : "Typed questions go to Gemini, which never sees your figures. Chips are instant keyword answers."}
+      <p className="chat-note" role={voice.error ? "alert" : undefined}>
+        {voice.error ??
+          (mode === "mock"
+            ? "Demo coach: keyword-based. Set GEMINI_API_KEY (in .env for the backend, or packages/app/.env.local for dev mode) to use Gemini."
+            : mode === "server"
+              ? "Typed questions go to Gemini. It sees the totals on the cards it builds, never your transactions. Chips are instant keyword answers."
+              : "Typed questions go to Gemini, which never sees your figures. Chips are instant keyword answers.")}
       </p>
     </section>
   );
