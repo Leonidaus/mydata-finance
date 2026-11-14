@@ -38,7 +38,7 @@ export default function Chat({ onAsk, resetKey, request, mode }: Props) {
   /** Counts conversation resets, so that a reply can tell whether its conversation is still open. */
   const conversation = useRef(0);
   const pendingRef = useRef(false);
-  const voice = useVoice(voiceClient);
+  const voice = useVoice(voiceClient, (text) => send(text));
 
   useEffect(() => {
     conversation.current++;
@@ -54,6 +54,7 @@ export default function Chat({ onAsk, resetKey, request, mode }: Props) {
   function send(text: string, canned = false) {
     const trimmed = text.trim();
     if (!trimmed || pendingRef.current) return;
+    voice.pause();
     const add = (role: Message["role"], text: string) => {
       const id = nextId.current++;
       setMessages((prev) => [...prev, { id, role, text }]);
@@ -70,7 +71,7 @@ export default function Chat({ onAsk, resetKey, request, mode }: Props) {
         (reply) => {
           if (!current()) return;
           add("assistant", reply);
-          void voice.speak(reply);
+          return voice.speak(reply);
         },
         (e: unknown) => current() && add("assistant", `I couldn't answer that: ${errorMessage(e)} Please ask again.`),
       )
@@ -78,6 +79,7 @@ export default function Chat({ onAsk, resetKey, request, mode }: Props) {
         if (!current()) return;
         pendingRef.current = false;
         setPending(false);
+        voice.resume();
       });
   }
 
@@ -91,12 +93,23 @@ export default function Chat({ onAsk, resetKey, request, mode }: Props) {
     send(input);
   }
 
-  function onDictate() {
-    const askedIn = conversation.current;
-    void voice.dictate().then((text) => {
-      if (text && conversation.current === askedIn) send(text);
-    });
-  }
+  const modeNote =
+    mode === "mock"
+      ? "Demo coach: keyword-based. Set GEMINI_API_KEY (in .env for the backend, or packages/app/.env.local for dev mode) to use Gemini."
+      : mode === "server"
+        ? "Typed questions go to Gemini. It sees the totals on the cards it builds, never your transactions. Chips are instant keyword answers."
+        : "Typed questions go to Gemini, which never sees your figures. Chips are instant keyword answers.";
+  const note = voice.error
+    ? voice.error
+    : voice.enabled
+      ? voice.processing
+        ? "Transcribing your question…"
+        : voice.recording
+          ? "Listening… I'll answer when you pause."
+          : pending
+            ? "Voice is paused while your coach answers…"
+            : "Voice on. Start speaking."
+      : modeNote;
 
   return (
     <section className="chat" aria-label="Chat with your money coach">
@@ -130,19 +143,9 @@ export default function Chat({ onAsk, resetKey, request, mode }: Props) {
             className={`voice-btn${voice.enabled ? " on" : ""}`}
             onClick={voice.toggle}
             aria-pressed={voice.enabled}
-            title={voice.enabled ? "Disable voice replies and dictation" : "Enable voice replies and dictation"}
+            title={voice.enabled ? "Disable continuous voice conversation" : "Enable continuous voice conversation"}
           >
             Voice
-          </button>
-        )}
-        {voice.available && voice.enabled && (
-          <button
-            type="button"
-            className={`voice-btn${voice.recording ? " on" : ""}`}
-            onClick={onDictate}
-            disabled={pending && !voice.recording}
-          >
-            {voice.recording ? "Stop" : "Speak"}
           </button>
         )}
         <button type="submit" disabled={!input.trim() || pending}>
@@ -150,12 +153,7 @@ export default function Chat({ onAsk, resetKey, request, mode }: Props) {
         </button>
       </form>
       <p className="chat-note" role={voice.error ? "alert" : undefined}>
-        {voice.error ??
-          (mode === "mock"
-            ? "Demo coach: keyword-based. Set GEMINI_API_KEY (in .env for the backend, or packages/app/.env.local for dev mode) to use Gemini."
-            : mode === "server"
-              ? "Typed questions go to Gemini. It sees the totals on the cards it builds, never your transactions. Chips are instant keyword answers."
-              : "Typed questions go to Gemini, which never sees your figures. Chips are instant keyword answers.")}
+        {note}
       </p>
     </section>
   );
