@@ -197,7 +197,8 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
             {messages.map((m, i) => {
               // The coach shows its face with its latest answer only.
               const latest = !pending && m.role === "assistant" && i === messages.length - 1;
-              const showOverride = m.role === "assistant" && i === messages.length - 1 && m.blocked?.length && !m.overrideUsed && !pending;
+              // A comparison, not the length itself: with nothing blocked the length is 0, and React would print that 0.
+              const showOverride = m.role === "assistant" && i === messages.length - 1 && (m.blocked?.length ?? 0) > 0 && !m.overrideUsed && !pending;
               return latest ? (
                 <div key={m.id} className="coach-row">
                   <CoachFace face={coach?.mood ?? "neutral"} />
