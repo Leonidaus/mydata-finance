@@ -21,13 +21,13 @@ const categoryControl = (withAll: boolean): Control => ({
 export const PERIOD_OPTIONS = Object.entries(PERIODS).map(([value, label]) => ({ value, label }));
 
 export const catalog = {
-  safeToSpend: (horizon: "week" | "until_payday" = "week"): Block => ({
+  safeToSpend: (horizon: "week" | "until_payday" = "week", reserve?: number): Block => ({
     id: id("safe"),
     title: horizon === "week" ? "Safe to spend this week" : "Safe to spend until payday",
     explanation:
       "What is left of this pay period's money: your balance today, minus what was already on the account before your last salary (your reserve), minus bills, essentials and planned saving still due before payday, minus a buffer for unexpected costs. The rest is spread evenly over the days until payday.",
     source: "estimate",
-    data: { kind: "engine", fn: "safeToSpend", args: { horizon } },
+    data: { kind: "engine", fn: "safeToSpend", args: { horizon, ...(reserve !== undefined && { reserve }) } },
     view: { kind: "template", template: "stat" },
     controls: [
       {
@@ -40,6 +40,16 @@ export const catalog = {
         ],
       },
     ],
+  }),
+
+  monthSoFar: (): Block => ({
+    id: id("month"),
+    title: "This month so far",
+    explanation:
+      "From the 1st of the month to today: money in, money out in the three baskets, what you moved to savings, and what is left of it. The comparison is with what you had usually spent by the same day in the last three months. It counts this month's money only, not what was already on the account.",
+    source: "own",
+    data: { kind: "engine", fn: "monthSoFar", args: {} },
+    view: { kind: "template", template: "stat" },
   }),
 
   categoryBars: (opts: { period?: string; category?: string; by?: "category" | "merchant_type"; mcc?: string; title?: string } = {}): Block => {
@@ -194,7 +204,10 @@ export const catalog = {
 };
 
 export function defaultDashboard(): Block[] {
-  return [{ ...catalog.safeToSpend(), pinned: true }];
+  return [
+    { ...catalog.safeToSpend(), pinned: true },
+    { ...catalog.monthSoFar(), pinned: true },
+  ];
 }
 
 function capitalise(s: string) {

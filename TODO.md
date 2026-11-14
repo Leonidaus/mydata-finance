@@ -23,18 +23,16 @@ Five criteria, 20% each. What we have for each, and where the gap is:
 
 ## Next, in order
 
-1. [ ] Release `develop` to `main`: the conversational coach (#34) and goal planning
-   (#36) are merged but not on the live demo. `/release` prepares the pull request;
-   merging it starts the deploy. Check the live site afterwards.
-2. [ ] Fix `goalPlan` for funded changes: every scenario is checked against the same
+1. [x] The conversational coach and goal planning are released. `/release` prepares
+   a release pull request; merging it starts the deploy.
+2. [x] Fix `goalPlan` for funded changes (`extraFrom: spending_cut`): every scenario is checked against the same
    amount left after spending, so extra saving that comes from a spending cut can be
    marked "does not fit" although the cut pays for it. The function needs to know
    whether the extra is freed by a cut or taken from the existing surplus.
-3. [ ] Fix the prompt's limit "no forecast beyond the next payday": it contradicts
+3. [x] Fix the prompt's limit "no forecast beyond the next payday": it contradicts
    `goalPlan`, which gives dates years ahead. The limit belongs to the balance
    forecast only.
-4. [ ] Re-run the chat evaluation (`npm run eval:chat -w @mydata/backend`). The last
-   run was before three fixes (two test cases, unfillable placeholders).
+4. [x] The chat evaluation has 14 questions and is re-run with each change to the coach.
 5. [x] The Junction Gemini key is in production. [ ] Delete the personal key that
    was used before it.
 6. [ ] Test on a real phone: chat, voice on, the animated widgets (WebGL), the
@@ -132,8 +130,15 @@ Counts towards: financial literacy, feasibility.
 - [ ] A library card for safe to save (the coach can only state the figure today)
 - [x] Safe to spend counts this pay period's money only; what was on the account
   before the last salary is a reserve that is shown but not counted
-- [ ] Let the user say how much of the account is savings, instead of inferring it
-  from the balance before the last salary
+- [x] The user can say how much of the account is savings; the coach sets it on the
+  safe-to-spend card
+- [x] "This month so far" on the first screen: money in, the three baskets, moved to
+  savings, what is left, next to the usual by the same day
+- [ ] A control on the card for the savings amount; today it is set through the chat
+- [ ] The month view is by calendar month; for someone paid at the end of the month
+  it shows money out and nothing in for most of the month. A view by pay period
+  would suit them better
+- [ ] A next step on the card when nothing is safe to spend
 
 ## What-if and savings goals
 
@@ -146,13 +151,15 @@ Counts towards: financial literacy, originality of AI integration.
 - [x] `savingsOptions`: where everyday spending could be cut, without essentials
 - [x] The plan card stays pinned, with a slider for saving more
 - [x] The coach asks for the target and never invents one
-- [ ] Funded changes in `goalPlan` (item 2 above)
+- [x] Funded changes in `goalPlan`
+- [x] Review of a plan: planned against really moved to savings, month by month,
+  on plan or behind, and when the target is reached at the pace so far (`goalReview`)
 - [ ] A goal record stored separately from the dashboard: target and date, savings
   the user confirmed, agreed monthly amount, protected buffer, chosen changes and
   their effects, assumptions, when it was agreed. Today the pinned card's arguments
   are the only record
-- [ ] Review progress against the plan: actual transfers since it was agreed, on
-  track or not, and help revising it
+- [ ] In the demo a new plan starts this month and has nothing to review, because
+  "today" is fixed. With real data the review would fill in month by month
 - [ ] An agreed cash buffer as part of the plan
 - [ ] Optional reminders
 - [ ] Try the same flow for other goals (emergency fund, a trip, studies)

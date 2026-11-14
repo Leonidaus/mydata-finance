@@ -24,6 +24,8 @@ type ArgSpec =
   | { type: "category"; only?: readonly string[] }
   /** A merchant category code that occurs in the data, e.g. "4121" for taxis. */
   | { type: "mcc" }
+  /** A calendar month as "YYYY-MM". */
+  | { type: "month" }
   /** Several spending categories: a list, or one text with commas (as in a query string). Stored as a list. */
   | { type: "categories" }
   | { type: "number"; min: number; max: number; integer?: boolean; exclusiveMin?: boolean }
@@ -45,7 +47,11 @@ export const ENGINE_ARG_SPECS: Record<EngineFn, Record<string, ArgSpec>> = {
   },
   baskets: { period },
   dailySpend: { period },
-  safeToSpend: { horizon: { type: "enum", values: ["week", "until_payday"] } },
+  safeToSpend: {
+    horizon: { type: "enum", values: ["week", "until_payday"] },
+    /** How much of the account the customer says is savings; without it, what was there before the last salary. */
+    reserve: { type: "number", min: 0, max: 100_000_000 },
+  },
   safeToSave: {},
   balanceForecast: {},
   whatIf: { category, mcc, cutPct: { type: "number", min: 0, max: 100 } },
@@ -64,9 +70,21 @@ export const ENGINE_ARG_SPECS: Record<EngineFn, Record<string, ArgSpec>> = {
     saved: { type: "number", min: 0, max: 100_000_000 },
     monthly: { type: "number", min: 0, max: 1_000_000 },
     extra: { type: "number", min: 0, max: 1_000_000 },
+    /** Where the extra comes from: a cut in spending pays for itself; taken from what is left over, it does not. */
+    extraFrom: { type: "enum", values: ["surplus", "spending_cut"] },
     byMonths: { type: "number", min: 1, max: 600, integer: true },
     label: { type: "text", maxLength: 80 },
+    /** The month the plan was agreed: kept on the plan for goalReview. */
+    since: { type: "month" },
   },
+  goalReview: {
+    target: { type: "number", min: 0, max: 100_000_000, exclusiveMin: true },
+    saved: { type: "number", min: 0, max: 100_000_000 },
+    monthly: { type: "number", min: 0, max: 1_000_000, exclusiveMin: true },
+    since: { type: "month" },
+    label: { type: "text", maxLength: 80 },
+  },
+  monthSoFar: {},
   savingsOptions: {
     protect: { type: "categories" },
     cutPct: { type: "number", min: 0, max: 100, exclusiveMin: true },
@@ -113,6 +131,11 @@ export function validateEngineArgs(fn: EngineFn, args: Record<string, unknown>):
         clean[key] = [...new Set(listed as string[])];
         continue;
       }
+      case "month":
+        if (typeof value !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) {
+          throw new EngineArgumentError(`${key} must be a month written as YYYY-MM, e.g. "2026-06".`);
+        }
+        break;
       case "mcc":
         if (typeof value !== "string" || !Object.hasOwn(MCC_CODES, value)) {
           throw new EngineArgumentError(`${key} must be a merchant type code from the list, e.g. "4121" for taxis.`);

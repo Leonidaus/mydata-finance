@@ -115,8 +115,8 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 const answerCalls = (res: ChatModelResponse) => res.calls.filter((c) => c.name !== LOOKUP_TOOL && c.name !== HAND_OVER_TOOL);
 
 /** The engine functions and library cards for planning towards a goal. A turn that uses them is one for the stronger model. */
-const PLANNING_FNS: readonly string[] = ["goalPlan", "savingsOptions"];
-const PLANNING_COMPONENTS: readonly string[] = ["goal_plan", "saving_options"];
+const PLANNING_FNS: readonly string[] = ["goalPlan", "savingsOptions", "goalReview"];
+const PLANNING_COMPONENTS: readonly string[] = ["goal_plan", "saving_options", "goal_review"];
 
 /**
  * Whether the fast model's answer is a planning turn it should have handed over: it asked to
@@ -255,7 +255,7 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
     userTurn(question),
   ];
   const { lookup } = input;
-  const snapshot = lookup ? await buildSnapshot(lookup) : null;
+  const snapshot = lookup ? await buildSnapshot(lookup, input.blocks) : null;
   const system = buildSystemPrompt(input.blocks, input.today, { snapshot: snapshot?.text });
   // Every number the reply may quote: what the coach was shown, and what was said in the conversation.
   const backed = [...(snapshot?.numbers ?? []), ...numbersIn(question), ...history.flatMap((t) => numbersIn(t.text)), ...numbersIn(input.today)];

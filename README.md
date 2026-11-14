@@ -238,9 +238,10 @@ Done:
 
 - Database build with basket labels, monthly summaries and peer cohorts for all
   5,100 customers.
-- Finance engine with fourteen functions, including safe to spend, safe to save,
-  what-if, forecast, peer comparison, a comparison with Statistics Finland's
-  figures, goal progress and a savings plan towards a goal. Every result carries a
+- Finance engine with sixteen functions, including safe to spend, safe to save,
+  the month so far, what-if, forecast, peer comparison, a comparison with Statistics
+  Finland's figures, and a savings plan towards a goal with a review of how it is
+  going. Every result carries a
   filter for the transactions behind it, and estimates carry their assumptions.
 - API over the database: the engine for any customer, plus spending and summaries.
 - The coach: a language model behind `POST /api/chat` that gets the engine's figures
@@ -430,11 +431,18 @@ follows four steps, and every amount and date in it comes from the engine:
    month.
 4. **The plan.** The "Your savings plan" card stays pinned on the dashboard, with a
    slider for saving more. Its arguments are the plan (target, amount set aside,
-   monthly amount), so the coach can pick it up again later.
+   monthly amount, the month it started), so the coach can pick it up again later.
+5. **The review.** "Am I on track?" is answered by `goalReview`: month by month
+   since the plan started, what the plan asked for next to what was really moved
+   from the account to savings. It says whether the customer is on plan or behind
+   and by how much, when the target is reached at the agreed amount and at the pace
+   so far, and how much was left on the account in those months without being
+   moved. The month in progress is shown but not judged.
 
 | Function | Arguments | Gives |
 |---|---|---|
 | `goalPlan` | `target` (required), `saved`, `monthly`, `extra`, `byMonths`, `label` | One row per scenario: monthly amount, months to go, month reached, months sooner than the first row, what is left over a month, and whether it fits |
+| `goalReview` | `target` and `monthly` (required), `saved`, `since` (month the plan started), `label` | One row per month since the start: planned and moved to savings, both added up, what was moved that month, what was left on the account, and whether the month is complete |
 | `savingsOptions` | `protect` (categories to keep), `cutPct` (default 20) | One row per everyday-spending category: monthly average, and what the cut frees a month and a year |
 
 A scenario that needs more a month than has been left after spending is marked as
@@ -442,9 +450,39 @@ not fitting, and the coach says so and offers a longer timeline or a smaller tar
 No interest is assumed. `safeToSave` is a different thing: a one-off amount that can
 be moved today, which the coach is told never to present as a monthly amount.
 
-Not built: tracking progress against the plan over time (actual transfers since the
-plan was agreed), reminders, and anything about loans. On a mortgage the coach
-explains which factors matter and says the bank assesses that separately.
+Extra saving that comes from spending less (`extraFrom: spending_cut`) is paid for
+by the cut, so it does not count against what is left over.
+
+What the data allows and what it does not: the demo's "today" is fixed, so a plan
+made in the demo starts this month and has nothing to review yet. The review shows
+its worth when the customer says they started earlier ("I have been saving 300 € a
+month since June"), which the 24 months of history can answer. Every transfer to
+savings or investments counts towards the goal, because the account cannot tell
+what a transfer is for.
+
+Not built: a goal record stored apart from the dashboard, reminders, and anything
+about loans. On a mortgage the coach explains which factors matter and says the bank
+assesses that separately.
+
+## The month so far
+
+The first screen has two pinned cards: safe to spend and "This month so far"
+(`monthSoFar`). The second is the balance of the calendar month up to today, with
+the three baskets as its lines:
+
+```
+money in so far
+− regular essentials
+− unexpected necessities
+− everyday spending
+− moved to savings
+= left of this month's money so far
+```
+
+Each line also carries what it usually is by the same day of the month (the average
+of the last three months), and the caption says whether spending is above or below
+that. It counts this month's money only, not what was already on the account. When
+no salary has arrived yet this month, it says so and when one is expected.
 
 ## Basket rules
 
@@ -497,7 +535,10 @@ Related definitions, used the same way everywhere:
     cover. Precautions are what a reserve is for.
 
   What is left is for everyday spending. A customer with 20,000 € saved and one with
-  nothing saved get the same figure if their month looks the same.
+  nothing saved get the same figure if their month looks the same. The customer can
+  also say how much of the account is savings ("5 000 € of this account is savings",
+  or "all of it is for spending"): the coach sets that amount on the card (`reserve`)
+  and it replaces the one worked out from the last salary.
 - **Safe to save** looks at the whole account, reserve included: what would remain at
   payday at the usual pace of everyday spending, minus a cushion of one month of
   regular essentials.
@@ -667,7 +708,8 @@ the engine's figure in the reply.
 The engine endpoints run the finance engine from `packages/shared/src/engine` for
 any of the 5,100 customers: `spendBy`, `monthlyTrend`, `baskets`, `safeToSpend`,
 `safeToSave`, `balanceForecast`, `whatIf`, `peerCompare`, `nationalCompare`,
-`dailySpend`, `recurring`, `goalProgress`, `goalPlan` and `savingsOptions`. The app runs the same engine on its 15 fixture customers; for
+`dailySpend`, `recurring`, `goalProgress`, `goalPlan`, `savingsOptions`,
+`monthSoFar` and `goalReview`. The app runs the same engine on its 15 fixture customers; for
 those customers the backend gives identical results for every function.
 
 Arguments are checked: an unknown argument, a value outside its range or an unknown

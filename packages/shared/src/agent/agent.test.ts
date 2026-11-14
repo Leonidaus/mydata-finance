@@ -19,8 +19,9 @@ const existing: Block = {
   view: { kind: "template", template: "stat" },
 };
 
-/** Every component builds without arguments, except a plan, which needs the user's target. */
-const exampleArgs = (component: string): Record<string, unknown> => (component === "goal_plan" ? { target: 25000 } : {});
+/** Every component builds without arguments, except a plan and its review, which need the user's figures. */
+const exampleArgs = (component: string): Record<string, unknown> =>
+  component === "goal_plan" ? { target: 25000 } : component === "goal_review" ? { target: 25000, monthly: 400 } : {};
 
 const add = (over: Record<string, unknown> = {}): ToolCall => ({
   name: "add_block",
