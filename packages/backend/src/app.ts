@@ -1,5 +1,6 @@
 import {
   type ChatModel,
+  type ChatModels,
   ENGINE_FNS,
   EngineArgumentError,
   TRANSACTION_CATEGORIES,
@@ -92,8 +93,11 @@ export interface AppOptions {
   staticDir?: string;
   /** How often the speech routes may be called. They spend ElevenLabs credits. */
   voiceBudget?: RequestBudget;
-  /** The language model behind the chat. Without one, POST /api/chat answers 503. */
-  chatModel?: ChatModel;
+  /**
+   * The language model behind the chat: one model, or a fast one with a stronger one for the
+   * turns it hands over. Without one, POST /api/chat answers 503.
+   */
+  chatModel?: ChatModel | ChatModels;
   /** How often the chat may be called. Each answer costs one or two model calls. */
   chatBudget?: RequestBudget;
 }

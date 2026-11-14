@@ -105,7 +105,11 @@ export function questionLanguage(question: string): "fi" | "en" {
   return finnish.test(text) ? "fi" : "en";
 }
 
-/** Whole numbers this small are counts, days and months, unless they are written as money or a percentage. */
+/**
+ * Whole numbers this small are counts, days and months, unless they are written as money or a percentage.
+ * A year is not let through like that: "you will get there in December 2027" is a figure, and a wrong
+ * year is a wrong answer. Years in the figures, in the conversation and today's own are backed like any number.
+ */
 const ALWAYS_ALLOWED_UP_TO = 31;
 const DATE = /\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\.\d{1,2}\.(?:\d{4}\b)?/g;
 const MONEY_OR_PERCENT_BEFORE = /€\s?$/;
@@ -138,7 +142,7 @@ export function unbackedNumbers(text: string, sources: number[]): string[] {
     const backed = numberReadings(token).some(
       (n) =>
         allowed.has(round(n, 2)) ||
-        (!isFigure && Number.isInteger(n) && (n <= ALWAYS_ALLOWED_UP_TO || (n >= 2000 && n <= 2100))),
+        (!isFigure && Number.isInteger(n) && n <= ALWAYS_ALLOWED_UP_TO),
     );
     if (!backed) unbacked.push(token);
   }
