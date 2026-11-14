@@ -38,7 +38,7 @@ Five criteria, 20% each. What we have for each, and where the gap is:
 6. [ ] Test on a real phone: chat, voice on, the animated widgets (WebGL), the
    transaction drawer. The app is light on every device now; the dark palette is
    only shown with `?theme=dark`.
-7. [ ] Coaching styles and protected categories (see [Coaching profile](#coaching-profile)).
+7. [x] Coaching styles and protected categories, changeable in the settings and in the chat (see [Coaching profile](#coaching-profile)).
 8. [ ] Demo script and pitch (see [Demo and pitch](#demo-and-pitch)).
 9. [ ] Finnish voice: set `ELEVENLABS_TTS_MODEL_ID=eleven_flash_v2_5` and
    `ELEVENLABS_TTS_LANGUAGE_CODE=fi`. The default model misreads amounts in Finnish
@@ -84,8 +84,9 @@ wording, initiative and the suggested next steps change.
 - [x] Evaluation case: one question in all three styles, figures must be identical
 - [ ] Later: how big a change feels realistic (small, balanced, ambitious), only if
   it sets something concrete such as the default cut in `savingsOptions`
-- [ ] Later: change preferences in the chat ("be more direct", "leave my travel
-  budget alone"), with a short acknowledgement
+- [x] Change preferences in the chat ("be more direct", "leave my travel budget
+  alone"), saved like the settings. Taking a category off the keep-as-is list needs
+  the user's yes: the coach asks, with Yes and No under the question
 - [x] Keep mood separate from style, and avoid a face that looks disappointed in
   the user
 
