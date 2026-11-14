@@ -81,8 +81,9 @@ Actions, or `gh secret set NAME`):
 | `GEMINI_API_KEY` | Key for the chat | To set |
 
 The voice model settings are non-secret GitHub Actions variables. The deployment
-uses `eleven_flash_v2_5` for TTS, the selected Finnish/English app locale is sent
-with each request, and `scribe_v3` is used for transcription. Override
+uses `eleven_multilingual_v2` for reliable Finnish and monetary output, the selected
+Finnish/English app locale is sent with each request, and `scribe_v3` is used for
+transcription. Override
 `ELEVENLABS_VOICE_ID`, `ELEVENLABS_TTS_MODEL_ID`, or `ELEVENLABS_STT_MODEL_ID`
 as repository variables only when a different provider setting is needed.
 
@@ -90,6 +91,11 @@ On every deploy the workflow writes the service keys that are set to
 `/srv/mydata/keys.env` on the host (readable only by the deploy user), and the app
 container reads that file. A missing key just leaves that service off; `/api/health`
 shows which are on. To change a key, update the secret and re-run the Deploy workflow.
+
+When an ElevenLabs key is configured, the deploy workflow also synthesizes one short
+Finnish sentence and checks that `/api/tts` returns non-empty MP3 audio. This uses a
+small number of ElevenLabs credits, but catches provider, model, and output failures
+that the ordinary health check cannot see.
 
 The workflow refreshes both `docker-compose.yml` and `Caddyfile`. Hostnames stay in
 the host's `.env`, so a new release retains the configured primary name and aliases.

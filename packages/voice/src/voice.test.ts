@@ -34,21 +34,21 @@ describe("speak", () => {
     await expect(speak("hello")).rejects.toBeInstanceOf(VoiceNotConfiguredError);
   });
 
-  it("uses the default Flash model and number normalization", async () => {
+  it("uses the stable multilingual model by default", async () => {
     await speak("hello");
     expect(ttsConvert.mock.calls[0][0]).toBe("4ZwDxrFaobUF5e1KlEM");
     const request = ttsConvert.mock.calls[0][1];
-    expect(request.modelId).toBe("eleven_flash_v2_5");
+    expect(request.modelId).toBe("eleven_multilingual_v2");
     expect(request.outputFormat).toBe("mp3_44100_128");
-    expect(request.applyTextNormalization).toBe("on");
+    expect(request).not.toHaveProperty("applyTextNormalization");
     expect(request).not.toHaveProperty("languageCode");
   });
 
-  it("sends languageCode and forced text normalization for flash", async () => {
+  it("sends a language code but leaves Flash normalization to the provider", async () => {
     await speak("240 euroa", { modelId: "eleven_flash_v2_5", languageCode: "fi" });
     const request = ttsConvert.mock.calls[0][1];
     expect(request.languageCode).toBe("fi");
-    expect(request.applyTextNormalization).toBe("on");
+    expect(request).not.toHaveProperty("applyTextNormalization");
   });
 
   it("omits languageCode when unset so the model auto-detects", async () => {
