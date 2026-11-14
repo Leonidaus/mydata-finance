@@ -1,30 +1,30 @@
 import {
   type Block,
-  type ChatImage,
   type Dashboard,
   defaultDashboard,
   type EngineResult,
   fillPlaceholders,
-  MAX_HISTORY_TURNS,
   photoQuestion,
   placeholderBlockIds,
   type TxFilter,
   type ProtectedCategory,
   type ProfileUpdate,
 } from "@mydata/shared";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { askAgent, cannedReply, type ChatMode, chatMode, geminiAvailable, type RunEngine } from "./agent";
-import BlockCard from "./BlockCard";
-import Chat, { type CoachState } from "./Chat";
+import BlockCard, { displayTitle } from "./BlockCard";
+import Chat, { type Focus } from "./Chat";
 import CoachingSettings from "./CoachingSettings";
 import CoachFace from "./CoachFace";
+import { applyReply, type AskInput, type AskResult, contextBlocks, savedCard, savedState, saveToOverview } from "./conversation";
 import DevGallery from "./DevGallery";
-import { applyDashboardOps, uniqueWidgetTypes } from "./dashboard";
+import { uniqueWidgetTypes } from "./dashboard";
 import { apiBase, DataSourceContext, dataSource, fixtureSource, loadIndex } from "./data";
-import { formatDate, formatEur } from "./format";
+import { formatDate, formatValue } from "./format";
 import { useI18n } from "./i18n";
 import { useLatest } from "./latest";
 import LoadError from "./LoadError";
+import OverviewBar from "./Overview";
 import TxDrawer from "./TxDrawer";
 import { createProfileClient } from "./sources/profile";
 
@@ -46,6 +46,8 @@ const store = {
 };
 // v2: blocks carry `pinned`; older saved dashboards (no pins) are dropped for the new default.
 // v3: the default first screen has two cards (safe to spend, this month so far).
+// The cards under this key are the overview: what the user keeps. From the time when every answer
+// added a card to a dashboard, a stored list may be long; it is kept as it is, and can be reset.
 const dashboardKey = (cid: string) => `mydata.dashboard.v3.${cid}`;
 const coachingPromptKey = (cid: string) => `mydata.coachingPrompt.v1.${cid}`;
 const profileClient = createProfileClient(apiBase);
@@ -66,20 +68,11 @@ function setDevInUrl(on: boolean) {
   window.history.replaceState(null, "", url.toString().replace(/\?dev=(&|$)/, "?dev$1"));
 }
 
-/** A result's headline figure for a reply placeholder, e.g. "€312" or "€85/month". */
-function formatValue(r: EngineResult, locale: "en" | "fi"): string | undefined {
-  if (r.value === undefined) return undefined;
-  const unit = r.unit ?? "";
-  if (unit.startsWith("€")) return formatEur(r.value, locale) + unit.slice(1).replace(/^\s*\/\s*/, "/").replace(/^\s+/, " ");
-  if (unit === "%") return `${Math.round(r.value)}%`;
-  return `${Math.round(r.value * 100) / 100}${unit ? ` ${unit}` : ""}`;
-}
-
 function loadBlocks(cid: string): Block[] {
   const raw = store.get(dashboardKey(cid));
   if (raw) {
     try {
-      return uniqueWidgetTypes((JSON.parse(raw) as Block[]).filter((block) => !block.id.startsWith("city-")));
+      return uniqueWidgetTypes((JSON.parse(raw) as Block[]).filter((block) => !block.id.startsWith("city-"))).map(savedCard);
     } catch {
       /* fall through to the default */
     }
@@ -91,8 +84,12 @@ export default function App() {
   const { locale, setLocale, t } = useI18n();
   const index = useLatest("index", loadIndex);
   const indexData = index.status === "ready" ? index.data : null;
-  // The selected customer and their blocks are one value, so the blocks always belong to that customer.
+  // The selected customer and their overview are one value, so the saved cards always belong to that customer.
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  // The overview opens the conversation and folds into its bar once the user starts talking.
+  const [overviewOpen, setOverviewOpen] = useState(true);
+  /** The card the user chose to ask about next. */
+  const [focus, setFocus] = useState<Focus | null>(null);
   const [drill, setDrill] = useState<{ customerId: string; title: string; filter: TxFilter; evidenceNote?: string } | null>(null);
   const customerId = dashboard?.customerId ?? null;
   const [dev, setDev] = useState(devInUrl);
@@ -116,13 +113,7 @@ export default function App() {
   // Keyed by source and customer: an answer for a customer who is no longer selected is never shown.
   const customer = useLatest(customerId && `${source.mode}:${customerId}`, (signal) => source.customer(customerId ?? "", signal));
   const info = customer.status === "ready" ? customer.data : null;
-  const shownCustomer = useRef(customerId);
-  shownCustomer.current = customerId;
   const [chatRequest, setChatRequest] = useState<{ text: string; n: number; canned?: boolean } | null>(null);
-  /** How the coach looked and what it offered next in its latest answer. */
-  const [coach, setCoach] = useState<CoachState | null>(null);
-  // What the model said, with placeholders unfilled: figures are never sent back to it.
-  const history = useRef<{ customerId: string; turns: { role: "user" | "assistant"; text: string }[] }>({ customerId: "", turns: [] });
 
   const toggleDev = (on: boolean) => {
     setDev(on);
@@ -149,7 +140,7 @@ export default function App() {
     selectCustomer(known ? saved : indexData.presets[0].customer_id);
   }, [indexData, selectCustomer]);
 
-  /** Edits the dashboard of `forCustomer`. Does nothing if another customer has been selected since. */
+  /** Edits the overview of `forCustomer`. Does nothing if another customer has been selected since. */
   const updateBlocks = useCallback((forCustomer: string, next: (prev: Block[]) => Block[]) => {
     setDashboard((prev) => {
       if (prev?.customerId !== forCustomer) return prev;
@@ -159,62 +150,76 @@ export default function App() {
     });
   }, []);
 
-  /** The categories the coach's latest answer asked about taking off the keep-as-is list, per customer. */
-  const askedUnprotect = useRef<{ customerId: string; categories: ProtectedCategory[] }>({ customerId: "", categories: [] });
-
-  /** Suggested prompts are canned (answered locally, no API call); typed questions go to the agent. */
-  const ask = async (question: string, canned = false, allowProtected?: ProtectedCategory[], image?: ChatImage) => {
+  /**
+   * Suggested prompts are canned (answered locally, no API call); typed questions go to the agent.
+   * The coach is told about the cards of recent answers and the overview, edits those, and what it
+   * added or changed comes back as this answer's cards.
+   */
+  const ask = async ({ question, canned, allowProtected, image, history, answers, focusId, pendingUnprotect }: AskInput): Promise<AskResult> => {
     if (customer.status === "error") return { text: t("chat.loadError") };
     if (!dashboard || !info) return { text: t("chat.stillLoading") };
     // The whole answer is for the customer who asked, also if another one is selected before it is ready.
-    const { customerId: askedFor, blocks } = dashboard;
-    if (history.current.customerId !== askedFor) history.current = { customerId: askedFor, turns: [] };
+    const { customerId: askedFor, blocks: overview } = dashboard;
+    const context = contextBlocks(overview, answers, focusId);
     const ctx = {
       customerId: askedFor,
-      blocks,
+      blocks: context,
       today: info.today,
-      history: history.current.turns,
+      history,
       run: ((fn, args = {}) => source.runData(askedFor, { kind: "engine", fn, args })) as RunEngine,
       useBackend: source.mode === "api",
       allowProtected,
-      // What the previous answer asked about taking off the keep-as-is list: this message may be the yes.
-      pendingUnprotect: askedUnprotect.current.customerId === askedFor ? askedUnprotect.current.categories : [],
+      pendingUnprotect,
       image,
       language: locale,
     };
     const reply = await (canned ? cannedReply : askAgent)(question, ctx);
-    askedUnprotect.current = { customerId: askedFor, categories: (reply.proposedUnprotect ?? []) as ProtectedCategory[] };
     // The coach changed the saved preferences: show the new ones in the coaching settings too.
     if (reply.profileChanged) {
       store.set(coachingPromptKey(askedFor), "done");
       setProfileReload((n) => n + 1);
     }
-    if (shownCustomer.current === askedFor) setCoach({ mood: reply.mood ?? null, suggestions: reply.suggestions ?? [] });
-    const after = applyDashboardOps({ customerId: askedFor, blocks }, reply.ops).blocks;
-    if (reply.ops.length) {
-      // Keep older cards on the dashboard; add_block with an existing id still updates that card.
-      updateBlocks(askedFor, (prev) => applyDashboardOps({ customerId: askedFor, blocks: prev }, reply.ops).blocks);
-      if (shownCustomer.current === askedFor) document.querySelector(".dashboard")?.scrollTo({ top: 0, behavior: "smooth" });
-    }
-    history.current.turns = [...history.current.turns, { role: "user" as const, text: reply.photo ? photoQuestion(question, reply.photo) : question }, { role: "assistant" as const, text: reply.text }].slice(-MAX_HISTORY_TURNS);
+    const applied = applyReply(overview, context, reply.ops);
+    // A saved card the coach changed is changed in the overview as well, and a savings plan is saved.
+    if (reply.ops.length) updateBlocks(askedFor, (prev) => applyReply(prev, context, reply.ops).overview);
 
     // Fill {{blockId.value}} / {{blockId.caption}} from the computed results, here in the browser.
     const results = new Map<string, EngineResult>();
     await Promise.all(
       placeholderBlockIds(reply.text).map(async (id) => {
-        const b = after.find((x) => x.id === id);
+        const b = applied.after.find((x) => x.id === id);
         if (b) results.set(id, await source.runData(askedFor, b.data).catch(() => ({ rows: [] }) as EngineResult));
       }),
     );
     return {
       text: fillPlaceholders(reply.text, (id, field) => {
-      const r = results.get(id);
-      return r && (field === "value" ? formatValue(r, locale) : r.caption);
+        const r = results.get(id);
+        if (!r) return undefined;
+        return field === "value" ? (r.value === undefined ? undefined : formatValue(r.value, r.unit, locale)) : r.caption;
       }),
+      // What the coach is given later as the conversation so far: its own words before the figures
+      // were filled in (figures are never sent back to it), and the question with what a photo showed.
+      modelText: reply.text,
+      userText: reply.photo ? photoQuestion(question, reply.photo) : question,
+      cards: applied.cards,
+      removed: applied.removed,
+      mood: reply.mood ?? null,
+      suggestions: reply.suggestions ?? [],
       blocked: reply.blocked as ProtectedCategory[] | undefined,
       proposedUnprotect: reply.proposedUnprotect as ProtectedCategory[] | undefined,
       photo: reply.photo,
     };
+  };
+
+  /** The Save button on an answer's card: saves it, saves its changes, or takes it out when it is saved as shown. */
+  const toggleSaved = (block: Block) => {
+    if (!customerId) return;
+    updateBlocks(customerId, (prev) => (savedState(prev, block) === "saved" ? prev.filter((b) => b.id !== block.id) : saveToOverview(prev, block)));
+  };
+
+  const showOverview = (open: boolean) => {
+    setOverviewOpen(open);
+    if (open) document.querySelector(".conversation")?.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const saveProfile = async (update: ProfileUpdate) => {
@@ -231,8 +236,9 @@ export default function App() {
 
   const addBlock = (block: Block) => {
     if (!customerId) return;
-    updateBlocks(customerId, (prev) => applyDashboardOps({ customerId, blocks: prev }, [{ op: "add_block", block: { ...block, pinned: true }, index: 0 }]).blocks);
+    updateBlocks(customerId, (prev) => saveToOverview(prev, block));
     setGallery(false);
+    showOverview(true);
   };
 
   /** Demo prompts are canned; a typed question from the gallery goes to the agent (Gemini when configured). */
@@ -324,52 +330,74 @@ export default function App() {
           </div>
         )}
 
-        <main className="dashboard" aria-label={gallery ? t("dashboard.gallery") : t("dashboard.label")}>
-          {index.status === "error" && <LoadError error={index.error} retry={index.retry} />}
-          {customer.status === "error" && <LoadError error={customer.error} retry={customer.retry} />}
-          {info && (
-            <p className="intro muted small">
-              {preset ? `${preset.label} · ${preset.blurb}` : t("dashboard.customer", { id: info.customerId, age: info.age })} · {t("dashboard.dataUpTo", { date: formatDate(info.today, locale) })}
-              {dev && ` · ${t("dashboard.staticDemo")}`}
-            </p>
-          )}
-          {index.status !== "error" && customer.status === "loading" && (
-            <p className="muted" role="status">
-              {t("dashboard.loading")}
-            </p>
-          )}
-          {info && dashboard && gallery && (
-            <DevGallery
-              customerId={dashboard.customerId}
-              today={info.today}
-              onAdd={addBlock}
-              onAsk={askFromGallery}
-              onDrill={(title, filter) => setDrill({ customerId: dashboard.customerId, title, filter })}
-            />
-          )}
-          {info &&
-            dashboard &&
-            !gallery &&
-            dashboard.blocks.map((b) => (
-              <BlockCard
-                key={b.id}
-                block={b}
-                customerId={dashboard.customerId}
-                today={info.today}
-                onChange={(patch) => updateBlocks(dashboard.customerId, (prev) => prev.map((x) => (x.id === b.id ? { ...x, ...patch } : x)))}
-                onRemove={() => updateBlocks(dashboard.customerId, (prev) => prev.filter((x) => x.id !== b.id))}
-                onPin={() => updateBlocks(dashboard.customerId, (prev) => prev.map((x) => (x.id === b.id ? { ...x, pinned: !x.pinned } : x)))}
-                onDrill={(title, filter, evidenceNote) => setDrill({ customerId: dashboard.customerId, title, filter, evidenceNote })}
-              />
-            ))}
+        <main className="main">
           {info && dashboard && !gallery && (
-            <button type="button" className="ghost-btn reset" onClick={() => updateBlocks(dashboard.customerId, () => defaultDashboard())}>
-              {t("dashboard.reset")}
-            </button>
+            <OverviewBar blocks={dashboard.blocks} customerId={dashboard.customerId} open={overviewOpen} onToggle={() => showOverview(!overviewOpen)} />
           )}
+          <Chat
+            onAsk={ask}
+            customerId={customerId ?? ""}
+            today={info?.today}
+            request={chatRequest}
+            mode={mode}
+            showLog={!gallery}
+            overview={dashboard?.blocks}
+            onSave={toggleSaved}
+            onDrill={(title, filter, evidenceNote) => customerId && setDrill({ customerId, title, filter, evidenceNote })}
+            focus={focus}
+            onFocus={setFocus}
+            onActive={(active) => setOverviewOpen(!active)}
+            header={
+              <>
+                {index.status === "error" && <LoadError error={index.error} retry={index.retry} />}
+                {customer.status === "error" && <LoadError error={customer.error} retry={customer.retry} />}
+                {info && (
+                  <p className="intro muted small">
+                    {preset ? `${preset.label} · ${preset.blurb}` : t("dashboard.customer", { id: info.customerId, age: info.age })} · {t("dashboard.dataUpTo", { date: formatDate(info.today, locale) })}
+                    {dev && ` · ${t("dashboard.staticDemo")}`}
+                  </p>
+                )}
+                {index.status !== "error" && customer.status === "loading" && (
+                  <p className="muted" role="status">
+                    {t("dashboard.loading")}
+                  </p>
+                )}
+                {info && dashboard && gallery && (
+                  <div className="gallery" role="region" aria-label={t("dashboard.gallery")}>
+                    <DevGallery
+                      customerId={dashboard.customerId}
+                      today={info.today}
+                      onAdd={addBlock}
+                      onAsk={askFromGallery}
+                      onDrill={(title, filter) => setDrill({ customerId: dashboard.customerId, title, filter })}
+                    />
+                  </div>
+                )}
+                {/* What the user keeps, at the start of the conversation's scroll. */}
+                {info && dashboard && !gallery && overviewOpen && (
+                  <section className="overview" aria-label={t("overview.title")}>
+                    {dashboard.blocks.length === 0 && <p className="muted small">{t("overview.empty")}</p>}
+                    {dashboard.blocks.map((b) => (
+                      <BlockCard
+                        key={b.id}
+                        block={b}
+                        customerId={dashboard.customerId}
+                        today={info.today}
+                        onChange={(patch) => updateBlocks(dashboard.customerId, (prev) => prev.map((x) => (x.id === b.id ? { ...x, ...patch } : x)))}
+                        onRemove={() => updateBlocks(dashboard.customerId, (prev) => prev.filter((x) => x.id !== b.id))}
+                        onAsk={() => setFocus({ id: b.id, title: displayTitle(b, t) })}
+                        onDrill={(title, filter, evidenceNote) => setDrill({ customerId: dashboard.customerId, title, filter, evidenceNote })}
+                      />
+                    ))}
+                    <button type="button" className="ghost-btn reset" onClick={() => updateBlocks(dashboard.customerId, () => defaultDashboard().map(savedCard))}>
+                      {t("overview.reset")}
+                    </button>
+                  </section>
+                )}
+              </>
+            }
+          />
         </main>
-
-        <Chat onAsk={ask} resetKey={customerId ?? ""} request={chatRequest} mode={mode} coach={coach} />
 
         {settingsOpen && profile.status === "ready" && source.mode === "api" && (
           <CoachingSettings

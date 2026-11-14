@@ -248,9 +248,11 @@ Done:
   for the customer, answers in words in the user's language, adds a card when a
   picture helps, and can take a savings goal from a target to a plan. Every number
   in a reply is checked against the figures it was shown. See [Backend](#backend).
-- App in the look of S-mobiili: configurable cards, charts and animated widgets,
+- App in the look of S-mobiili: one conversation in which each answer carries its
+  own cards, charts and animated widgets, a small overview of what the user keeps,
   drill-down to the transactions behind every figure, the coach's face and
-  suggested next steps, and a voice mode.
+  suggested next steps, and a voice mode. See
+  [The conversation and the overview](#the-conversation-and-the-overview).
 - A backtest of the forecast and safe to spend on all customers, and an evaluation
   of the coach's answers against the engine with the real model.
 - CI on every pull request, and deployment to a host with HTTPS on every push to
@@ -427,6 +429,35 @@ in the result's `assumptions`, so the card's "How was this made?" and the coach'
 reply both have them. The customers are synthetic, so the card shows how the
 feature works, not how real customers spend.
 
+## The conversation and the overview
+
+The app is one scroll. The coach's answer, the card it is about and the next steps
+sit together, so an explanation is never in one place and its chart in another.
+
+- **An answer carries its cards.** A card the coach adds or changes is shown under
+  that answer, with its controls, "How this is calculated" and the transactions
+  behind it. The answer holds its own copy: a follow-up ("and the last 3 months?")
+  gives the new answer an updated card, and the earlier answer keeps the figures it
+  described.
+- **The overview is what the user keeps.** It starts with safe to spend and the
+  month so far. A savings plan is saved as soon as it exists, because the coach
+  reads the plan from there. Anything else is saved with "Save to overview" on the
+  card; the same button takes it out again, or saves a changed version. The overview
+  opens the conversation and folds into a bar with each saved card's figure once the
+  user starts talking; the bar opens it again from anywhere.
+- **"Ask about this"** on a card makes it the subject of the next question, shown
+  above the input and above the question once sent.
+- **What the coach sees** is unchanged: one list of card definitions. The app builds
+  it from the card the user asked about, the latest answer's cards, up to six cards
+  from earlier answers and the overview (`contextBlocks` in
+  `packages/app/src/conversation.ts`). The first card in the list is what "it" means
+  in a follow-up. `applyReply` in the same file turns the coach's card edits into the
+  answer's cards and the changes to the overview.
+- **Kept in the browser, per customer:** the overview (`mydata.dashboard.v3.<id>`)
+  and the last 60 messages with their cards (`mydata.conversation.v1.<id>`). Photos
+  are not kept, only what was read from them. "Start a new conversation" clears the
+  messages and leaves the overview.
+
 ## Saving towards a goal
 
 The coach can take a goal from "I want to buy a home" to a plan. The conversation
@@ -443,8 +474,8 @@ follows four steps, and every amount and date in it comes from the engine:
    coach then asks `goalPlan` again with that amount as `extra`, and says how the
    date moves. A deadline works the other way round (`byMonths`): what it needs a
    month.
-4. **The plan.** The "Your savings plan" card stays pinned on the dashboard, with a
-   slider for saving more. Its arguments are the plan (target, amount set aside,
+4. **The plan.** The "Your savings plan" card is saved to the overview as soon as it
+   exists, with a slider for saving more. Its arguments are the plan (target, amount set aside,
    monthly amount, the month it started), so the coach can pick it up again later.
 5. **The review.** "Am I on track?" is answered by `goalReview`: month by month
    since the plan started, what the plan asked for next to what was really moved
@@ -474,13 +505,13 @@ month since June"), which the 24 months of history can answer. Every transfer to
 savings or investments counts towards the goal, because the account cannot tell
 what a transfer is for.
 
-Not built: a goal record stored apart from the dashboard, reminders, and anything
+Not built: a goal record stored apart from the overview, reminders, and anything
 about loans. On a mortgage the coach explains which factors matter and says the bank
 assesses that separately.
 
 ## The month so far
 
-The first screen has two pinned cards: safe to spend and "This month so far"
+The overview starts with two cards: safe to spend and "This month so far"
 (`monthSoFar`). The second is the balance of the calendar month up to today, with
 the three baskets as its lines:
 
