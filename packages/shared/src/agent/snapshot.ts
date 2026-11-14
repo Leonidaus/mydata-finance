@@ -6,6 +6,7 @@
 import type { Block } from "../blocks";
 import { validateEngineArgs } from "../engine/args";
 import type { EngineFn, EngineResult } from "../engine/types";
+import type { UsedMerchantType } from "./catalog";
 import { describeResult, requestLabel, resultNumbers } from "./figures";
 
 /** Runs an engine function for the customer being answered. May reject (e.g. wrong arguments). */
@@ -79,6 +80,25 @@ export async function buildSnapshot(lookup: Lookup, blocks: Block[] = []): Promi
     numbers: ok.flatMap((p) => p.numbers),
     headlines: ok.flatMap((p) => (p.headline ? [p.headline] : [])),
   };
+}
+
+/** At most this many of the customer's merchant types are named to the coach, biggest first. */
+const MAX_USED_MERCHANT_TYPES = 40;
+
+/**
+ * The merchant types this customer has paid at in the last 12 months, biggest first: codes and
+ * names only, so the coach can ask for one of them by its code.
+ */
+export async function usedMerchantTypes(lookup: Lookup): Promise<UsedMerchantType[]> {
+  try {
+    const { rows } = await lookup("spendBy", { by: "merchant_type", period: "last_12_months" });
+    return rows
+      .filter((row) => typeof row.key === "string" && /^\d{4}$/.test(row.key))
+      .slice(0, MAX_USED_MERCHANT_TYPES)
+      .map((row) => ({ code: row.key as string, label: String(row.label), ...(typeof row.category === "string" && { category: row.category }) }));
+  } catch {
+    return []; // the coach still has the codes the bank's data is known to contain
+  }
 }
 
 /** Runs one lookup the model asked for. A wrong call comes back as a message the model can act on. */

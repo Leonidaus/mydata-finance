@@ -21,6 +21,7 @@ export interface ServerChat {
       allowProtected?: ProtectedCategory[];
       pendingUnprotect?: ProtectedCategory[];
       image?: ChatImage;
+      language?: "en" | "fi";
     },
     signal?: AbortSignal,
   ): Promise<ServerChatOutput>;

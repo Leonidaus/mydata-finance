@@ -148,7 +148,7 @@ reliable signal first and let each step handle what the previous one cannot.
 4. **Amount band as tiebreaker.** Purchases of €500 or more cluster in Home &
    Tech, Lifestyle, Travel and Health, so amount alone flags most surprises
    when a merchant's history is too thin for recurrence detection.
-5. **MCC necessity class as fallback.** Group the 36 MCCs
+5. **MCC necessity class as fallback.** Group the MCCs
    (`packages/shared/src/mcc.json`) into needs (groceries, pharmacies, fuel) and
    wants (restaurants, entertainment, travel) for purchases with no usable
    merchant history.
@@ -362,9 +362,23 @@ python3 data/prep/build_fixtures.py --raw data/raw --out packages/app/public/fix
 
 If you read the CSVs yourself: they start with a UTF-8 BOM, so use `utf-8-sig`.
 
-The meaning of each merchant category code is in `packages/shared/src/mcc.json`
-(typed access through `lookupMcc` in `@mydata/shared`; Python can read the JSON
-directly).
+Merchant category codes (MCC) are in `packages/shared/src/mcc.json`, read by the
+TypeScript engine (`lookupMcc` in `@mydata/shared`) and by the Python prep. The
+dataset has 36 codes; the table has all 298 general codes of the public ISO 18245
+list, so a bigger dataset with more codes needs no change in the code:
+
+- every code has a label. The 683 codes for individual airlines, car rental firms
+  and hotel chains (3000-3999) are answered by range;
+- the 36 codes the bank's data has shown also carry the category they appear under.
+  For any other code the category comes from the customer's own transactions;
+- 61 codes carry a basket hint (see [Basket rules](#basket-rules));
+- the coach is told about the dataset's codes and the merchant types this customer
+  has actually paid at, not the whole list, and any known code is accepted as an
+  argument.
+
+`python3 data/prep/build_mcc_table.py` rebuilds the table from the public list
+(https://github.com/greggles/mcc-codes, public domain). When a bigger dataset shows
+new codes, add them with their category to `DATASET` in that script.
 
 The enums in `packages/shared/src/schema.ts` (categories, transaction types,
 mortgage event types, rejection reasons) have been checked against the data and
@@ -502,11 +516,30 @@ test checks on every fixture transaction that the two agree. Change both togethe
 | Groceries | spending | regular |
 | Transportation, except taxis | spending | regular |
 | Taxis (MCC 4121) | spending | everyday |
+| A merchant type with a basket hint | spending | by the hint, see below |
 | Health under €100 | spending | regular |
 | Health of €100 or more | spending | irregular |
 | Home & Tech of €500 or more | spending | irregular |
 | Home & Tech under €500 | spending | everyday |
 | Restaurants, Entertainment, Lifestyle, Travel | spending | everyday |
+
+A purchase is classified by its merchant type when the code table has a basket hint
+for it, and by its category otherwise. The hints are for what a category is too
+coarse to say:
+
+| Hint | Merchant types | Basket |
+|---|---|---|
+| regular | groceries and bakeries, public transport, fuel, parking and tolls, utilities, phone and internet bills, insurance, child care, schools | regular |
+| everyday | taxis | everyday |
+| health | pharmacies, doctors, dentists, opticians, hospitals, labs | regular under €100, irregular from €100 |
+| home | hardware, furniture, appliance and electronics stores | irregular from €500, everyday below |
+| repair | car repair, home and appliance repair, contractors, vets | irregular from €100, everyday below |
+
+For the 36 codes in the dataset the hints give exactly what the category rules give:
+a rebuild of the database with them produced the same basket and rule on all
+3,626,755 transactions, so the rules version did not change. They take effect for
+codes a bigger dataset brings. A car repair then counts as an unexpected necessity
+and a phone bill as a regular essential, whatever category the bank files them under.
 
 In the interface the baskets are called regular essentials, unexpected necessities
 and everyday spending. Over the last 12 complete months the average customer spends
