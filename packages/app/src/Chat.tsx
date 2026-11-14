@@ -154,11 +154,11 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
       : "Typed questions go to Gemini. It sees totals worked out from your account, never single transactions. Chips are instant keyword answers.";
   const note = voice.error
     ? voice.error
-    : voice.enabled
-      ? voice.processing
-        ? "Transcribing your question…"
-        : voice.recording
-          ? "Listening… I'll answer when you pause."
+    : voice.processing
+      ? "Transcribing your question…"
+      : voice.enabled
+        ? voice.recording
+          ? "Listening… Turn off voice when you're ready to send."
           : pending
             ? "Voice is paused while your coach answers…"
             : "Voice on. Start speaking."
@@ -301,8 +301,8 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
             className={`voice-btn${voice.enabled ? " on" : ""}`}
             onClick={voice.toggle}
             aria-pressed={voice.enabled}
-            aria-label={voice.enabled ? "Disable voice prompt" : "Activate voice prompt"}
-            title={voice.enabled ? "Disable voice prompt" : "Activate voice prompt"}
+            aria-label={voice.enabled ? "Stop recording and transcribe" : "Activate voice prompt"}
+            title={voice.enabled ? "Stop recording and transcribe" : "Activate voice prompt"}
           >
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <rect x="9" y="2" width="6" height="12" rx="3" />
