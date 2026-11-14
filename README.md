@@ -169,7 +169,7 @@ radar is SOK's, so S-Pankki may differ, and it has no AI entries at all.
 | Data prep | Python, standard library only | ADOPT |
 | Tests | Vitest | not listed; Jest is the ADOPT choice |
 | Deploy | One Docker container serving the API and the built app | ADOPT (Docker) |
-| AI | Gemini for the chat, called through the backend so the key stays on the server; a keyword mock when no key is set | not on the radar |
+| AI | Gemini for the chat, run by the backend (prompt, key and validation stay on the server); a keyword mock when no key is set | not on the radar |
 
 Production path for the pitch, not for the weekend: Lambda or Fargate, Aurora,
 DynamoDB for sessions and pinned cards, Kinesis for proactive nudges, CDK, GitLab.
@@ -442,7 +442,7 @@ answers are cut off at the demo's "today", so later transactions never appear.
 | `POST /api/transactions` | The transactions behind an engine result: `{ customerId, filter, limit }` |
 | `POST /api/tts` | Text to speech: `{ text, languageCode? }` → MP3 audio (ElevenLabs, from `packages/voice`) |
 | `POST /api/stt` | Speech to text: an `audio` form file or a raw audio body → `{ text, languageCode }` |
-| `POST /gemini/v1beta/models/<model>:generateContent` | The chat's language model: forwarded to Google's Gemini API with the server's key |
+| `POST /api/chat` | The coach: `{ customerId, question, history, blocks }` → `{ text, ops, rejected, picks }` |
 
 The spending endpoint takes `period` (`this_month`, `last_month`, `last_30_days`,
 `last_3_months`, `last_12_months`, `this_year`, `all`) or `from` and `to`, and the
@@ -459,11 +459,17 @@ Put them in a `.env` file at the repository root (copy `.env.example`), which th
 backend reads at startup. Without a key the route answers 503 and everything else
 works; `/api/health` reports which services are on. Because these routes spend
 credits, each has a request budget across all callers (voice: 30 a minute, 400 an
-hour; chat: 30 a minute, 600 an hour) and answers 429 beyond it.
+hour; chat: 20 a minute, 400 an hour) and answers 429 beyond it.
 
-The chat route forwards exactly one call, `generateContent` on a Gemini model, and
-adds the key on the server, so the key never reaches the browser. The app's chat
-agent sends the question and the card definitions to it, never the customer's figures.
+The chat runs on the server. The app sends the question, the conversation so far and
+the definitions of the cards on screen. The server builds the prompt, calls Gemini
+with its own key, checks every tool call the model makes (using the engine's argument
+checks), asks again once if something is invalid, and returns the reply and the card
+operations. The caller cannot supply instructions, pick the model or reach Gemini
+directly. The model never sees the customer's figures: its reply refers to them as
+`{{cardId.value}}`, and the app fills them in from the engine. The agent itself
+(prompt, tools, validation) is in `packages/shared/src/agent`. `GEMINI_MODEL` may list
+several models, comma-separated; the next is tried when one is overloaded.
 
 The engine endpoints run the finance engine from `packages/shared/src/engine` for
 any of the 5,100 customers: `spendBy`, `monthlyTrend`, `baskets`, `safeToSpend`,
@@ -474,6 +480,10 @@ those customers the backend gives identical results for every function.
 Arguments are checked: an unknown argument, a value outside its range or an unknown
 period or category answers 400 with the reason, instead of silently falling back to
 a default. Estimates carry an `assumptions` list in plain language.
+
+`spendBy`, `monthlyTrend` and `whatIf` take an optional `mcc` (merchant category code)
+to narrow to one kind of merchant, for example `4121` for taxis. Without it, "how much
+did I spend on taxis?" could only be answered with all of Transportation.
 
 ```bash
 curl 'http://localhost:8787/api/customers/CUST03004/engine/safeToSpend'
