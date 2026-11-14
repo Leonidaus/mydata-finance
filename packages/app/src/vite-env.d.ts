@@ -8,5 +8,11 @@ interface ImportMetaEnv {
   readonly VITE_GEMINI_MODEL?: string;
 }
 
+/** Widget library sources as text; served by the widget-libs plugin in vite.config.ts. */
+declare module "virtual:widgetlib/*" {
+  const source: string;
+  export default source;
+}
+
 /** Set by vite.config.ts: the dev server has a GEMINI_API_KEY and forwards /gemini to Google. */
 declare const __GEMINI_PROXY__: boolean;

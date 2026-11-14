@@ -18,12 +18,14 @@ const PALETTE = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--ch
 
 export const custom = {
   /** Donut of spending by category: top 5 plus "Other". */
-  donut: (period = "last_month"): Block => ({
+  donut: (period = "last_month", category = ""): Block => ({
     id: id("donut"),
-    title: "Spending split",
-    explanation: "Money out for the period by category. The five biggest categories are shown separately; the rest are grouped as Other.",
+    title: category ? `${category} split` : "Spending split",
+    explanation: category
+      ? `Your purchases in ${category} for the period by type of merchant. The five biggest are shown separately; the rest are grouped as Other.`
+      : "Money out for the period by category. The five biggest categories are shown separately; the rest are grouped as Other.",
     source: "own",
-    data: { kind: "engine", fn: "spendBy", args: { period, by: "category", category: "" } },
+    data: { kind: "engine", fn: "spendBy", args: { period, by: category ? "merchant_type" : "category", category } },
     view: {
       kind: "spec",
       spec: {

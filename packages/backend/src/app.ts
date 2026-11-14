@@ -277,15 +277,11 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
         await answerChat(options.chatModel, request, {
           today: db.today,
           signal: AbortSignal.timeout(CHAT_TIMEOUT_MS),
-          // The engine runs here for the cards the model asked for; a card it cannot compute is left unexplained.
-          compute: (block) => {
-            if (block.data.kind !== "engine") return null;
-            try {
-              return runEngineFor(db, id, block.data.fn, block.data.args);
-            } catch (error) {
-              if (error instanceof EngineArgumentError) return null;
-              throw error;
-            }
+          // The engine runs here, for this customer only: the snapshot, the coach's lookups and its cards' figures.
+          lookup: (fn, args) => {
+            const result = runEngineFor(db, id, fn, args);
+            if (!result) throw new Error("Customer not found");
+            return result;
           },
         }),
       );

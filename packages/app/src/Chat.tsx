@@ -1,6 +1,8 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { DEMO_PROMPTS } from "./agent/mockAgent";
+import type { Mood } from "@mydata/shared";
 import type { ChatMode } from "./agent";
+import CoachFace from "./CoachFace";
 import { apiBase } from "./data";
 import { errorMessage } from "./latest";
 import { createVoiceClient } from "./voice/client";
@@ -18,6 +20,12 @@ const SUGGESTIONS = [
 
 const voiceClient = createVoiceClient(apiBase);
 
+/** How the coach looked and what it offered next in its latest answer. */
+export interface CoachState {
+  mood: Mood | null;
+  suggestions: string[];
+}
+
 interface Props {
   /** Resolves to the assistant's reply text; dashboard edits happen as a side effect. */
   onAsk: (question: string, canned?: boolean) => Promise<string>;
@@ -27,9 +35,11 @@ interface Props {
   request?: { text: string; n: number; canned?: boolean } | null;
   /** What answers typed questions: the backend's model, Gemini through the dev server, or keyword rules. */
   mode: ChatMode;
+  /** The latest answer's mood and suggested next steps, shown with the last reply. */
+  coach?: CoachState | null;
 }
 
-export default function Chat({ onAsk, resetKey, request, mode }: Props) {
+export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
@@ -96,9 +106,7 @@ export default function Chat({ onAsk, resetKey, request, mode }: Props) {
   const modeNote =
     mode === "mock"
       ? "Demo coach: keyword-based. Set GEMINI_API_KEY (in .env for the backend, or packages/app/.env.local for dev mode) to use Gemini."
-      : mode === "server"
-        ? "Typed questions go to Gemini. It sees the totals on the cards it builds, never your transactions. Chips are instant keyword answers."
-        : "Typed questions go to Gemini, which never sees your figures. Chips are instant keyword answers.";
+      : "Typed questions go to Gemini. It sees totals worked out from your account, never single transactions. Chips are instant keyword answers.";
   const note = voice.error
     ? voice.error
     : voice.enabled
@@ -115,14 +123,33 @@ export default function Chat({ onAsk, resetKey, request, mode }: Props) {
     <section className="chat" aria-label="Chat with your money coach">
       {messages.length > 0 && (
         <div className="chat-log" ref={logRef} role="log" aria-live="polite">
-          {messages.map((m) => (
-            <div key={m.id} className={`bubble bubble-${m.role}`}>
-              {m.text}
-            </div>
-          ))}
+          {messages.map((m, i) => {
+            // The coach shows its face with its latest answer only.
+            const latest = !pending && m.role === "assistant" && i === messages.length - 1;
+            return latest ? (
+              <div key={m.id} className="coach-row">
+                <CoachFace face={coach?.mood ?? "neutral"} />
+                <div className="bubble bubble-assistant">{m.text}</div>
+              </div>
+            ) : (
+              <div key={m.id} className={`bubble bubble-${m.role}`}>
+                {m.text}
+              </div>
+            );
+          })}
           {pending && (
-            <div className="bubble bubble-assistant" role="status">
-              {mode === "mock" ? "Thinking…" : "Building your answer…"}
+            <div className="coach-row" role="status">
+              <CoachFace face="thinking" />
+              <div className="bubble bubble-assistant">{mode === "mock" ? "Thinking…" : "Let me look at your figures…"}</div>
+            </div>
+          )}
+          {!pending && messages.at(-1)?.role === "assistant" && (coach?.suggestions.length ?? 0) > 0 && (
+            <div className="coach-next" aria-label="Suggested next steps">
+              {coach?.suggestions.map((s) => (
+                <button key={s} type="button" className="chip chip-next" onClick={() => send(s)}>
+                  {s}
+                </button>
+              ))}
             </div>
           )}
         </div>

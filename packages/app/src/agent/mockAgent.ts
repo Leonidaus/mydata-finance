@@ -10,6 +10,7 @@ import {
   type DashboardOp,
   type EngineFn,
   type EngineResult,
+  type Mood,
   type Period,
   PERIODS,
   SPENDING_CATEGORIES,
@@ -20,6 +21,9 @@ import { formatEur } from "../format";
 export interface AgentReply {
   text: string;
   ops: DashboardOp[];
+  /** The coach's face for this answer and the next steps it offers; only the model sets these. */
+  mood?: Mood | null;
+  suggestions?: string[];
 }
 
 /** Runs an engine function for the customer being answered, through the app's data source. */

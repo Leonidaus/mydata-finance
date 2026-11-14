@@ -347,7 +347,8 @@ body {
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  max-height: 36dvh;
+  /* The coach answers in a few sentences, so the chat gets a bit more than a third of the screen. */
+  max-height: 42dvh;
 }
 
 .chat-log {
@@ -382,8 +383,43 @@ body {
   border-bottom-right-radius: 4px;
 }
 
+/* The coach's latest answer: its face (a 20 euro note) beside the bubble, next steps below. */
+.coach-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: 100%;
+}
+.coach-row .bubble { max-width: calc(88% - 52px); }
+.coach-face {
+  flex: none;
+  width: 44px;
+  height: 28px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .coach-thinking { animation: coach-bob 1.2s ease-in-out infinite; }
+}
+@keyframes coach-bob {
+  50% { transform: translateY(-3px); }
+}
+/* One row that scrolls sideways, so the next steps do not push the answer out of view. */
+.coach-next {
+  display: flex;
+  flex: none;
+  gap: 6px;
+  padding-left: 52px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.chip-next {
+  flex: none;
+  font-size: 0.8125rem;
+  padding: 6px 12px;
+}
+
 .suggestions {
   display: flex;
+  flex: none; /* only the conversation above shrinks when the chat is full */
   gap: 8px;
   padding: 12px 16px 2px;
   overflow-x: auto;
@@ -527,6 +563,34 @@ body {
   background: transparent;
   color-scheme: normal;
 }
+
+.frame-wrap { position: relative; }
+.frame-expand {
+  position: absolute;
+  top: 8px;
+  right: 0;
+  z-index: 1;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+/* Full screen: the same iframe, stretched over the app (moving it would reload the widget). */
+.frame-wrap.full {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  background: var(--bg);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.frame-wrap.full .frame { flex: 1; height: auto; margin: 0; }
+.frame-wrap.full .frame-expand { top: calc(10px + env(safe-area-inset-top)); right: calc(12px + env(safe-area-inset-right)); color: var(--text); }
 
 /* Dev mode gallery */
 .ghost-btn.on { background: var(--green-300); border-color: var(--green-300); color: var(--green-900); }
