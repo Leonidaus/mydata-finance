@@ -5,6 +5,9 @@ Junction 2026. People ask questions about their own banking data and get answers
 they can inspect, in the spirit of MyData: their data, their questions, not charts
 the bank picked for them.
 
+Try the demo: **https://s-pankki-demo.duckdns.org/**. See
+[deployment setup](deploy/README.md) for the hostname and HTTPS configuration.
+
 > **Status: working prototype, deployed.** The app, the finance engine, the database
 > build, the API and the coach (a language model that answers from the engine's
 > figures, with every number checked) exist and are tested. See
