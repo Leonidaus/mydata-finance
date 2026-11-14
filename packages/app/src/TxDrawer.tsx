@@ -4,6 +4,7 @@ import { useDataSource } from "./data";
 import { formatDate, formatEurCents } from "./format";
 import { useLatest } from "./latest";
 import LoadError from "./LoadError";
+import { useI18n } from "./i18n";
 import { MAX_TX_LIMIT } from "./sources/types";
 
 const SHOW_LIMIT = 300;
@@ -16,6 +17,7 @@ interface Props {
 }
 
 export default function TxDrawer({ customerId, title, filter, onClose }: Props) {
+  const { locale, t, category } = useI18n();
   // Asks for as many as a data source gives at once, so that the total covers every match in practice.
   const source = useDataSource();
   const page = useLatest(JSON.stringify([source.mode, customerId, filter]), (signal) =>
@@ -41,12 +43,12 @@ export default function TxDrawer({ customerId, title, filter, onClose }: Props) 
             <h2>{title}</h2>
             {page.status === "ready" && (
               <p className="muted small">
-                {count} transactions{filter.from && filter.to ? ` · ${formatDate(filter.from)}–${formatDate(filter.to)}` : ""} ·{" "}
-                {count > txs.length ? `total of the latest ${txs.length}` : "total"} {formatEurCents(total)}
+                {t("drawer.transactions", { count })}{filter.from && filter.to ? ` · ${formatDate(filter.from, locale)}–${formatDate(filter.to, locale)}` : ""} ·{" "}
+                {count > txs.length ? t("drawer.latestTotal", { count: txs.length }) : t("drawer.total")} {formatEurCents(total, locale)}
               </p>
             )}
           </div>
-          <button ref={closeRef} type="button" className="icon-btn" onClick={onClose} aria-label="Close">
+          <button ref={closeRef} type="button" className="icon-btn" onClick={onClose} aria-label={t("drawer.close")}>
             ×
           </button>
         </header>
@@ -56,7 +58,7 @@ export default function TxDrawer({ customerId, title, filter, onClose }: Props) 
           </div>
         ) : page.status === "loading" ? (
           <p className="sheet-status muted" role="status">
-            Loading transactions…
+            {t("drawer.loading")}
           </p>
         ) : (
           <ul className="tx-list">
@@ -65,18 +67,18 @@ export default function TxDrawer({ customerId, title, filter, onClose }: Props) 
                 <div>
                   <span>{lookupMcc(t.mcc_code)?.label ?? t.category}</span>
                   <span className="muted small">
-                    {formatDate(t.tx_date)} · {t.category}
+                    {formatDate(t.tx_date, locale)} · {category(t.category)}
                   </span>
                 </div>
-                <span className={t.tx_amount_eur < 0 ? "" : "pos"}>{formatEurCents(t.tx_amount_eur)}</span>
+                <span className={t.tx_amount_eur < 0 ? "" : "pos"}>{formatEurCents(t.tx_amount_eur, locale)}</span>
               </li>
             ))}
             {count > SHOW_LIMIT && (
               <li className="muted small">
-                Showing the latest {SHOW_LIMIT} of {count}.
+                {t("drawer.showing", { shown: SHOW_LIMIT, count })}
               </li>
             )}
-            {count === 0 && <li className="muted">No transactions match.</li>}
+            {count === 0 && <li className="muted">{t("drawer.empty")}</li>}
           </ul>
         )}
       </section>
