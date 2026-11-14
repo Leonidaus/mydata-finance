@@ -264,7 +264,7 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
       {/* Starter prompts only: they go away once the conversation has begun. */}
       {messages.length === 0 && (
         <details className="suggestions-panel" open>
-          <summary>Suggested questions</summary>
+          <summary aria-label="Toggle suggested questions"><span className="sr-only">Suggested questions</span></summary>
           <ChipRow className="suggestions" label="Suggested questions (answered instantly)">
             {SUGGESTIONS.map((s) => (
               <button key={s} type="button" className="chip" onClick={() => send(s, true)} disabled={pending}>
