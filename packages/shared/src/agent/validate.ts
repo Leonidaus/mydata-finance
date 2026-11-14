@@ -8,7 +8,8 @@ import { ENGINE_ARG_SPECS, validateEngineArgs } from "../engine/args";
 import { ENGINE_FNS, type EngineFn } from "../engine/types";
 import { buildComponent, COMPONENT_IDS, type ComponentId, isComponentId } from "../library/components";
 import { TEMPLATE_FNS } from "./catalog";
-import type { ToolCall } from "./tools";
+import { MAX_SUGGESTION_CHARS, MAX_SUGGESTIONS, MOODS, type Mood, type ToolCall } from "./tools";
+import { checkCode, checkSpec } from "./viewChecks";
 
 export const MAX_VIEW_CHARS = 30_000;
 const isSource = (v: unknown): v is Block["source"] => v === "own" || v === "peer" || v === "public" || v === "estimate";
@@ -23,6 +24,10 @@ export interface ParsedReply {
   text: string | null;
   errors: string[];
   picks: CardPick[];
+  /** The coach's face for this answer, when it chose one. */
+  mood: Mood | null;
+  /** Next steps the coach offers, as the user would say them. */
+  suggestions: string[];
 }
 
 class CallError extends Error {}
@@ -75,15 +80,17 @@ function view(a: Record<string, unknown>, fn: EngineFn): BlockView {
         }
       }
       if (!isRecord(spec)) fail("spec must be a Vega-Lite spec object (as a JSON string).");
+      const problem = checkSpec(spec as Record<string, unknown>, fn);
+      if (problem) fail(problem);
       return { kind: "spec", spec: spec as Record<string, unknown> };
     }
     case "code": {
       const code = str(a.code, "code", MAX_VIEW_CHARS);
-      if (!code.includes("mydata.onData")) fail("code must read its rows with mydata.onData(function (rows, result) { ... }).");
-      if (a.libs === undefined) return { kind: "code", code };
-      const libs = Array.isArray(a.libs) ? [...new Set(a.libs as unknown[])] : fail("libs must be a list.");
-      for (const l of libs) if (!(WIDGET_LIBS as readonly unknown[]).includes(l)) fail(`libs may only contain: ${WIDGET_LIBS.join(", ")}.`);
-      return libs.length ? { kind: "code", code, libs: libs as WidgetLib[] } : { kind: "code", code };
+      const asked = a.libs === undefined ? [] : Array.isArray(a.libs) ? [...new Set(a.libs as unknown[])] : fail("libs must be a list.");
+      for (const l of asked) if (!(WIDGET_LIBS as readonly unknown[]).includes(l)) fail(`libs may only contain: ${WIDGET_LIBS.join(", ")}.`);
+      const checked = checkCode(code, asked as WidgetLib[]);
+      if ("error" in checked) return fail(checked.error);
+      return checked.libs.length ? { kind: "code", code, libs: checked.libs } : { kind: "code", code };
     }
     default:
       return fail('view_kind must be "template", "spec" or "code".');
@@ -199,8 +206,17 @@ export function parseToolCalls(calls: ToolCall[], current: Block[]): ParsedReply
   // Ids known so far: the dashboard plus cards added earlier in this answer.
   const known = new Map(current.map((b) => [b.id, b]));
 
+  let mood: Mood | null = null;
+  let suggestions: string[] = [];
+
   for (const call of calls) {
     const a = isRecord(call.args) ? call.args : {};
+    // Any answering call may say how the coach looks and what it offers next; the last one wins.
+    if ((MOODS as readonly unknown[]).includes(a.mood)) mood = a.mood as Mood;
+    if (Array.isArray(a.suggestions)) {
+      const offered = a.suggestions.filter((s): s is string => typeof s === "string" && s.trim() !== "").map((s) => s.trim().slice(0, MAX_SUGGESTION_CHARS));
+      if (offered.length) suggestions = [...new Set(offered)].slice(0, MAX_SUGGESTIONS);
+    }
     // A card call carries its own chat answer; a separate reply call, if any, wins (see below).
     const cardReply = () => {
       if (typeof a.reply !== "string" || !a.reply.trim()) return;
@@ -259,5 +275,5 @@ export function parseToolCalls(calls: ToolCall[], current: Block[]): ParsedReply
       errors.push(`${call.name}${typeof a.id === "string" ? ` (${a.id})` : ""}: ${e.message}`);
     }
   }
-  return { ops, text, errors, picks };
+  return { ops, text, errors, picks, mood, suggestions };
 }
