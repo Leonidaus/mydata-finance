@@ -88,13 +88,6 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
     startCapture.current();
   }, []);
 
-  const disable = useCallback(() => {
-    enabledRef.current = false;
-    paused.current = true;
-    setEnabled(false);
-    stopCapture();
-  }, [stopCapture]);
-
   const reset = useCallback(() => {
     stopSpeaking();
     stopCapture();
@@ -249,7 +242,6 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
                   return;
                 }
                 setError(null);
-                disable();
                 question.current(text);
               },
               (cause: unknown) => {
@@ -309,7 +301,7 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
       starting.current = false;
       if (version !== captureVersion.current && enabledRef.current && !paused.current && !stream.current) startCapture.current();
     }
-  }, [client, releaseMedia, resume, disable]);
+  }, [client, releaseMedia, resume]);
 
   useEffect(() => {
     startCapture.current = () => void beginCapture();
