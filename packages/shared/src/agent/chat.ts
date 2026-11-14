@@ -24,7 +24,7 @@ import { type ChatImage, type PhotoRead, photoQuestion, readPhoto } from "./phot
 import { placeholders } from "./placeholders";
 import { type PreferenceAccess, PREFERENCES_DECLARATION, PREFERENCES_TOOL, updatePreferences } from "./preferences";
 import { buildSystemPrompt } from "./prompt";
-import { buildSnapshot, type Figures, type Headline, type Lookup, runLookup, statedReserve } from "./snapshot";
+import { buildSnapshot, type Figures, type Headline, type Lookup, runLookup, statedReserve, usedMerchantTypes } from "./snapshot";
 import {
   HAND_OVER_DECLARATION,
   HAND_OVER_TOOL,
@@ -301,9 +301,11 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
   const history = input.history.slice(-MAX_HISTORY_TURNS);
   const { lookup } = input;
   // A photo is read first, by a call that sees the picture and nothing else. The coach gets the reading as text.
-  const [photo, snapshot] = await Promise.all([
+  const [photo, snapshot, merchantTypes] = await Promise.all([
     input.image ? readPhoto(fast, input.image, signal) : undefined,
     lookup ? buildSnapshot(lookup, input.blocks) : null,
+    // The merchant types this customer has paid at, named to the coach next to the ones the data is known to contain.
+    lookup ? usedMerchantTypes(lookup) : [],
   ]);
   const question = photo ? photoQuestion(asked, photo) : asked;
   // A photo with no words asks "can I afford this?". With words, the user asks what they like about it.
@@ -338,6 +340,7 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
   const systemFor = (current: CoachingProfile | undefined, pendingUnprotect: readonly ProtectedCategory[]) =>
     buildSystemPrompt(input.blocks, input.today, {
       snapshot: snapshot?.text,
+      merchantTypes,
       profile: current,
       allowProtected: input.allowProtected,
       ...(preferences && { preferences: { pendingUnprotect } }),
