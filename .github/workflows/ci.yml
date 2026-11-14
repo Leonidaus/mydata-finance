@@ -16,9 +16,7 @@ permissions:
 
 jobs:
   check:
-    # To run on CRACI's runners instead (Junction credits, build-time SBOMs), install the
-    # CRACI GitHub App on this repository and change this line to: runs-on: craci
-    runs-on: ubuntu-latest
+    runs-on: craci
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
