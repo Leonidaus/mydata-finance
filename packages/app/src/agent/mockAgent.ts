@@ -175,7 +175,7 @@ export async function respond(question: string, blocks: Block[], run: RunEngine,
   if (language === "fi") {
     const reply = await respondEnglish(normalizeFinnishQuestion(question), blocks, run);
     return reply.ops.length
-      ? { ...reply, text: "Päivitin näkymääsi pyytämäsi tiedon perusteella. Avaa kortti nähdäksesi tarkemmat luvut." }
+      ? { ...reply, text: "Tässä pyytämäsi tieto. Kortista näet tarkemmat luvut." }
       : { ...reply, text: "En vielä tunnistanut kysymystäsi esimerkkivalmentajana. Kokeile kysyä käyttörahasta, takseista, laskuista, säästötavoitteesta tai viime kuun kuitista." };
   }
   return respondEnglish(question, blocks, run);
@@ -190,7 +190,7 @@ async function respondEnglish(question: string, blocks: Block[], run: RunEngine)
   if (/\b(remove|delete|hide)\b/.test(q)) {
     const target = blocks.find((b) => q.split(/\W+/).some((w) => w.length > 3 && b.title.toLowerCase().includes(w)));
     return target
-      ? { text: `Removed “${target.title}” from your dashboard.`, ops: [{ op: "remove_block", id: target.id }] }
+      ? { text: `Removed “${target.title}”.`, ops: [{ op: "remove_block", id: target.id }] }
       : { text: "I couldn't tell which block to remove. Try using words from its title.", ops: [] };
   }
 
@@ -201,7 +201,7 @@ async function respondEnglish(question: string, blocks: Block[], run: RunEngine)
     const block = catalog.categoryBars({ period: p, category: "Transportation", title: "Transportation by merchant type" });
     return {
       text: taxi
-        ? `${r.caption}: you spent ${formatEur(taxi.amount as number)} on taxis in ${taxi.count} ${taxi.count === 1 ? "ride" : "rides"}. I added your transport spending to the dashboard; tap the taxi bar to see the details.`
+        ? `${r.caption}: you spent ${formatEur(taxi.amount as number)} on taxis in ${taxi.count} ${taxi.count === 1 ? "ride" : "rides"}. Your transport spending is below; tap the taxi bar to see the details.`
         : `I found no taxi rides (${(r.caption ?? "").toLowerCase()}). Here is your transport spending instead.`,
       ops: place(blocks, block),
     };
@@ -289,7 +289,7 @@ async function respondEnglish(question: string, blocks: Block[], run: RunEngine)
     const everyday = share("everyday");
     const kind = everyday >= 60 ? "an everyday spender: most of your money goes on small daily things" : everyday >= 40 ? "a balanced spender" : "an essentials-first spender: most of your money goes on fixed bills";
     return {
-      text: `You're ${kind}. Of your spending (${(r.caption ?? "").toLowerCase()}), ${share("regular")}% went on regular essentials, ${share("irregular")}% on unexpected necessities and ${everyday}% on everyday spending. I've added your baskets and a comparison with people your age.`,
+      text: `You're ${kind}. Of your spending (${(r.caption ?? "").toLowerCase()}), ${share("regular")}% went on regular essentials, ${share("irregular")}% on unexpected necessities and ${everyday}% on everyday spending. Your baskets and a comparison with people your age are below.`,
       ops: [...place(blocks, catalog.peers()), ...place(blocks, catalog.baskets(period ?? "last_3_months"))],
     };
   }

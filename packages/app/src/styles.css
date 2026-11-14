@@ -94,7 +94,7 @@ body {
   white-space: nowrap;
 }
 
-/* Layout: dashboard on top, chat stacked below, one column at phone width. */
+/* Layout: one column at phone width. The overview bar, then one scroll with the conversation, then the composer. */
 .app {
   max-width: 640px;
   margin: 0 auto;
@@ -226,12 +226,78 @@ button.topbar-icon:focus-visible { background: var(--green-100); }
   white-space: nowrap;
 }
 
-.dashboard {
+.main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The way back to what the user keeps. Folded, it lists each saved card's figure on one line. */
+.overview-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.overview-label { flex: none; font-size: 0.8125rem; font-weight: 700; color: var(--green-700); }
+.overview-figures {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 14px;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  color: var(--muted);
+  /* More figures than fit fade out at the edge instead of being cut mid-word. */
+  -webkit-mask-image: linear-gradient(to right, #000 85%, transparent);
+  mask-image: linear-gradient(to right, #000 85%, transparent);
+}
+.overview-figure { flex: none; }
+.overview-figure strong { color: var(--text); font-variant-numeric: tabular-nums; }
+.overview-chevron {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: -4px 4px 0;
+  border-right: 2px solid var(--green-700);
+  border-bottom: 2px solid var(--green-700);
+  transform: rotate(45deg);
+  transition: transform 160ms ease;
+}
+.overview-bar[aria-expanded="true"] .overview-chevron { margin-top: 4px; transform: rotate(-135deg); }
+
+/* The coach: one scroll for the overview's cards and the conversation, and the composer under it. */
+.coach {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.conversation {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior-y: contain;
   padding: 16px 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.overview,
+.gallery {
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -266,6 +332,36 @@ button.topbar-icon:focus-visible { background: var(--green-100); }
   font-weight: 700;
   color: var(--green-700);
 }
+
+/* A card that belongs to one of the coach's answers: it continues the bubble above it. */
+.block-answer {
+  align-self: stretch;
+  padding: 14px 14px 10px;
+  border-top-left-radius: 4px;
+}
+.block-answer .block-head h3 { font-size: 1.0625rem; }
+
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.card-action {
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--green-700);
+  background: var(--surface);
+  color: var(--green-700);
+  cursor: pointer;
+}
+.card-action:hover { background: var(--green-100); }
+.card-action.on { background: var(--green-300); border-color: var(--green-300); color: var(--green-900); }
 
 .badge {
   display: inline-block;
@@ -422,110 +518,29 @@ button.topbar-icon:focus-visible { background: var(--green-100); }
 .evidence-btn:hover { text-decoration: underline; }
 .drawer-evidence { margin: 6px 0 0; line-height: 1.35; }
 
-/* Chat (stacked under the dashboard) */
-.chat {
-  background: var(--surface);
-  border-top: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  flex: 0 0 auto;
-  margin-top: auto;
-  height: 22dvh;
-  min-height: min(160px, 22dvh);
-  max-height: 80dvh;
-}
-.chat.chat-active { height: 42dvh; min-height: min(320px, 45dvh); }
-
-.chat-panel-controls {
-  position: relative;
-  display: flex;
-  flex: none;
-  align-items: center;
-  min-height: 34px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.chat-resize {
-  position: absolute;
-  left: 50%;
-  top: 0;
-  transform: translateX(-50%);
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 32px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: ns-resize;
-  touch-action: none;
-}
-
-.chat-resize span {
-  width: 32px;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--border-strong);
-}
-
-.chat-panel-label {
-  flex: 1;
-  font-size: 0.8125rem;
-  font-weight: 700;
-  color: var(--muted);
-}
-
-.chat-collapse {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 32px;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: var(--green-700);
-  font: inherit;
-  font-size: 0.8125rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.chat-launcher {
-  position: fixed;
-  z-index: 20;
-  right: max(18px, calc((100vw - 640px) / 2 + 18px));
-  bottom: calc(18px + env(safe-area-inset-bottom));
-  display: grid;
-  place-items: center;
-  width: 56px;
-  height: 56px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--green-700);
-  color: #fff;
-  box-shadow: 0 3px 12px rgb(0 0 0 / 0.22);
-  cursor: pointer;
-}
-
-.chat-launcher svg { width: 27px; height: 27px; }
-
-.chat-log {
-  flex: 1 1 0;
-  gap: 8px;
-  padding: 12px 16px 4px;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
-  min-height: 0;
-}
-
+/* The conversation: each question, then the coach's answer with the cards it is about. */
 .chat-history {
   display: flex;
-  flex: none;
   flex-direction: column;
-  justify-content: flex-end;
+  gap: 10px;
+}
+
+.turn {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  min-height: 100%;
+}
+.turn-user { align-items: flex-end; }
+.turn-coach { align-items: flex-start; }
+/* Room above a question, so that each exchange reads as one group. */
+.turn-user:not(:first-of-type) { margin-top: 10px; }
+
+/* Which card a question is about, above the question. */
+.bubble-about {
+  max-width: 88%;
+  font-size: 0.75rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .bubble {
@@ -539,7 +554,7 @@ button.topbar-icon:focus-visible { background: var(--green-100); }
 
 .bubble-assistant {
   align-self: flex-start;
-  background: var(--bubble-bot);
+  background: var(--surface);
   color: var(--bubble-bot-text);
   border-bottom-left-radius: 4px;
 }
@@ -549,6 +564,40 @@ button.topbar-icon:focus-visible { background: var(--green-100); }
   background: var(--bubble-user);
   color: var(--bubble-user-text);
   border-bottom-right-radius: 4px;
+}
+
+/* Under the conversation: starter questions, what the next message carries, the input row. */
+.composer {
+  flex: none;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
+/* The card the next question is about, above the input row. */
+.chat-about {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 16px 0;
+  padding: 2px 4px 2px 12px;
+  border-radius: 999px;
+  background: var(--green-100);
+  color: var(--green-900);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.chat-about span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-about button {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
 }
 
 /* A photo waiting to be sent, above the input row. */
@@ -609,6 +658,7 @@ button.topbar-icon:focus-visible { background: var(--green-100); }
   align-items: flex-end;
   gap: 8px;
   max-width: 100%;
+  align-self: flex-start;
 }
 .coach-row .bubble { max-width: calc(88% - 52px); }
 .coach-face {
@@ -638,10 +688,7 @@ button.topbar-icon:focus-visible { background: var(--green-100); }
   padding: 6px 12px;
 }
 
-.suggestions-panel {
-  flex: none;
-  margin-top: auto;
-}
+.suggestions-panel { flex: none; }
 
 .suggestions-panel summary {
   display: flex;
@@ -923,21 +970,6 @@ button.topbar-icon:focus-visible { background: var(--green-100); }
   color: var(--text);
   resize: vertical;
 }
-
-/* Pinning */
-.block-actions { display: flex; align-items: center; gap: 4px; flex: none; }
-.pin-btn {
-  font: inherit;
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--green-700);
-  background: var(--surface);
-  color: var(--green-700);
-  cursor: pointer;
-}
-.pin-btn.on { background: var(--green-300); border-color: var(--green-300); color: var(--green-900); }
 
 /* Answers to a question the coach asked (yes / no / show it anyway), under its bubble. */
 .bubble-actions {

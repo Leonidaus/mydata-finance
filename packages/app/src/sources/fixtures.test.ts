@@ -87,7 +87,7 @@ describe("demo coach on a data source", () => {
 
   it("answers Finnish demo prompts in Finnish while keeping the same card operation", async () => {
     const reply = await respond("Paljonko käytin takseihin viime kuussa?", [], (fn, args = {}) => source.runData(CUSTOMER, { kind: "engine", fn, args }), "fi");
-    expect(reply.text).toMatch(/näkymääsi|esimerkkivalmentajana/);
+    expect(reply.text).toMatch(/pyytämäsi tieto|esimerkkivalmentajana/);
     expect(reply.ops).toHaveLength(1);
   });
 });
