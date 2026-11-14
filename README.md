@@ -186,7 +186,7 @@ Settled:
 | Basket rules | One rule set, with groceries as a regular essential. See [Basket rules](#basket-rules). |
 | API style | Plain JSON routes, no GraphQL. |
 | Branches | Feature branches into `develop`; `main` only from `develop`. |
-| Model for the chat | Gemini, run by the backend. The model chooses which cards to build, then explains the results the engine computed for them. It never sees the transaction list, and a reply with a number that is not in the results is discarded. |
+| Model for the chat | Gemini, run by the backend. The model gets a snapshot of the customer's figures from the finance engine, answers in words and adds a card when a picture helps. It never sees the transaction list and does no arithmetic, and a reply with a number that is not in its figures is not passed on. |
 
 Still open:
 
@@ -217,9 +217,9 @@ Done:
 
 - Database build with basket labels, monthly summaries and peer cohorts for all
   5,100 customers.
-- Finance engine with twelve functions, including safe to spend, safe to save,
+- Finance engine with fourteen functions, including safe to spend, safe to save,
   what-if, forecast, peer comparison, a comparison with Statistics Finland's
-  figures and goals. Every result carries a filter for
+  figures, goal progress and a savings plan towards a goal. Every result carries a filter for
   the transactions behind it, and estimates carry their assumptions.
 - API over the database: the engine for any customer, plus spending and summaries.
 - App with configurable cards, charts and transaction drill-downs.
@@ -256,8 +256,13 @@ gh pr create --base develop             # or open the pull request on GitHub
 Keep pull requests small and merge them quickly; a teammate's quick look is enough.
 We merge `develop` into `main` whenever a demoable milestone works.
 
-Until the repository's default branch is changed to `develop`, GitHub proposes
-`main` as the target of a new pull request. Pick `develop` as the base.
+`develop` is the repository's default branch, so GitHub selects it for new pull
+requests. CI requires every pull request to target `develop`, except release pull
+requests from `develop` into `main`.
+
+Run `/release` to prepare or reuse the `develop` into `main` release pull request.
+The skill does not merge it or start a deployment; merging remains manual and starts
+the Deploy workflow automatically.
 
 ## Repo layout
 
@@ -380,6 +385,40 @@ in the result's `assumptions`, so the card's "How was this made?" and the coach'
 reply both have them. The customers are synthetic, so the card shows how the
 feature works, not how real customers spend.
 
+## Saving towards a goal
+
+The coach can take a goal from "I want to buy a home" to a plan. The conversation
+follows four steps, and every amount and date in it comes from the engine:
+
+1. **Understand the goal.** The coach asks for the target and for what is already
+   set aside. It never invents either. The account cannot tell how much of a
+   customer's savings is meant for this goal, so that figure is the customer's own.
+2. **A baseline.** `goalPlan` gives what is left to save, the months and the date at
+   a monthly amount (the customer's current saving pace unless they choose one), and
+   what would still be left over each month after spending and this saving.
+3. **Choices.** `savingsOptions` lists where everyday spending could be cut, per
+   category, leaving out essentials and whatever the customer wants to keep. The
+   coach then asks `goalPlan` again with that amount as `extra`, and says how the
+   date moves. A deadline works the other way round (`byMonths`): what it needs a
+   month.
+4. **The plan.** The "Your savings plan" card stays pinned on the dashboard, with a
+   slider for saving more. Its arguments are the plan (target, amount set aside,
+   monthly amount), so the coach can pick it up again later.
+
+| Function | Arguments | Gives |
+|---|---|---|
+| `goalPlan` | `target` (required), `saved`, `monthly`, `extra`, `byMonths`, `label` | One row per scenario: monthly amount, months to go, month reached, months sooner than the first row, what is left over a month, and whether it fits |
+| `savingsOptions` | `protect` (categories to keep), `cutPct` (default 20) | One row per everyday-spending category: monthly average, and what the cut frees a month and a year |
+
+A scenario that needs more a month than has been left after spending is marked as
+not fitting, and the coach says so and offers a longer timeline or a smaller target.
+No interest is assumed. `safeToSave` is a different thing: a one-off amount that can
+be moved today, which the coach is told never to present as a monthly amount.
+
+Not built: tracking progress against the plan over time (actual transfers since the
+plan was agreed), reminders, and anything about loans. On a mortgage the coach
+explains which factors matter and says the bank assesses that separately.
+
 ## Basket rules
 
 One rule set decides which of the three baskets a spending transaction falls in. It
@@ -487,7 +526,7 @@ answers are cut off at the demo's "today", so later transactions never appear.
 | `POST /api/transactions` | The transactions behind an engine result: `{ customerId, filter, limit }` |
 | `POST /api/tts` | Text to speech: `{ text, languageCode? }` → MP3 audio (ElevenLabs, from `packages/voice`) |
 | `POST /api/stt` | Speech to text: an `audio` form file or a raw audio body → `{ text, languageCode }` |
-| `POST /api/chat` | The coach: `{ customerId, question, history, blocks }` → `{ text, ops, rejected, picks }` |
+| `POST /api/chat` | The coach: `{ customerId, question, history, blocks }` → `{ text, ops, mood, suggestions, checked, rejected, picks }` |
 
 The spending endpoint takes `period` (`this_month`, `last_month`, `last_30_days`,
 `last_3_months`, `last_12_months`, `this_year`, `all`) or `from` and `to`, and the
@@ -506,32 +545,47 @@ works; `/api/health` reports which services are on. Because these routes spend
 credits, each has a request budget across all callers (voice: 30 a minute, 400 an
 hour; chat: 20 a minute, 400 an hour) and answers 429 beyond it.
 
-The chat runs on the server, in two steps. The app sends the question, the
-conversation so far and the definitions of the cards on screen.
+The chat runs on the server. The app sends the question, the conversation so far
+and the definitions of the cards on screen; the server builds the prompt and calls
+Gemini with its own key. An answer is usually one model call:
 
-1. **Which cards.** The server builds the prompt, calls Gemini with its own key and
-   checks every tool call the model makes (using the engine's argument checks), asking
-   again once if something is invalid. The model sees no customer data in this step.
-2. **What the figures mean.** The finance engine computes those cards, and the model
-   writes a reply from the results: totals, rows and assumptions of the cards, never
-   the transaction list. Every number in the reply must appear in those results, as
-   given or rounded; if one does not, the reply is discarded and the answer falls back
-   to a sentence with a `{{cardId.value}}` placeholder that the app fills in itself.
-   The reply follows the language of the question.
+1. **A snapshot of the figures.** Before the model is asked, the finance engine
+   computes a fixed set of results for the customer (safe to spend, the three baskets,
+   spending by category, income, saving and spending per month, bills, the peer
+   comparison) and they go into the prompt as text. Totals and rows only: the
+   transaction list never goes to the model.
+2. **The answer.** The coach replies in words, in the language of the question, with
+   a mood for its face and up to three suggested next steps. It adds a card when a
+   picture helps. If it needs a figure the snapshot lacks (another period, one
+   merchant type, a what-if), it first calls `lookup`, which runs one engine function
+   and returns the result to the model, at most twice per answer.
+3. **Checks.** Every tool call is validated (engine arguments, card definitions,
+   custom views) and sent back once if something is wrong. Every number in the reply
+   must be one the coach was shown, as given or rounded; the coach is told not to
+   calculate. A reply that fails is sent back once, together with the figures of the
+   cards it built. If it fails again, a standard sentence with a `{{cardId.value}}`
+   placeholder goes out instead, and the answer has `checked: false`.
+
+Views the model writes itself (a Vega-Lite spec or widget code) are checked before
+they reach the dashboard: a spec may only read columns the engine function returns
+and may not carry data of its own; widget code must parse, read its rows from the
+app and load nothing from the network.
 
 The caller cannot supply instructions, pick the model or reach Gemini directly. The
-agent's first step (prompt, tools, validation) is in `packages/shared/src/agent`; the
-second is `packages/backend/src/explain.ts`. `GEMINI_MODEL` may list several models,
-comma-separated; the next is tried when one is overloaded.
+whole conversation logic is in `packages/shared/src/agent` (`chat.ts` for the steps
+above, `snapshot.ts`, `figures.ts` for the number check, `viewChecks.ts`); the
+backend adds the model and the engine for the customer who is asking. `GEMINI_MODEL`
+may list several models, comma-separated; the next is tried when one is overloaded.
 
 `npm run eval:chat -w @mydata/backend` asks the challenge's questions with the real
-model and compares each answer with the engine: the right function and arguments,
-nothing rejected, and the engine's figure in the reply.
+model and compares each answer with the engine: a card with the right function and
+arguments or an answer in words, nothing rejected, the reply's numbers checked, and
+the engine's figure in the reply.
 
 The engine endpoints run the finance engine from `packages/shared/src/engine` for
 any of the 5,100 customers: `spendBy`, `monthlyTrend`, `baskets`, `safeToSpend`,
 `safeToSave`, `balanceForecast`, `whatIf`, `peerCompare`, `nationalCompare`,
-`dailySpend`, `recurring` and `goalProgress`. The app runs the same engine on its 15 fixture customers; for
+`dailySpend`, `recurring`, `goalProgress`, `goalPlan` and `savingsOptions`. The app runs the same engine on its 15 fixture customers; for
 those customers the backend gives identical results for every function.
 
 Arguments are checked: an unknown argument, a value outside its range or an unknown

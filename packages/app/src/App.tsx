@@ -11,7 +11,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { askAgent, cannedReply, type ChatMode, chatMode, geminiAvailable, type RunEngine } from "./agent";
 import BlockCard from "./BlockCard";
-import Chat from "./Chat";
+import Chat, { type CoachState } from "./Chat";
 import DevGallery from "./DevGallery";
 import { DataSourceContext, dataSource, fixtureSource, loadIndex } from "./data";
 import { formatDate, formatEur } from "./format";
@@ -100,6 +100,8 @@ export default function App() {
   const shownCustomer = useRef(customerId);
   shownCustomer.current = customerId;
   const [chatRequest, setChatRequest] = useState<{ text: string; n: number; canned?: boolean } | null>(null);
+  /** How the coach looked and what it offered next in its latest answer. */
+  const [coach, setCoach] = useState<CoachState | null>(null);
   // What the model said, with placeholders unfilled: figures are never sent back to it.
   const history = useRef<{ customerId: string; turns: { role: "user" | "assistant"; text: string }[] }>({ customerId: "", turns: [] });
 
@@ -148,6 +150,7 @@ export default function App() {
       useBackend: source.mode === "api",
     };
     const reply = await (canned ? cannedReply : askAgent)(question, ctx);
+    if (shownCustomer.current === askedFor) setCoach({ mood: reply.mood ?? null, suggestions: reply.suggestions ?? [] });
     const after = applyOps({ customerId: askedFor, blocks }, reply.ops).blocks;
     if (reply.ops.length) {
       // The new answer replaces the previous unpinned one; pinned blocks and blocks this reply touched stay.
@@ -299,7 +302,7 @@ export default function App() {
           )}
         </main>
 
-        <Chat onAsk={ask} resetKey={customerId ?? ""} request={chatRequest} mode={mode} />
+        <Chat onAsk={ask} resetKey={customerId ?? ""} request={chatRequest} mode={mode} coach={coach} />
 
         {drill && drill.customerId === customerId && (
           <TxDrawer customerId={drill.customerId} title={drill.title} filter={drill.filter} onClose={() => setDrill(null)} />

@@ -62,5 +62,7 @@ export const ENGINE_FNS = [
   "dailySpend",
   "recurring",
   "goalProgress",
+  "goalPlan",
+  "savingsOptions",
 ] as const;
 export type EngineFn = (typeof ENGINE_FNS)[number];

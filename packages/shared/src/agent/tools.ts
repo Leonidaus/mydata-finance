@@ -3,7 +3,7 @@
  * Schemas are plain JSON Schema (Gemini `parametersJsonSchema`, also fine for other providers).
  * Deep values (Vega-Lite specs) travel as JSON strings, which models produce more reliably.
  */
-import { TEMPLATE_IDS } from "../blocks";
+import { TEMPLATE_IDS, WIDGET_LIBS } from "../blocks";
 import { ENGINE_ARG_SPECS } from "../engine/args";
 import { ENGINE_FNS } from "../engine/types";
 import { MCC_CODES } from "../mcc";
@@ -33,6 +33,7 @@ function engineArgsSchema(description: string): Record<string, unknown> {
       const usedBy = properties[key]?.description ? `${properties[key].description as string}, ${fn}` : `Used by ${fn}`;
       if (spec.type === "enum") properties[key] = { type: "string", enum: [...spec.values], description: usedBy };
       else if (spec.type === "category") properties[key] = { type: "string", enum: [...SPENDING_CATEGORIES], description: usedBy };
+      else if (spec.type === "categories") properties[key] = { type: "array", items: { type: "string", enum: [...SPENDING_CATEGORIES] }, description: usedBy };
       else if (spec.type === "number") properties[key] = { type: "number", minimum: spec.min, maximum: spec.max, description: usedBy };
       else if (spec.type === "mcc") {
         properties[key] = { type: "string", enum: Object.keys(MCC_CODES), description: `Merchant type code from MERCHANT TYPES, e.g. 4121 for taxis. ${usedBy}` };
@@ -73,6 +74,11 @@ const blockFields = {
   template: { type: "string", enum: [...TEMPLATE_IDS], description: 'When view_kind is "template"' },
   spec: { type: "string", description: 'When view_kind is "spec": a Vega-Lite spec as a JSON string, without data (rows are injected)' },
   code: { type: "string", description: 'When view_kind is "code": HTML with an inline <script> using mydata.onData' },
+  libs: {
+    type: "array",
+    items: { type: "string", enum: [...WIDGET_LIBS] },
+    description: 'When view_kind is "code": libraries to load into the widget. Globals: gsap, Matter (matter), THREE (three). Only list what the code uses.',
+  },
   controls: { type: "array", items: control },
   why_custom: {
     type: "string",
@@ -80,11 +86,65 @@ const blockFields = {
   },
 };
 
+/**
+ * The chat answer travels with the card call. Light models often make a single tool call and
+ * stop, so asking for a separate `reply` call cost a second request for most answers.
+ */
+const replyField = {
+  type: "string",
+  description:
+    "What you say to the user: two to four short sentences in their language, with the figures that answer the question and what they mean. " +
+    "Quote only figures you were given (SNAPSHOT, LOOKED UP, CARD FIGURES); for a figure you have not seen, write {{<id>.value}} and the app fills in the card's headline figure.",
+};
+
+/** How the coach feels about what it is saying; the bill's face follows it. */
+export const MOODS = ["happy", "proud", "concerned", "neutral"] as const;
+export type Mood = (typeof MOODS)[number];
+
+export const MAX_SUGGESTIONS = 3;
+export const MAX_SUGGESTION_CHARS = 60;
+
+/** What every answering call carries besides its own arguments. */
+const coachFields = {
+  mood: {
+    type: "string",
+    enum: [...MOODS],
+    description: "Your face while saying it: happy (good news), proud (the user did well), concerned (money is tight or a risk), neutral (plain facts).",
+  },
+  suggestions: {
+    type: "array",
+    items: { type: "string", maxLength: MAX_SUGGESTION_CHARS },
+    description:
+      `Up to ${MAX_SUGGESTIONS} short next steps, written as the user would say them ("Cut it by 20%", "Compare with people my age"). ` +
+      "Only things you can actually do with your tools.",
+  },
+};
+
+export const REPLY_TOOL = "reply";
+export const LOOKUP_TOOL = "lookup";
+
+/** Fetches figures without changing the dashboard. Offered only while the coach may still look things up. */
+export const LOOKUP_DECLARATION: ToolDeclaration = {
+  name: LOOKUP_TOOL,
+  description:
+    "Read figures you need but do not have yet: runs an engine function and gives you its result. Nothing is shown to the user. " +
+    "Call it alone (several lookups at once are fine), then answer once the results arrive. Do not look up what is already in SNAPSHOT.",
+  parametersJsonSchema: {
+    type: "object",
+    properties: {
+      fn: { type: "string", enum: [...ENGINE_FNS] },
+      args: engineArgsSchema("Arguments for fn: only the ones it takes (see ENGINE FUNCTIONS)"),
+    },
+    required: ["fn"],
+  },
+};
+
 export const TOOL_DECLARATIONS: ToolDeclaration[] = [
   {
     name: "use_component",
     description:
-      "Preferred way to answer: add a ready-made card from the component library. Reusing an existing id replaces that card.",
+      "Preferred way to answer: add a ready-made card from the component library. Reusing an existing id replaces that card, " +
+      "which is how to show the same thing as a different component.",
     parametersJsonSchema: {
       type: "object",
       properties: {
@@ -92,30 +152,37 @@ export const TOOL_DECLARATIONS: ToolDeclaration[] = [
         component: { type: "string", enum: [...COMPONENT_IDS] },
         args: engineArgsSchema("Only the component's own args (see the library). Set every one the question implies: category, period, by..."),
         title: { type: "string", description: "Optional shorter, more specific title in the user's language" },
+        reply: replyField,
+        ...coachFields,
       },
-      required: ["id", "component"],
+      required: ["id", "component", "reply"],
     },
   },
   {
     name: "add_block",
     description:
-      "Build a new card from an engine function and a view. Only when no library component fits. Reusing an existing id replaces that card.",
+      "Build a new card from an engine function and a view. Only when the user asked to SEE something and no library component can show it " +
+      "(see CUSTOM CARDS for when not to). Reusing an existing id replaces that card.",
     parametersJsonSchema: {
       type: "object",
       properties: {
         id: { type: "string", description: "Short lowercase id like restaurants-trend; used in reply placeholders" },
         ...blockFields,
+        reply: replyField,
+        ...coachFields,
       },
-      required: ["id", "title", "explanation", "source", "fn", "view_kind"],
+      required: ["id", "title", "explanation", "source", "fn", "view_kind", "reply"],
     },
   },
   {
     name: "update_block",
-    description: "Change an existing card. Only the given fields change; args are merged into the current ones.",
+    description:
+      "Change a card that is on the dashboard: the way to act on follow-ups like 'make it 3 months' or 'rename it'. Only the given fields change; " +
+      "args are merged into the current ones. To change a custom view, send view_kind with the whole edited spec or code.",
     parametersJsonSchema: {
       type: "object",
-      properties: { id: { type: "string" }, ...blockFields },
-      required: ["id"],
+      properties: { id: { type: "string" }, ...blockFields, reply: replyField, ...coachFields },
+      required: ["id", "reply"],
     },
   },
   {
@@ -133,10 +200,10 @@ export const TOOL_DECLARATIONS: ToolDeclaration[] = [
     },
   },
   {
-    name: "reply",
+    name: REPLY_TOOL,
     description:
-      "The chat answer shown to the user. Call exactly once. Never write a number from the data yourself: use placeholders " +
-      "{{<blockId>.value}} (the card's headline figure) or {{<blockId>.caption}} (its one-line summary).",
-    parametersJsonSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] },
+      "Answer in words without changing a card: the normal way to answer when the figures speak for themselves, when you ask the user something, " +
+      "when something is outside what you can do, or after remove_block/move_block. Not needed when a card call already carries reply.",
+    parametersJsonSchema: { type: "object", properties: { text: replyField, ...coachFields }, required: ["text"] },
   },
 ];

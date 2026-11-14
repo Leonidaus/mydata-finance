@@ -81,6 +81,39 @@ export const ENGINE_DOCS: Record<EngineFn, EngineDoc> = {
     rows: "label, saved (€), target (€), rate (€/month)",
     unit: "% of target",
   },
+  goalPlan: {
+    description:
+      "A plan towards a savings goal from figures the USER gives: months and date to reach target at a monthly amount, and whether that fits what is left over after spending. " +
+      "target is required; saved is what the user says is already set aside (the account cannot tell); monthly defaults to the current saving pace; " +
+      "extra adds a row for saving that much more a month; byMonths adds a row with the monthly amount a deadline needs. No interest is assumed.",
+    rows: "scenario, monthly (€/month), months (to go), reached (month/year), sooner (months earlier than the first row), leftOver (€/month still left after spending and this saving), fits (yes | no), summary (text)",
+    unit: "€ still to save",
+  },
+  savingsOptions: {
+    description:
+      "Where everyday spending could be cut: per category, the monthly average and what cutting it by cutPct (default 20) would free each month. " +
+      "Essentials are never included; protect lists the categories the user wants to keep. Rows do not overlap, so savings can be added.",
+    rows: "category, monthly (€/month now), saving (€/month freed), perYear (€)",
+    unit: "€/month freed in total",
+  },
+};
+
+/** The column names of each function's rows: what a custom view may read. Checked against the engine in the tests. */
+export const ENGINE_COLUMNS: Record<EngineFn, readonly string[]> = {
+  spendBy: ["key", "label", "amount", "count"],
+  monthlyTrend: ["month", "amount"],
+  baskets: ["basket", "label", "amount", "count"],
+  dailySpend: ["date", "amount"],
+  safeToSpend: ["term", "amount"],
+  safeToSave: ["term", "amount"],
+  balanceForecast: ["date", "balance", "kind"],
+  whatIf: ["month", "saved"],
+  peerCompare: ["category", "who", "amount"],
+  nationalCompare: ["category", "who", "amount", "difference"],
+  recurring: ["label", "category", "amount", "payments", "day", "months", "lastDate", "type"],
+  goalProgress: ["label", "saved", "target", "rate"],
+  goalPlan: ["scenario", "monthly", "months", "reached", "sooner", "leftOver", "fits", "summary"],
+  savingsOptions: ["category", "monthly", "saving", "perYear"],
 };
 
 /** Which engine functions each built-in template can draw. */
@@ -103,6 +136,8 @@ function describeArg(spec: (typeof ENGINE_ARG_SPECS)[EngineFn][string]): string 
       return `one of ${spec.values.join(" | ")}`;
     case "category":
       return spec.only ? `one of ${spec.only.join(" | ")}` : `a spending category`;
+    case "categories":
+      return `a list of spending categories`;
     case "mcc":
       return `a merchant type code from MERCHANT TYPES; do not combine with category`;
     case "number":

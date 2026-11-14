@@ -129,7 +129,7 @@ function BlockBody({ block, result, onDrill }: { block: Block; result: EngineRes
     return (
       <>
         {result.caption && <p className="muted small">{result.caption}</p>}
-        <IframeBlock code={view.code} result={result} label={block.title} onSelect={onSelectGeneric} />
+        <IframeBlock code={view.code} libs={view.libs} result={result} label={block.title} onSelect={onSelectGeneric} />
       </>
     );
   }
@@ -237,6 +237,7 @@ function genericDrill(datum: Datum, block: Block): Partial<TxFilter> | null {
   if (isStr(datum.date, /^\d{4}-\d{2}-\d{2}$/)) return { date: datum.date };
   if (isStr(datum.month, /^\d{4}-\d{2}$/)) return { month: datum.month };
   if (isStr(datum.category, /./)) return { category: datum.category };
+  if (isStr(datum.basket, /^(regular|irregular|everyday)$/)) return { basket: datum.basket as TxFilter["basket"] };
   return null;
 }
 

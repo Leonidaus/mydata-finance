@@ -8,9 +8,12 @@
  *                (dev mode works without the backend);
  *     "mock"     the keyword rules.
  *   All return { text, ops }; the model's text may contain {{blockId.value}} placeholders, which
- *   App fills from the computed results.
+ *   App fills from the computed results. The model's answers also carry the coach's mood and
+ *   up to three suggested next steps.
  *
- * The model only ever gets the question, the chat history (unfilled) and the block definitions.
+ * The model gets the question, the chat history, the block definitions and a snapshot of the
+ * customer's figures: totals computed by the finance engine, never the transaction list. In
+ * "server" mode the backend computes them; in "browser" mode the app does.
  */
 import { type Block, type ChatOutput, runChat } from "@mydata/shared";
 import { apiBase } from "../data";
@@ -47,7 +50,7 @@ function report(out: ChatOutput): AgentReply {
     if (p.via === "library") console.info(`[agent] ${p.blockId}: library component ${p.component}`);
     else console.info(`[agent] ${p.blockId}: custom ${p.view}${p.why ? ` (why: ${p.why})` : ""}`);
   }
-  return { text: out.text, ops: out.ops };
+  return { text: out.text, ops: out.ops, mood: out.mood, suggestions: out.suggestions };
 }
 
 export const cannedReply = (prompt: string, ctx: AgentContext): Promise<AgentReply> => respond(prompt, ctx.blocks, ctx.run);
@@ -58,7 +61,7 @@ export async function askAgent(question: string, ctx: AgentContext): Promise<Age
     return report(await serverChat.ask({ customerId: ctx.customerId, question, history: ctx.history, blocks: ctx.blocks }));
   }
   if (mode === "browser") {
-    return report(await runChat(gemini, { question, history: ctx.history, blocks: ctx.blocks, today: ctx.today }));
+    return report(await runChat(gemini, { question, history: ctx.history, blocks: ctx.blocks, today: ctx.today, lookup: (fn, args) => ctx.run(fn, args) }));
   }
   return respond(question, ctx.blocks, ctx.run);
 }
