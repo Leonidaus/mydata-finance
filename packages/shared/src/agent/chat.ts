@@ -24,7 +24,7 @@ import { type ChatImage, type PhotoRead, photoQuestion, readPhoto } from "./phot
 import { placeholders } from "./placeholders";
 import { type PreferenceAccess, PREFERENCES_DECLARATION, PREFERENCES_TOOL, updatePreferences } from "./preferences";
 import { buildSystemPrompt } from "./prompt";
-import { buildSnapshot, type Figures, type Headline, type Lookup, runLookup, statedReserve } from "./snapshot";
+import { buildSnapshot, type Figures, type Headline, type Lookup, runLookup, statedReserve, usedMerchantTypes } from "./snapshot";
 import {
   HAND_OVER_DECLARATION,
   HAND_OVER_TOOL,
@@ -92,6 +92,8 @@ export interface ChatInput {
    * it; with no words at all (an empty `question`), "can I afford this?" is meant.
    */
   image?: ChatImage;
+  /** The language chosen in the app. The reply is written in it, whatever language the question mixes in. */
+  language?: "en" | "fi";
 }
 
 export interface ChatOutput {
@@ -269,8 +271,8 @@ function staleFigures(text: string, cards: BuiltCard[], headlines: Headline[]): 
 }
 
 /** What stands in for a reply that was missing or failed the number check. */
-function standardReply(question: string, cards: BuiltCard[], hasOps: boolean): string {
-  const finnish = questionLanguage(question) === "fi";
+function standardReply(question: string, cards: BuiltCard[], hasOps: boolean, language?: "en" | "fi"): string {
+  const finnish = (language ?? questionLanguage(question)) === "fi";
   const first = cards[0];
   if (first) {
     const field = typeof first.result.value === "number" ? "value" : first.result.caption ? "caption" : null;
@@ -301,9 +303,11 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
   const history = input.history.slice(-MAX_HISTORY_TURNS);
   const { lookup } = input;
   // A photo is read first, by a call that sees the picture and nothing else. The coach gets the reading as text.
-  const [photo, snapshot] = await Promise.all([
+  const [photo, snapshot, merchantTypes] = await Promise.all([
     input.image ? readPhoto(fast, input.image, signal) : undefined,
     lookup ? buildSnapshot(lookup, input.blocks) : null,
+    // The merchant types this customer has paid at, named to the coach next to the ones the data is known to contain.
+    lookup ? usedMerchantTypes(lookup) : [],
   ]);
   const question = photo ? photoQuestion(asked, photo) : asked;
   // A photo with no words asks "can I afford this?". With words, the user asks what they like about it.
@@ -338,8 +342,10 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
   const systemFor = (current: CoachingProfile | undefined, pendingUnprotect: readonly ProtectedCategory[]) =>
     buildSystemPrompt(input.blocks, input.today, {
       snapshot: snapshot?.text,
+      merchantTypes,
       profile: current,
       allowProtected: input.allowProtected,
+      language: input.language,
       ...(preferences && { preferences: { pendingUnprotect } }),
     });
   let system = systemFor(profile, preferences?.pendingUnprotect ?? []);
@@ -509,7 +515,7 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
           ...(faults.stale.length ? [`reply: figures from before the change: ${faults.stale.map((f) => f.said).join(", ")}`] : []),
         ];
   return {
-    text: checked && parsed.text !== null ? parsed.text : standardReply(question, cards, parsed.ops.length > 0),
+    text: checked && parsed.text !== null ? parsed.text : standardReply(question, cards, parsed.ops.length > 0, input.language),
     ops: parsed.ops,
     rejected: [...parsed.errors, ...replyFaults],
     picks: parsed.picks,

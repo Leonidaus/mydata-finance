@@ -9,6 +9,7 @@ import { errorMessage } from "./latest";
 import { preparePhoto } from "./photo";
 import { createVoiceClient } from "./voice/client";
 import { useVoice } from "./voice/useVoice";
+import { useI18n } from "./i18n";
 
 type Message = {
   id: number;
@@ -118,6 +119,7 @@ interface Props {
 }
 
 export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
+  const { t, category: categoryName } = useI18n();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
@@ -177,7 +179,7 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
           add("assistant", reply, { question: trimmed, blocked, proposedUnprotect, overrideUsed: Boolean(allowProtected?.length) });
           return voice.speak(reply);
         },
-        (e: unknown) => current() && add("assistant", `I couldn't answer that: ${errorMessage(e)} Please ask again.`),
+        (e: unknown) => current() && add("assistant", t("chat.error", { error: errorMessage(e) })),
       )
       .finally(() => {
         if (!current()) return;
@@ -221,20 +223,20 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
 
   const modeNote =
     mode === "mock"
-      ? "Demo coach: keyword-based. Set GEMINI_API_KEY (in .env for the backend, or packages/app/.env.local for dev mode) to use Gemini."
-      : "Typed questions go to Gemini. It sees totals worked out from your account, never single transactions. Chips are instant keyword answers.";
+      ? t("chat.modeMock")
+      : t("chat.modeBrowser");
   const note = photoError
     ? photoError
     : voice.error
     ? voice.error
     : voice.processing
-      ? "Transcribing your question…"
+      ? t("chat.voiceTranscribing")
       : voice.enabled
         ? voice.recording
-          ? "Listening… Turn off voice when you're ready to send."
+          ? t("chat.voiceListeningStop")
           : pending
-            ? "Voice is paused while your coach answers…"
-            : "Voice on. Start speaking."
+            ? t("chat.voicePaused")
+            : t("chat.voiceOn")
       : modeNote;
 
   function startResize(e: ReactPointerEvent<HTMLButtonElement>) {
@@ -255,7 +257,7 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
 
   if (collapsed) {
     return (
-      <button className="chat-launcher" type="button" onClick={() => setCollapsed(false)} aria-label="Open chat with your money coach" title="Open chat">
+      <button className="chat-launcher" type="button" onClick={() => setCollapsed(false)} aria-label={t("chat.open")} title={t("chat.openTitle")}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-2 2v-9.5a7.5 7.5 0 0 1 7.5-7.5h2A7.5 7.5 0 0 1 20 11.5Z" />
           <path d="M8 11h8M8 14.5h5" />
@@ -265,13 +267,13 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
   }
 
   return (
-    <section className="chat" aria-label="Chat with your money coach" style={chatHeight !== null ? { height: chatHeight } : undefined}>
+    <section className="chat" aria-label={t("chat.label")} style={chatHeight !== null ? { height: chatHeight } : undefined}>
       <div className="chat-panel-controls">
         <button
           className="chat-resize"
           type="button"
-          aria-label="Resize chat panel; drag up or down, or use arrow keys"
-          title="Drag to resize chat"
+          aria-label={t("chat.resize")}
+          title={t("chat.resizeTitle")}
           onPointerDown={startResize}
           onPointerMove={resize}
           onPointerUp={stopResize}
@@ -288,8 +290,8 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
         >
           <span aria-hidden="true" />
         </button>
-        <span className="chat-panel-label">Chat</span>
-        <button className="chat-collapse" type="button" onClick={() => setCollapsed(true)} aria-label="Minimize chat">
+        <span className="chat-panel-label">{t("chat.name")}</span>
+        <button className="chat-collapse" type="button" onClick={() => setCollapsed(true)} aria-label={t("chat.minimize")}>
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-2 2v-9.5a7.5 7.5 0 0 1 7.5-7.5h2A7.5 7.5 0 0 1 20 11.5Z" />
             <path d="M8 11h8M8 14.5h5" />
@@ -309,16 +311,16 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
               const actions = (asked.length > 0 || showOverride) && (
                 <div className="bubble-actions">
                   {asked.map((category) => (
-                    <button key={category} type="button" className="chip chip-next" onClick={() => send(`Yes, take ${category} off my keep-as-is list.`)}>
-                      Yes, stop keeping {category} as is
+                    <button key={category} type="button" className="chip chip-next" onClick={() => send(t("chat.unprotectYesMessage", { category: categoryName(category) }))}>
+                      {t("chat.unprotectYes", { category: categoryName(category) })}
                     </button>
                   ))}
                   {asked.length > 0 && (
-                    <button type="button" className="chip chip-next" onClick={() => send(`No, keep ${asked.join(" and ")} as it is.`)}>
-                      No, keep it
+                    <button type="button" className="chip chip-next" onClick={() => send(t("chat.unprotectNoMessage", { category: asked.map(categoryName).join(", ") }))}>
+                      {t("chat.unprotectNo")}
                     </button>
                   )}
-                  {showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>Show it anyway</button>}
+                  {showOverride && <button type="button" className="chip chip-next" onClick={() => send(m.question ?? "", false, m.blocked)}>{t("chat.showAnyway")}</button>}
                 </div>
               );
               return latest ? (
@@ -340,13 +342,13 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
               <div className="coach-row" role="status">
                 <CoachFace face="thinking" />
                 <div className="bubble bubble-assistant">
-                  {mode === "mock" ? "Thinking…" : messages.at(-1)?.photoUrl ? "Reading your photo…" : "Let me look at your figures…"}
+                  {mode === "mock" ? t("chat.thinking") : messages.at(-1)?.photoUrl ? t("chat.readingPhoto") : t("chat.looking")}
                 </div>
               </div>
             )}
             {/* While the coach's question about the keep-as-is list is open, its own buttons are the next steps. */}
             {!pending && messages.at(-1)?.role === "assistant" && (messages.at(-1)?.proposedUnprotect?.length ?? 0) === 0 && (coach?.suggestions.length ?? 0) > 0 && (
-              <ChipRow className="coach-next" label="Suggested next steps">
+              <ChipRow className="coach-next" label={t("chat.suggestedSteps")}>
                 {coach?.suggestions.map((s) => (
                   <button key={s} type="button" className="chip chip-next" onClick={() => send(s)}>
                     {s}
@@ -360,8 +362,8 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
       {/* Starter prompts only: they go away once the conversation has begun. */}
       {messages.length === 0 && (
         <details className="suggestions-panel" open>
-          <summary>Suggested questions</summary>
-          <ChipRow className="suggestions" label="Suggested questions (answered instantly)">
+          <summary>{t("chat.suggestedTitle")}</summary>
+          <ChipRow className="suggestions" label={t("chat.suggestedQuestions")}>
             {SUGGESTIONS.map((s) => (
               <button key={s} type="button" className="chip" onClick={() => send(s, true)} disabled={pending}>
                 {s}
@@ -384,8 +386,8 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={attached ? "Ask about the photo…" : "Ask about your money…"}
-          aria-label="Your question"
+          placeholder={attached ? t("chat.photoPlaceholder") : t("chat.placeholder")}
+          aria-label={t("chat.question")}
         />
         {mode !== "mock" && (
           <>
@@ -395,8 +397,8 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
               type="button"
               className={`voice-btn${attached ? " on" : ""}`}
               onClick={() => cameraRef.current?.click()}
-              aria-label={attached ? "Take another photo instead" : "Add a photo of a price, a bill or a listing to your message"}
-              title={attached ? "Take another photo instead" : "Add a photo to your message"}
+              aria-label={attached ? t("chat.photoRetake") : t("chat.photoAdd")}
+              title={attached ? t("chat.photoRetake") : t("chat.photoAddTitle")}
             >
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" />
@@ -411,8 +413,8 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
             className={`voice-btn${voice.enabled ? " on" : ""}`}
             onClick={voice.toggle}
             aria-pressed={voice.enabled}
-            aria-label={voice.enabled ? "Stop recording and transcribe" : "Activate voice prompt"}
-            title={voice.enabled ? "Stop recording and transcribe" : "Activate voice prompt"}
+            aria-label={voice.enabled ? t("chat.voiceStop") : t("chat.voiceEnable")}
+            title={voice.enabled ? t("chat.voiceStop") : t("chat.voiceEnable")}
           >
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <rect x="9" y="2" width="6" height="12" rx="3" />
@@ -421,7 +423,7 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
           </button>
         )}
         <button type="submit" disabled={(!input.trim() && !attached) || pending}>
-          Ask
+          {t("chat.ask")}
         </button>
       </form>
       <p className="chat-note" role={photoError || voice.error ? "alert" : undefined}>

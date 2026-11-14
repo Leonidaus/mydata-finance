@@ -22,6 +22,7 @@ import DevGallery from "./DevGallery";
 import { applyDashboardOps, uniqueWidgetTypes } from "./dashboard";
 import { apiBase, DataSourceContext, dataSource, fixtureSource, loadIndex } from "./data";
 import { formatDate, formatEur } from "./format";
+import { useI18n } from "./i18n";
 import { useLatest } from "./latest";
 import LoadError from "./LoadError";
 import TxDrawer from "./TxDrawer";
@@ -66,10 +67,10 @@ function setDevInUrl(on: boolean) {
 }
 
 /** A result's headline figure for a reply placeholder, e.g. "€312" or "€85/month". */
-function formatValue(r: EngineResult): string | undefined {
+function formatValue(r: EngineResult, locale: "en" | "fi"): string | undefined {
   if (r.value === undefined) return undefined;
   const unit = r.unit ?? "";
-  if (unit.startsWith("€")) return formatEur(r.value) + unit.slice(1).replace(/^\s*\/\s*/, "/").replace(/^\s+/, " ");
+  if (unit.startsWith("€")) return formatEur(r.value, locale) + unit.slice(1).replace(/^\s*\/\s*/, "/").replace(/^\s+/, " ");
   if (unit === "%") return `${Math.round(r.value)}%`;
   return `${Math.round(r.value * 100) / 100}${unit ? ` ${unit}` : ""}`;
 }
@@ -78,7 +79,7 @@ function loadBlocks(cid: string): Block[] {
   const raw = store.get(dashboardKey(cid));
   if (raw) {
     try {
-      return uniqueWidgetTypes((JSON.parse(raw) as Block[]).filter((block) => !block.id.startsWith("city-") && block.title !== "Your spending city"));
+      return uniqueWidgetTypes((JSON.parse(raw) as Block[]).filter((block) => !block.id.startsWith("city-")));
     } catch {
       /* fall through to the default */
     }
@@ -87,6 +88,7 @@ function loadBlocks(cid: string): Block[] {
 }
 
 export default function App() {
+  const { locale, setLocale, t } = useI18n();
   const index = useLatest("index", loadIndex);
   const indexData = index.status === "ready" ? index.data : null;
   // The selected customer and their blocks are one value, so the blocks always belong to that customer.
@@ -162,8 +164,8 @@ export default function App() {
 
   /** Suggested prompts are canned (answered locally, no API call); typed questions go to the agent. */
   const ask = async (question: string, canned = false, allowProtected?: ProtectedCategory[], image?: ChatImage) => {
-    if (customer.status === "error") return { text: "I couldn't load your data. Use “Try again” above first." };
-    if (!dashboard || !info) return { text: "Still loading your data…" };
+    if (customer.status === "error") return { text: t("chat.loadError") };
+    if (!dashboard || !info) return { text: t("chat.stillLoading") };
     // The whole answer is for the customer who asked, also if another one is selected before it is ready.
     const { customerId: askedFor, blocks } = dashboard;
     if (history.current.customerId !== askedFor) history.current = { customerId: askedFor, turns: [] };
@@ -178,6 +180,7 @@ export default function App() {
       // What the previous answer asked about taking off the keep-as-is list: this message may be the yes.
       pendingUnprotect: askedUnprotect.current.customerId === askedFor ? askedUnprotect.current.categories : [],
       image,
+      language: locale,
     };
     const reply = await (canned ? cannedReply : askAgent)(question, ctx);
     askedUnprotect.current = { customerId: askedFor, categories: (reply.proposedUnprotect ?? []) as ProtectedCategory[] };
@@ -206,7 +209,7 @@ export default function App() {
     return {
       text: fillPlaceholders(reply.text, (id, field) => {
       const r = results.get(id);
-      return r && (field === "value" ? formatValue(r) : r.caption);
+      return r && (field === "value" ? formatValue(r, locale) : r.caption);
       }),
       blocked: reply.blocked as ProtectedCategory[] | undefined,
       proposedUnprotect: reply.proposedUnprotect as ProtectedCategory[] | undefined,
@@ -256,27 +259,34 @@ export default function App() {
               <path d="M15 5l-7 7 7 7" />
             </svg>
           </span>
-          <h1 className="topbar-title"><CoachFace face="neutral" />Money coach</h1>
-          <span className="topbar-icon" aria-hidden="true">
+          <h1 className="topbar-title"><CoachFace face="neutral" />{t("app.title")}</h1>
+          <button
+            className="topbar-icon topbar-language"
+            type="button"
+            onClick={() => setLocale(locale === "en" ? "fi" : "en")}
+            aria-label={t("language.switch", { language: t(locale === "en" ? "language.finnish" : "language.english") })}
+            title={t("language.switch", { language: t(locale === "en" ? "language.finnish" : "language.english") })}
+          >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
               <path d="M4 5h16v11H9l-5 4z" />
             </svg>
-          </span>
+            <span className="topbar-language-code" aria-hidden="true">{locale.toUpperCase()}</span>
+          </button>
         </header>
         {/* Demo controls, kept apart from the product: which synthetic customer to show. */}
         {indexData && (
           <div className="demo-bar">
-            <span>Demo customer</span>
+            <span>{t("demo.customer")}</span>
             <div className="persona">
-              <select value={customerId ?? ""} onChange={(e) => selectCustomer(e.target.value)} aria-label="Whose data to show">
-                <optgroup label="Personas">
+              <select value={customerId ?? ""} onChange={(e) => selectCustomer(e.target.value)} aria-label={t("demo.customerSelect")}>
+                <optgroup label={t("demo.personas")}>
                   {indexData.presets.map((p) => (
                     <option key={p.customer_id} value={p.customer_id}>
                       {p.label}
                     </option>
                   ))}
                 </optgroup>
-                <optgroup label="Other customers">
+                <optgroup label={t("demo.otherCustomers")}>
                   {indexData.pool.map((c) => (
                     <option key={c} value={c}>
                       {c}
@@ -284,12 +294,12 @@ export default function App() {
                   ))}
                 </optgroup>
               </select>
-              <button type="button" className="ghost-btn" onClick={pickRandom} title="Random customer">
-                Random
+              <button type="button" className="ghost-btn" onClick={pickRandom} title={t("demo.randomTitle")}>
+                {t("demo.random")}
               </button>
               {source.mode === "api" && profile.status === "ready" && (
-                <button type="button" className="ghost-btn" onClick={() => setSettingsOpen(true)} title="Change coaching settings">
-                  Coaching
+                <button type="button" className="ghost-btn" onClick={() => setSettingsOpen(true)} title={t("demo.coachingTitle")}>
+                  {t("demo.coaching")}
                 </button>
               )}
               {devAvailable && (
@@ -312,18 +322,18 @@ export default function App() {
           </div>
         )}
 
-        <main className="dashboard" aria-label={gallery ? "Component gallery" : "Your dashboard"}>
+        <main className="dashboard" aria-label={gallery ? t("dashboard.gallery") : t("dashboard.label")}>
           {index.status === "error" && <LoadError error={index.error} retry={index.retry} />}
           {customer.status === "error" && <LoadError error={customer.error} retry={customer.retry} />}
           {info && (
             <p className="intro muted small">
-              {preset ? `${preset.label} · ${preset.blurb}` : `Customer ${info.customerId}, age ${info.age}`} · data up to {formatDate(info.today)}
+              {preset ? `${preset.label} · ${preset.blurb}` : t("dashboard.customer", { id: info.customerId, age: info.age })} · {t("dashboard.dataUpTo", { date: formatDate(info.today, locale) })}
               {dev && " · static demo data"}
             </p>
           )}
           {index.status !== "error" && customer.status === "loading" && (
             <p className="muted" role="status">
-              Loading your data…
+              {t("dashboard.loading")}
             </p>
           )}
           {info && dashboard && gallery && (
@@ -352,7 +362,7 @@ export default function App() {
             ))}
           {info && dashboard && !gallery && (
             <button type="button" className="ghost-btn reset" onClick={() => updateBlocks(dashboard.customerId, () => defaultDashboard())}>
-              Reset dashboard
+              {t("dashboard.reset")}
             </button>
           )}
         </main>
