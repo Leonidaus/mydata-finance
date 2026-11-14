@@ -3,6 +3,10 @@ import {
   type ChatModels,
   ENGINE_FNS,
   EngineArgumentError,
+  DEFAULT_PROFILE,
+  parseProfileUpdate,
+  type ProfileUpdate,
+  ProfileError,
   TRANSACTION_CATEGORIES,
   type TransactionCategory,
   type TxFilter,
@@ -15,10 +19,12 @@ import { HTTPException } from "hono/http-exception";
 import { answerChat, CHAT_TIMEOUT_MS, type ChatRequest, ChatRequestError, parseChatRequest } from "./chat";
 import type { FinanceDb } from "./db";
 import { getCustomer, listCustomers, monthlySummary } from "./finance/customers";
-import { isEngineFn, runEngineFor, transactionsFor } from "./finance/engine";
+import { isEngineFn, transactionsFor } from "./finance/engine";
+import { ProtectedEngine } from "./finance/protected";
 import { isIsoDate, PERIOD_NAMES, resolvePeriod, type Period, type PeriodName } from "./finance/period";
 import { BASKETS, GROUP_BY, spending, type Basket, type GroupBy } from "./finance/spending";
 import { requestBudget, type RequestBudget } from "./rateLimit";
+import { MemoryProfileStore, type ProfileStore } from "./profiles";
 
 const CUSTOMER_ID = /^CUST\d{5}$/;
 const MCC = /^\d{4}$/;
@@ -100,6 +106,8 @@ export interface AppOptions {
   chatModel?: ChatModel | ChatModels;
   /** How often the chat may be called. Each answer costs one or two model calls. */
   chatBudget?: RequestBudget;
+  /** Customer coaching preferences; memory is the test and embedded-server default. */
+  profiles?: ProfileStore;
 }
 
 const DEFAULT_CHAT_BUDGET: RequestBudget = { perMinute: 20, perHour: 400 };
@@ -109,6 +117,8 @@ const MAX_STT_BYTES = 25 * 1024 * 1024;
 
 export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
   const app = new Hono();
+  const profiles = options.profiles ?? new MemoryProfileStore();
+  const protectedEngine = new ProtectedEngine(db, profiles);
 
   // The data is synthetic and the API read-only, so any origin may call it during the demo.
   app.use("/api/*", cors());
@@ -153,6 +163,26 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
     const customer = getCustomer(db, customerId(c.req.param("id")));
     if (!customer) throw new HTTPException(404, { message: "Customer not found" });
     return c.json(customer);
+  });
+
+  app.get("/api/customers/:id/profile", (c) => {
+    const id = customerId(c.req.param("id"));
+    if (!getCustomer(db, id)) throw new HTTPException(404, { message: "Customer not found" });
+    const profile = profiles.get(id);
+    return c.json({ profile: profile ?? DEFAULT_PROFILE, isDefault: profile === null });
+  });
+
+  app.patch("/api/customers/:id/profile", async (c) => {
+    const id = customerId(c.req.param("id"));
+    if (!getCustomer(db, id)) throw new HTTPException(404, { message: "Customer not found" });
+    let update: ProfileUpdate;
+    try {
+      update = parseProfileUpdate(await jsonBody(c.req.raw));
+    } catch (error) {
+      if (error instanceof ProfileError) badRequest(error.message);
+      throw error;
+    }
+    return c.json({ profile: profiles.update(id, update), isDefault: false });
   });
 
   app.get("/api/customers/:id/summary", (c) => {
@@ -208,7 +238,7 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
   app.get("/api/customers/:id/engine/:fn", (c) => {
     const id = customerId(c.req.param("id"));
     const fn = requireEngineFn(c.req.param("fn"));
-    const result = runEngineFor(db, id, fn, engineArgsFromQuery(c.req.query()));
+    const result = protectedEngine.run(id, fn, engineArgsFromQuery(c.req.query()));
     if (!result) throw new HTTPException(404, { message: "Customer not found" });
     return c.json(result);
   });
@@ -226,7 +256,7 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
     if (data.kind !== "engine") badRequest('data.kind must be "engine" or "sql"');
     const fn = requireEngineFn(data.fn);
     if (data.args !== undefined && !isRecord(data.args)) badRequest("data.args must be an object");
-    const result = runEngineFor(db, id, fn, (data.args as Record<string, unknown>) ?? {});
+    const result = protectedEngine.run(id, fn, (data.args as Record<string, unknown>) ?? {});
     if (!result) throw new HTTPException(404, { message: "Customer not found" });
     return c.json(result);
   });
@@ -277,18 +307,23 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
       throw new HTTPException(503, { message: "The chat model is not configured on this server (GEMINI_API_KEY)." });
     }
     try {
-      return c.json(
-        await answerChat(options.chatModel, request, {
-          today: db.today,
-          signal: AbortSignal.timeout(CHAT_TIMEOUT_MS),
-          // The engine runs here, for this customer only: the snapshot, the coach's lookups and its cards' figures.
-          lookup: (fn, args) => {
-            const result = runEngineFor(db, id, fn, args);
-            if (!result) throw new Error("Customer not found");
-            return result;
-          },
-        }),
-      );
+      const blocked = new Set<string>();
+      const answer = await answerChat(options.chatModel, request, {
+        today: db.today,
+        signal: AbortSignal.timeout(CHAT_TIMEOUT_MS),
+        // The engine runs here, for this customer only: the snapshot, the coach's lookups and its cards' figures.
+        lookup: (fn, args) => {
+          const result = protectedEngine.run(id, fn, args, {
+            allow: request.allowProtected,
+            onBlocked: (categories) => categories.forEach((category) => blocked.add(category)),
+          });
+          if (!result) throw new Error("Customer not found");
+          return result;
+        },
+        profile: profiles.get(id) ?? DEFAULT_PROFILE,
+        allowProtected: request.allowProtected,
+      });
+      return c.json({ ...answer, blocked: [...blocked] });
     } catch (error) {
       if (error instanceof Error && error.name === "TimeoutError") {
         throw new HTTPException(504, { message: "The coach took too long to answer. Try again in a moment." });

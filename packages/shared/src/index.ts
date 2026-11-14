@@ -5,3 +5,4 @@ export * from "./blocks";
 export * from "./engine";
 export * from "./agent";
 export * from "./library";
+export * from "./profile";
