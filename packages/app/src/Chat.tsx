@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
 import { DEMO_PROMPTS } from "./agent/mockAgent";
 import type { Mood } from "@mydata/shared";
 import type { ChatMode } from "./agent";
@@ -43,6 +43,9 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [chatHeight, setChatHeight] = useState<number | null>(null);
+  const resizeStart = useRef<{ y: number; height: number } | null>(null);
   const nextId = useRef(1);
   const logRef = useRef<HTMLDivElement>(null);
   /** Counts conversation resets, so that a reply can tell whether its conversation is still open. */
@@ -60,6 +63,9 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, pending]);
+  useEffect(() => {
+    logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "auto" });
+  }, [chatHeight]);
 
   function send(text: string, canned = false) {
     const trimmed = text.trim();
@@ -119,39 +125,98 @@ export default function Chat({ onAsk, resetKey, request, mode, coach }: Props) {
             : "Voice on. Start speaking."
       : modeNote;
 
+  function startResize(e: ReactPointerEvent<HTMLButtonElement>) {
+    const panel = e.currentTarget.closest(".chat");
+    resizeStart.current = { y: e.clientY, height: panel?.getBoundingClientRect().height ?? 300 };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function resize(e: ReactPointerEvent<HTMLButtonElement>) {
+    if (!resizeStart.current) return;
+    const minHeight = Math.min(190, window.innerHeight * 0.35);
+    setChatHeight(Math.max(minHeight, Math.min(window.innerHeight * 0.8, resizeStart.current.height + resizeStart.current.y - e.clientY)));
+  }
+
+  function stopResize() {
+    resizeStart.current = null;
+  }
+
+  if (collapsed) {
+    return (
+      <button className="chat-launcher" type="button" onClick={() => setCollapsed(false)} aria-label="Open chat with your money coach" title="Open chat">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-2 2v-9.5a7.5 7.5 0 0 1 7.5-7.5h2A7.5 7.5 0 0 1 20 11.5Z" />
+          <path d="M8 11h8M8 14.5h5" />
+        </svg>
+      </button>
+    );
+  }
+
   return (
-    <section className="chat" aria-label="Chat with your money coach">
+    <section className="chat" aria-label="Chat with your money coach" style={chatHeight !== null ? { height: chatHeight } : undefined}>
+      <div className="chat-panel-controls">
+        <button
+          className="chat-resize"
+          type="button"
+          aria-label="Resize chat panel; drag up or down, or use arrow keys"
+          title="Drag to resize chat"
+          onPointerDown={startResize}
+          onPointerMove={resize}
+          onPointerUp={stopResize}
+          onPointerCancel={stopResize}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+              e.preventDefault();
+              const currentHeight = e.currentTarget.parentElement?.parentElement?.getBoundingClientRect().height ?? 300;
+              const delta = e.key === "ArrowUp" ? 32 : -32;
+              const minHeight = Math.min(190, window.innerHeight * 0.35);
+              setChatHeight((height) => Math.max(minHeight, Math.min(window.innerHeight * 0.8, (height ?? currentHeight) + delta)));
+            }
+          }}
+        >
+          <span aria-hidden="true" />
+        </button>
+        <span className="chat-panel-label">Chat</span>
+        <button className="chat-collapse" type="button" onClick={() => setCollapsed(true)} aria-label="Minimize chat">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-2 2v-9.5a7.5 7.5 0 0 1 7.5-7.5h2A7.5 7.5 0 0 1 20 11.5Z" />
+            <path d="M8 11h8M8 14.5h5" />
+          </svg>
+        </button>
+      </div>
       {messages.length > 0 && (
         <div className="chat-log" ref={logRef} role="log" aria-live="polite">
-          {messages.map((m, i) => {
-            // The coach shows its face with its latest answer only.
-            const latest = !pending && m.role === "assistant" && i === messages.length - 1;
-            return latest ? (
-              <div key={m.id} className="coach-row">
-                <CoachFace face={coach?.mood ?? "neutral"} />
-                <div className="bubble bubble-assistant">{m.text}</div>
+          <div className="chat-history">
+            {messages.map((m, i) => {
+              // The coach shows its face with its latest answer only.
+              const latest = !pending && m.role === "assistant" && i === messages.length - 1;
+              return latest ? (
+                <div key={m.id} className="coach-row">
+                  <CoachFace face={coach?.mood ?? "neutral"} />
+                  <div className="bubble bubble-assistant">{m.text}</div>
+                </div>
+              ) : (
+                <div key={m.id} className={`bubble bubble-${m.role}`}>
+                  {m.text}
+                </div>
+              );
+            })}
+            {pending && (
+              <div className="coach-row" role="status">
+                <CoachFace face="thinking" />
+                <div className="bubble bubble-assistant">{mode === "mock" ? "Thinking…" : "Let me look at your figures…"}</div>
               </div>
-            ) : (
-              <div key={m.id} className={`bubble bubble-${m.role}`}>
-                {m.text}
+            )}
+            {!pending && messages.at(-1)?.role === "assistant" && (coach?.suggestions.length ?? 0) > 0 && (
+              <div className="coach-next" aria-label="Suggested next steps">
+                {coach?.suggestions.map((s) => (
+                  <button key={s} type="button" className="chip chip-next" onClick={() => send(s)}>
+                    {s}
+                  </button>
+                ))}
               </div>
-            );
-          })}
-          {pending && (
-            <div className="coach-row" role="status">
-              <CoachFace face="thinking" />
-              <div className="bubble bubble-assistant">{mode === "mock" ? "Thinking…" : "Let me look at your figures…"}</div>
-            </div>
-          )}
-          {!pending && messages.at(-1)?.role === "assistant" && (coach?.suggestions.length ?? 0) > 0 && (
-            <div className="coach-next" aria-label="Suggested next steps">
-              {coach?.suggestions.map((s) => (
-                <button key={s} type="button" className="chip chip-next" onClick={() => send(s)}>
-                  {s}
-                </button>
-              ))}
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
       <div className="suggestions" aria-label="Suggested questions (answered instantly)">
