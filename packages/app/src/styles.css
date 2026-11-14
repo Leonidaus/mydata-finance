@@ -400,6 +400,21 @@ body {
   cursor: pointer;
 }
 
+.chat-input .voice-btn {
+  flex: none;
+  padding: 0 12px;
+  border: 1px solid var(--green-500);
+  background: transparent;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.chat-input .voice-btn.on {
+  border-color: var(--green-700);
+  background: var(--green-700);
+  color: #fff;
+}
+
 .chat-input button:disabled { opacity: 0.45; cursor: default; }
 
 .chat-note {
