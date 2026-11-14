@@ -6,7 +6,7 @@
  */
 import type { Block, DashboardOp } from "../blocks";
 import { buildSystemPrompt } from "./prompt";
-import { REPLY_TOOL, TOOL_DECLARATIONS, type ToolCall, type ToolDeclaration } from "./tools";
+import { TOOL_DECLARATIONS, type ToolCall, type ToolDeclaration } from "./tools";
 import { type CardPick, parseToolCalls } from "./validate";
 
 /** A turn in the conversation. `raw` is the provider's own message, replayed as-is on a retry. */
@@ -39,6 +39,11 @@ export interface ChatInput {
   history: { role: "user" | "assistant"; text: string }[];
   blocks: Block[];
   today: string;
+  /**
+   * Ask for the reply alone when the model sends cards without one (default true). A caller
+   * that writes the reply in a later step of its own turns this off to save a model call.
+   */
+  replyFollowUp?: boolean;
 }
 
 export interface ChatOutput {
@@ -50,6 +55,9 @@ export interface ChatOutput {
   /** Whether each added card came from the library or was built custom. */
   picks: CardPick[];
 }
+
+/** The reply used when the model built a card but said nothing. */
+export const CARD_ONLY_REPLY = "Here is a card for that.";
 
 export const MAX_QUESTION_CHARS = 1000;
 export const MAX_HISTORY_TURNS = 10;
@@ -65,44 +73,52 @@ export async function runChat(model: ChatModel, input: ChatInput, signal?: Abort
   let res = await model.generate({ system, turns, tools: TOOL_DECLARATIONS }, signal);
   let parsed = parseToolCalls(res.calls, input.blocks);
 
-  // Something was rejected, or there is nothing at all: one retry with the reasons.
-  if (parsed.errors.length || (parsed.text === null && !parsed.ops.length)) {
-    const problems = parsed.errors.length ? parsed.errors : ["No card and no reply. Answer with a card call (it carries the reply) or with reply."];
-    const retryTurns: ChatTurn[] = [
-      ...turns,
+  // Something was rejected, or there is neither a card nor a reply: ask for the whole answer again.
+  if (parsed.errors.length || (parsed.text === null && parsed.ops.length === 0)) {
+    const problems = [...parsed.errors, ...(parsed.text === null ? ["reply: missing. Call reply exactly once."] : [])];
+    turns.push(
       { role: "model", raw: res.raw, text: res.text },
       {
         role: "user",
-        text: `Some tool calls were rejected:\n- ${problems.join("\n- ")}\nSend the whole answer again with corrected tool calls.`,
+        text: `Some tool calls were rejected:\n- ${problems.join("\n- ")}\nSend the whole answer again with corrected tool calls (all cards and the reply).`,
       },
-    ];
-    const retry = await model.generate({ system, turns: retryTurns, tools: TOOL_DECLARATIONS }, signal);
+    );
+    const retry = await model.generate({ system, turns, tools: TOOL_DECLARATIONS }, signal);
     const reparsed = parseToolCalls(retry.calls, input.blocks);
     // Keep the retry only if it is at least as useful as the first try.
-    if (reparsed.ops.length >= parsed.ops.length || (reparsed.text !== null && !parsed.ops.length)) {
+    if (reparsed.ops.length >= parsed.ops.length || reparsed.text !== null) {
       res = retry;
       parsed = { ...reparsed, text: reparsed.text ?? parsed.text };
     }
   }
 
-  // The cards are fine but nothing was said about them: ask for the sentence only, and keep the cards.
-  if (parsed.text === null && parsed.ops.length) {
-    const ids = parsed.ops.map((o) => (o.op === "add_block" ? o.block.id : o.id)).join(", ");
-    const said = await model.generate(
+  // The cards are fine but the reply is missing. Models often return one tool call per turn, so
+  // asking for the whole answer again only repeats the card. Ask for the reply alone, with only
+  // the reply tool on offer.
+  if (parsed.text === null && parsed.ops.length > 0 && input.replyFollowUp !== false) {
+    const ids = [...new Set(parsed.ops.flatMap((o) => (o.op === "add_block" ? [o.block.id] : o.op === "update_block" ? [o.id] : [])))];
+    const followUp = await model.generate(
       {
         system,
         turns: [
           ...turns,
           { role: "model", raw: res.raw, text: res.text },
-          { role: "user", text: `Done: the dashboard now shows what you asked for (card ids: ${ids}). Now call reply with what to tell the user about it.` },
+          {
+            role: "user",
+            text:
+              `The cards are in place${ids.length ? ` (ids: ${ids.join(", ")})` : ""}. Now call reply exactly once: one to three friendly sentences ` +
+              "in the user's language that answer the question. Do not write figures yourself; refer to them as {{<id>.value}} or {{<id>.caption}}.",
+          },
         ],
-        tools: TOOL_DECLARATIONS.filter((t) => t.name === REPLY_TOOL),
+        tools: TOOL_DECLARATIONS.filter((t) => t.name === "reply"),
       },
       signal,
     );
-    parsed = { ...parsed, text: parseToolCalls(said.calls, input.blocks).text ?? (said.text?.trim() || null) };
+    const reply = parseToolCalls(followUp.calls.filter((c) => c.name === "reply"), []);
+    parsed = { ...parsed, text: reply.text };
+    if (reply.text === null && followUp.text?.trim()) res = { ...res, text: followUp.text };
   }
 
-  const fallback = parsed.ops.length ? "Here is a card for that." : "Sorry, I couldn't build a card for that. Try asking in another way.";
+  const fallback = parsed.ops.length ? CARD_ONLY_REPLY : "Sorry, I couldn't build a card for that. Try asking in another way.";
   return { text: parsed.text ?? (res.text?.trim() || fallback), ops: parsed.ops, rejected: parsed.errors, picks: parsed.picks };
 }

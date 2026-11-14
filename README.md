@@ -169,7 +169,7 @@ radar is SOK's, so S-Pankki may differ, and it has no AI entries at all.
 | Data prep | Python, standard library only | ADOPT |
 | Tests | Vitest | not listed; Jest is the ADOPT choice |
 | Deploy | One Docker container serving the API and the built app | ADOPT (Docker) |
-| AI | Gemini for the chat, called through the backend so the key stays on the server; a keyword mock when no key is set | not on the radar |
+| AI | Gemini for the chat, run by the backend (prompt, key and validation stay on the server); a keyword mock when no key is set | not on the radar |
 
 Production path for the pitch, not for the weekend: Lambda or Fargate, Aurora,
 DynamoDB for sessions and pinned cards, Kinesis for proactive nudges, CDK, GitLab.
@@ -186,7 +186,7 @@ Settled:
 | Basket rules | One rule set, with groceries as a regular essential. See [Basket rules](#basket-rules). |
 | API style | Plain JSON routes, no GraphQL. |
 | Branches | Feature branches into `develop`; `main` only from `develop`. |
-| Model for the chat | Gemini. The model chooses which cards to build and never sees the customer's figures; the app fills the numbers in. |
+| Model for the chat | Gemini, run by the backend. The model chooses which cards to build, then explains the results the engine computed for them. It never sees the transaction list, and a reply with a number that is not in the results is discarded. |
 
 Still open:
 
@@ -217,8 +217,9 @@ Done:
 
 - Database build with basket labels, monthly summaries and peer cohorts for all
   5,100 customers.
-- Finance engine with eleven functions, including safe to spend, safe to save,
-  what-if, forecast, peer comparison and goals. Every result carries a filter for
+- Finance engine with twelve functions, including safe to spend, safe to save,
+  what-if, forecast, peer comparison, a comparison with Statistics Finland's
+  figures and goals. Every result carries a filter for
   the transactions behind it, and estimates carry their assumptions.
 - API over the database: the engine for any customer, plus spending and summaries.
 - App with configurable cards, charts and transaction drill-downs.
@@ -275,7 +276,8 @@ packages/
 data/
   raw/       # Local source CSVs (gitignored; see "Data" below)
   out/       # Generated databases (gitignored)
-  prep/      # Python: CSV → application database, or a per-customer bundle
+  prep/      # Python: CSV → application database, or a per-customer bundle;
+             # fetch_statfin.py refreshes the Statistics Finland snapshot
 ```
 
 ## Data
@@ -334,6 +336,49 @@ directly).
 The enums in `packages/shared/src/schema.ts` (categories, transaction types,
 mortgage event types, rejection reasons) have been checked against the data and
 match exactly.
+
+## Comparison with Statistics Finland
+
+The "You vs Finland" card (`nationalCompare` in the engine, `finland_compare` in the
+card library) puts the customer's monthly average next to what people in Finland in
+the same age group spend. It is the only figure in the app that comes from outside
+the synthetic dataset, and the card is marked "Statistics Finland".
+
+The figures come from two open tables of Statistics Finland (licence CC BY 4.0):
+
+| Table | What it gives |
+|---|---|
+| `StatFin/ktutk/14q4.px` | Households' consumption 2022 by age of the household member with the highest income, in euros per month, per household and per consumption unit |
+| `StatFin/khi/15b5.px` | Consumer price index per commodity group, monthly |
+
+`python3 data/prep/fetch_statfin.py` fetches them and writes the snapshot
+`packages/shared/src/benchmark/statfin.json`, which is committed. The app, the
+backend and the tests read that file and never call the API, so nothing needs to be
+rebuilt or copied to the demo host. Run the script again to add new price index
+months.
+
+How a figure is made (`packages/shared/src/benchmark/statfin.ts`):
+
+1. Take the 2022 figure for the customer's age group.
+2. Raise it to the price level of the twelve months the customer's own average
+   covers, with the price index of that category (food by food prices, fuel and
+   tickets by theirs, and so on).
+
+Five categories have a reasonable counterpart in the survey:
+
+| Bank category | National figure |
+|---|---|
+| Housing | Rents, upkeep of the home, housing loan interest. For owners it counts an estimated rent, not their loan payments. |
+| Utilities | Electricity, heating, water, waste collection. No phone or internet. |
+| Groceries | Food and non-alcoholic drinks. The bank sees everything bought in a grocery store. |
+| Restaurants | Restaurants, cafés and takeaway. |
+| Transportation | Fuel, upkeep of a car and tickets, including flights. Buying a car is left out. |
+
+By default the comparison is with one adult (per consumption unit); the card has a
+switch to a whole household for an account that pays for a family. These limits are
+in the result's `assumptions`, so the card's "How was this made?" and the coach's
+reply both have them. The customers are synthetic, so the card shows how the
+feature works, not how real customers spend.
 
 ## Basket rules
 
@@ -442,7 +487,7 @@ answers are cut off at the demo's "today", so later transactions never appear.
 | `POST /api/transactions` | The transactions behind an engine result: `{ customerId, filter, limit }` |
 | `POST /api/tts` | Text to speech: `{ text, languageCode? }` → MP3 audio (ElevenLabs, from `packages/voice`) |
 | `POST /api/stt` | Speech to text: an `audio` form file or a raw audio body → `{ text, languageCode }` |
-| `POST /gemini/v1beta/models/<model>:generateContent` | The chat's language model: forwarded to Google's Gemini API with the server's key |
+| `POST /api/chat` | The coach: `{ customerId, question, history, blocks }` → `{ text, ops, rejected, picks }` |
 
 The spending endpoint takes `period` (`this_month`, `last_month`, `last_30_days`,
 `last_3_months`, `last_12_months`, `this_year`, `all`) or `from` and `to`, and the
@@ -459,21 +504,43 @@ Put them in a `.env` file at the repository root (copy `.env.example`), which th
 backend reads at startup. Without a key the route answers 503 and everything else
 works; `/api/health` reports which services are on. Because these routes spend
 credits, each has a request budget across all callers (voice: 30 a minute, 400 an
-hour; chat: 30 a minute, 600 an hour) and answers 429 beyond it.
+hour; chat: 20 a minute, 400 an hour) and answers 429 beyond it.
 
-The chat route forwards exactly one call, `generateContent` on a Gemini model, and
-adds the key on the server, so the key never reaches the browser. The app's chat
-agent sends the question and the card definitions to it, never the customer's figures.
+The chat runs on the server, in two steps. The app sends the question, the
+conversation so far and the definitions of the cards on screen.
+
+1. **Which cards.** The server builds the prompt, calls Gemini with its own key and
+   checks every tool call the model makes (using the engine's argument checks), asking
+   again once if something is invalid. The model sees no customer data in this step.
+2. **What the figures mean.** The finance engine computes those cards, and the model
+   writes a reply from the results: totals, rows and assumptions of the cards, never
+   the transaction list. Every number in the reply must appear in those results, as
+   given or rounded; if one does not, the reply is discarded and the answer falls back
+   to a sentence with a `{{cardId.value}}` placeholder that the app fills in itself.
+   The reply follows the language of the question.
+
+The caller cannot supply instructions, pick the model or reach Gemini directly. The
+agent's first step (prompt, tools, validation) is in `packages/shared/src/agent`; the
+second is `packages/backend/src/explain.ts`. `GEMINI_MODEL` may list several models,
+comma-separated; the next is tried when one is overloaded.
+
+`npm run eval:chat -w @mydata/backend` asks the challenge's questions with the real
+model and compares each answer with the engine: the right function and arguments,
+nothing rejected, and the engine's figure in the reply.
 
 The engine endpoints run the finance engine from `packages/shared/src/engine` for
 any of the 5,100 customers: `spendBy`, `monthlyTrend`, `baskets`, `safeToSpend`,
-`safeToSave`, `balanceForecast`, `whatIf`, `peerCompare`, `dailySpend`, `recurring`
-and `goalProgress`. The app runs the same engine on its 15 fixture customers; for
+`safeToSave`, `balanceForecast`, `whatIf`, `peerCompare`, `nationalCompare`,
+`dailySpend`, `recurring` and `goalProgress`. The app runs the same engine on its 15 fixture customers; for
 those customers the backend gives identical results for every function.
 
 Arguments are checked: an unknown argument, a value outside its range or an unknown
 period or category answers 400 with the reason, instead of silently falling back to
 a default. Estimates carry an `assumptions` list in plain language.
+
+`spendBy`, `monthlyTrend` and `whatIf` take an optional `mcc` (merchant category code)
+to narrow to one kind of merchant, for example `4121` for taxis. Without it, "how much
+did I spend on taxis?" could only be answered with all of Transportation.
 
 ```bash
 curl 'http://localhost:8787/api/customers/CUST03004/engine/safeToSpend'

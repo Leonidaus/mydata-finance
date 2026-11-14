@@ -9,12 +9,12 @@ import {
   type TxFilter,
 } from "@mydata/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { askAgent, cannedReply, type RunEngine } from "./agent";
+import { askAgent, cannedReply, type ChatMode, chatMode, geminiAvailable, type RunEngine } from "./agent";
 import BlockCard from "./BlockCard";
 import Chat from "./Chat";
 import DevGallery from "./DevGallery";
 import { DataSourceContext, dataSource, fixtureSource, loadIndex } from "./data";
-import { formatEur } from "./format";
+import { formatDate, formatEur } from "./format";
 import { useLatest } from "./latest";
 import LoadError from "./LoadError";
 import TxDrawer from "./TxDrawer";
@@ -85,6 +85,15 @@ export default function App() {
   const [dev, setDev] = useState(devInUrl);
   const [gallery, setGallery] = useState(devInUrl);
   const source = dev ? fixtureSource : dataSource;
+  // What answers typed questions. Known at once without the backend; with it, the backend is asked.
+  const [mode, setMode] = useState<ChatMode>(geminiAvailable ? "browser" : "mock");
+  useEffect(() => {
+    let current = true;
+    void chatMode(source.mode === "api").then((m) => current && setMode(m));
+    return () => {
+      current = false;
+    };
+  }, [source.mode]);
   // Keyed by source and customer: an answer for a customer who is no longer selected is never shown.
   const customer = useLatest(customerId && `${source.mode}:${customerId}`, (signal) => source.customer(customerId ?? "", signal));
   const info = customer.status === "ready" ? customer.data : null;
@@ -131,10 +140,12 @@ export default function App() {
     const { customerId: askedFor, blocks } = dashboard;
     if (history.current.customerId !== askedFor) history.current = { customerId: askedFor, turns: [] };
     const ctx = {
+      customerId: askedFor,
       blocks,
       today: info.today,
       history: history.current.turns,
       run: ((fn, args = {}) => source.runData(askedFor, { kind: "engine", fn, args })) as RunEngine,
+      useBackend: source.mode === "api",
     };
     const reply = await (canned ? cannedReply : askAgent)(question, ctx);
     const after = applyOps({ customerId: askedFor, blocks }, reply.ops).blocks;
@@ -185,12 +196,24 @@ export default function App() {
   return (
     <DataSourceContext.Provider value={source}>
       <div className="app">
+        {/* The top bar mirrors a screen inside S-mobiili: back, centred title, messages. Both icons are decorative here. */}
         <header className="topbar">
-          <div className="brand">
-            <span className="brand-mark" aria-hidden="true">€</span>
-            <span className="brand-name">MyData Finance</span>
-          </div>
-          {indexData && (
+          <span className="topbar-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 5l-7 7 7 7" />
+            </svg>
+          </span>
+          <h1 className="topbar-title">Money coach</h1>
+          <span className="topbar-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
+              <path d="M4 5h16v11H9l-5 4z" />
+            </svg>
+          </span>
+        </header>
+        {/* Demo controls, kept apart from the product: which synthetic customer to show. */}
+        {indexData && (
+          <div className="demo-bar">
+            <span>Demo customer</span>
             <div className="persona">
               <select value={customerId ?? ""} onChange={(e) => selectCustomer(e.target.value)} aria-label="Whose data to show">
                 <optgroup label="Personas">
@@ -228,15 +251,15 @@ export default function App() {
                 </button>
               )}
             </div>
-          )}
-        </header>
+          </div>
+        )}
 
         <main className="dashboard" aria-label={gallery ? "Component gallery" : "Your dashboard"}>
           {index.status === "error" && <LoadError error={index.error} retry={index.retry} />}
           {customer.status === "error" && <LoadError error={customer.error} retry={customer.retry} />}
           {info && (
             <p className="intro muted small">
-              {preset ? `${preset.label} · ${preset.blurb}` : `Customer ${info.customerId}, age ${info.age}`} · data up to {info.today}
+              {preset ? `${preset.label} · ${preset.blurb}` : `Customer ${info.customerId}, age ${info.age}`} · data up to {formatDate(info.today)}
               {dev && " · static demo data"}
             </p>
           )}
@@ -276,7 +299,7 @@ export default function App() {
           )}
         </main>
 
-        <Chat onAsk={ask} resetKey={customerId ?? ""} request={chatRequest} />
+        <Chat onAsk={ask} resetKey={customerId ?? ""} request={chatRequest} mode={mode} />
 
         {drill && drill.customerId === customerId && (
           <TxDrawer customerId={drill.customerId} title={drill.title} filter={drill.filter} onClose={() => setDrill(null)} />
