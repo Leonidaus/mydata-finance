@@ -37,7 +37,8 @@ database, and meant to be exposed to the language model as tools.
 
 ## 6. Conversational savings goals
 - [x] Goal progress from saving transfers (`goalProgress`)
-- [ ] Create goals through chat ("€1,500 for summer, can I make it?")
+- [x] Create goals through chat ("€1,500 for summer, can I make it?"): `goalPlan`, `savingsOptions`, the pinned plan card
+- [ ] Track progress against the agreed plan over time
 - [ ] Track feasibility using the safe-to-save figure
 
 ## 7. Mortgage readiness (stretch)

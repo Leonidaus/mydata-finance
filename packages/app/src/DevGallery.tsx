@@ -41,7 +41,7 @@ function gallery(): { section: string; note: string; blocks: Block[] }[] {
     {
       section: "Custom charts",
       note: "view.kind = \"spec\": a raw Vega-Lite spec. Without its own data, the engine rows are injected as data.values.",
-      blocks: [custom.donut(), custom.weekday(), custom.pace()],
+      blocks: [custom.donut(), custom.weekday(), custom.pace(), custom.goalPlan({ target: 25000, saved: 10000, extra: 100, byMonths: 24, label: "Home deposit" }), custom.savingOptions(["Travel"])],
     },
     {
       section: "Iframe widgets",

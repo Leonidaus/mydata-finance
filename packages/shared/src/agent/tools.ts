@@ -33,6 +33,7 @@ function engineArgsSchema(description: string): Record<string, unknown> {
       const usedBy = properties[key]?.description ? `${properties[key].description as string}, ${fn}` : `Used by ${fn}`;
       if (spec.type === "enum") properties[key] = { type: "string", enum: [...spec.values], description: usedBy };
       else if (spec.type === "category") properties[key] = { type: "string", enum: [...SPENDING_CATEGORIES], description: usedBy };
+      else if (spec.type === "categories") properties[key] = { type: "array", items: { type: "string", enum: [...SPENDING_CATEGORIES] }, description: usedBy };
       else if (spec.type === "number") properties[key] = { type: "number", minimum: spec.min, maximum: spec.max, description: usedBy };
       else if (spec.type === "mcc") {
         properties[key] = { type: "string", enum: Object.keys(MCC_CODES), description: `Merchant type code from MERCHANT TYPES, e.g. 4121 for taxis. ${usedBy}` };

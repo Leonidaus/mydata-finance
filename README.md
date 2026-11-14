@@ -217,9 +217,9 @@ Done:
 
 - Database build with basket labels, monthly summaries and peer cohorts for all
   5,100 customers.
-- Finance engine with twelve functions, including safe to spend, safe to save,
+- Finance engine with fourteen functions, including safe to spend, safe to save,
   what-if, forecast, peer comparison, a comparison with Statistics Finland's
-  figures and goals. Every result carries a filter for
+  figures, goal progress and a savings plan towards a goal. Every result carries a filter for
   the transactions behind it, and estimates carry their assumptions.
 - API over the database: the engine for any customer, plus spending and summaries.
 - App with configurable cards, charts and transaction drill-downs.
@@ -379,6 +379,40 @@ switch to a whole household for an account that pays for a family. These limits 
 in the result's `assumptions`, so the card's "How was this made?" and the coach's
 reply both have them. The customers are synthetic, so the card shows how the
 feature works, not how real customers spend.
+
+## Saving towards a goal
+
+The coach can take a goal from "I want to buy a home" to a plan. The conversation
+follows four steps, and every amount and date in it comes from the engine:
+
+1. **Understand the goal.** The coach asks for the target and for what is already
+   set aside. It never invents either. The account cannot tell how much of a
+   customer's savings is meant for this goal, so that figure is the customer's own.
+2. **A baseline.** `goalPlan` gives what is left to save, the months and the date at
+   a monthly amount (the customer's current saving pace unless they choose one), and
+   what would still be left over each month after spending and this saving.
+3. **Choices.** `savingsOptions` lists where everyday spending could be cut, per
+   category, leaving out essentials and whatever the customer wants to keep. The
+   coach then asks `goalPlan` again with that amount as `extra`, and says how the
+   date moves. A deadline works the other way round (`byMonths`): what it needs a
+   month.
+4. **The plan.** The "Your savings plan" card stays pinned on the dashboard, with a
+   slider for saving more. Its arguments are the plan (target, amount set aside,
+   monthly amount), so the coach can pick it up again later.
+
+| Function | Arguments | Gives |
+|---|---|---|
+| `goalPlan` | `target` (required), `saved`, `monthly`, `extra`, `byMonths`, `label` | One row per scenario: monthly amount, months to go, month reached, months sooner than the first row, what is left over a month, and whether it fits |
+| `savingsOptions` | `protect` (categories to keep), `cutPct` (default 20) | One row per everyday-spending category: monthly average, and what the cut frees a month and a year |
+
+A scenario that needs more a month than has been left after spending is marked as
+not fitting, and the coach says so and offers a longer timeline or a smaller target.
+No interest is assumed. `safeToSave` is a different thing: a one-off amount that can
+be moved today, which the coach is told never to present as a monthly amount.
+
+Not built: tracking progress against the plan over time (actual transfers since the
+plan was agreed), reminders, and anything about loans. On a mortgage the coach
+explains which factors matter and says the bank assesses that separately.
 
 ## Basket rules
 
@@ -546,7 +580,7 @@ the engine's figure in the reply.
 The engine endpoints run the finance engine from `packages/shared/src/engine` for
 any of the 5,100 customers: `spendBy`, `monthlyTrend`, `baskets`, `safeToSpend`,
 `safeToSave`, `balanceForecast`, `whatIf`, `peerCompare`, `nationalCompare`,
-`dailySpend`, `recurring` and `goalProgress`. The app runs the same engine on its 15 fixture customers; for
+`dailySpend`, `recurring`, `goalProgress`, `goalPlan` and `savingsOptions`. The app runs the same engine on its 15 fixture customers; for
 those customers the backend gives identical results for every function.
 
 Arguments are checked: an unknown argument, a value outside its range or an unknown

@@ -108,6 +108,26 @@ export const COMPONENTS = {
     args: ["target", "label"],
     build: (a) => catalog.goal(n(a.target), s(a.label)),
   },
+  goal_plan: {
+    description:
+      "A savings plan towards a target the USER gave: what is left, and the months and date at a monthly amount, next to saving more a month (extra) or meeting a deadline (byMonths), " +
+      "with a slider for the extra amount. Use it once the user has given the target; goal_progress is for progress counted from the account's own transfers.",
+    examples: ["I want to save 25 000 € for a home and I have 10 000 €", "What if I saved 100 € more a month towards it?", "Can I get there in two years?"],
+    fn: "goalPlan",
+    args: ["target", "saved", "monthly", "extra", "byMonths", "label"],
+    build: (a) => {
+      if (n(a.target) === undefined) throw new EngineArgumentError("goal_plan needs target: the amount the user wants to reach. Ask them for it first.");
+      return custom.goalPlan({ target: n(a.target), saved: n(a.saved), monthly: n(a.monthly), extra: n(a.extra), byMonths: n(a.byMonths), label: s(a.label) });
+    },
+  },
+  saving_options: {
+    description:
+      "Where everyday spending could be cut, per category, and what a cut would free each month, with a slider for the size of the cut. Essentials are never included; protect lists what the user wants to keep.",
+    examples: ["Where could I save?", "I want to keep travelling: what else could I cut?"],
+    fn: "savingsOptions",
+    args: ["protect", "cutPct"],
+    build: (a) => custom.savingOptions(Array.isArray(a.protect) ? (a.protect as string[]) : [], n(a.cutPct)),
+  },
   spending_donut: {
     description: "Donut chart of spending by category: top five plus Other. With a category, the donut splits that category by merchant type.",
     examples: ["Show my spending as a donut chart", "What share does each category take?"],
