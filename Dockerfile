@@ -37,6 +37,7 @@ COPY --from=build /repo/packages/shared packages/shared
 COPY --from=build /repo/packages/backend packages/backend
 COPY --from=build /repo/packages/voice packages/voice
 COPY --from=build /repo/packages/app/dist packages/app/dist
+RUN mkdir -p /profiles && chown node:node /profiles
 EXPOSE 8787
 USER node
 CMD ["npm", "run", "start", "-w", "@mydata/backend"]
