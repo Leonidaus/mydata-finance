@@ -36,7 +36,7 @@ describe("speak", () => {
 
   it("omits languageCode for eleven_multilingual_v2", async () => {
     await speak("hello");
-    expect(ttsConvert.mock.calls[0][0]).toBe("JBFqnCBsd6RMkjVDRZzb");
+    expect(ttsConvert.mock.calls[0][0]).toBe("hxakRxllsjiR8LZPUfMd");
     const request = ttsConvert.mock.calls[0][1];
     expect(request.modelId).toBe("eleven_multilingual_v2");
     expect(request.outputFormat).toBe("mp3_44100_128");

@@ -10,7 +10,7 @@ export interface VoiceConfig {
 export function getVoiceConfig(env: NodeJS.ProcessEnv = process.env): VoiceConfig {
   return {
     apiKey: env.ELEVENLABS_API_KEY || undefined,
-    voiceId: env.ELEVENLABS_VOICE_ID ?? "JBFqnCBsd6RMkjVDRZzb",
+    voiceId: env.ELEVENLABS_VOICE_ID ?? "hxakRxllsjiR8LZPUfMd",
     ttsModelId: env.ELEVENLABS_TTS_MODEL_ID ?? "eleven_multilingual_v2",
     sttModelId: env.ELEVENLABS_STT_MODEL_ID ?? "scribe_v3",
     ttsLanguageCode: env.ELEVENLABS_TTS_LANGUAGE_CODE || undefined,

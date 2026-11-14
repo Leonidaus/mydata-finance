@@ -5,7 +5,7 @@ describe("getVoiceConfig", () => {
   it("defaults models and voice, leaves languages unset for auto-detect", () => {
     const config = getVoiceConfig({});
     expect(config.apiKey).toBeUndefined();
-    expect(config.voiceId).toBe("JBFqnCBsd6RMkjVDRZzb");
+    expect(config.voiceId).toBe("hxakRxllsjiR8LZPUfMd");
     expect(config.ttsModelId).toBe("eleven_multilingual_v2");
     expect(config.sttModelId).toBe("scribe_v3");
     expect(config.ttsLanguageCode).toBeUndefined();
