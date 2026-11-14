@@ -64,6 +64,13 @@ export const ENGINE_DOCS: Record<EngineFn, EngineDoc> = {
     description: "The customer's monthly average per category next to the average of customers in the same age band.",
     rows: "category, who (You | Peers <band>), amount (€/month)",
   },
+  nationalCompare: {
+    description:
+      "The customer's monthly average next to what people in Finland in the same age group spend, from Statistics Finland's open data " +
+      "(2022 consumption survey raised to today's prices). Covers Housing, Utilities, Groceries, Restaurants and Transportation. " +
+      "basis one_adult (default) compares with one adult; household with a whole household.",
+    rows: "category, who (You | Finland <age group>), amount (€/month); You rows also have difference (€/month, you minus Finland)",
+  },
   recurring: {
     description: "Bills and saving transfers that repeat every month.",
     rows: "label, category, amount (€/month), payments (per month), day (of month), months (seen), lastDate, type (Bill | Saving)",
@@ -84,7 +91,7 @@ export const TEMPLATE_FNS: Record<TemplateId, readonly EngineFn[]> = {
   baskets: ["baskets"],
   balance_forecast: ["balanceForecast"],
   what_if: ["whatIf"],
-  peer_compare: ["peerCompare"],
+  peer_compare: ["peerCompare", "nationalCompare"],
   calendar_heatmap: ["dailySpend"],
   recurring_list: ["recurring"],
   goal_progress: ["goalProgress"],
@@ -95,7 +102,7 @@ function describeArg(spec: (typeof ENGINE_ARG_SPECS)[EngineFn][string]): string 
     case "enum":
       return `one of ${spec.values.join(" | ")}`;
     case "category":
-      return `a spending category`;
+      return spec.only ? `one of ${spec.only.join(" | ")}` : `a spending category`;
     case "mcc":
       return `a merchant type code from MERCHANT TYPES; do not combine with category`;
     case "number":

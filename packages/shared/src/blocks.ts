@@ -34,7 +34,7 @@ export type BlockView =
   | { kind: "code"; code: string };
 
 /** Where a block's figures come from, shown as a badge. */
-export type BlockSource = "own" | "peer" | "estimate";
+export type BlockSource = "own" | "peer" | "public" | "estimate";
 
 /** A control on a card. Each one edits one argument of the block's DataRequest. */
 export type Control =
