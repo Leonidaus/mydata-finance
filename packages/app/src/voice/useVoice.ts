@@ -2,12 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../latest";
 import type { VoiceClient } from "./client";
 
-const VOICE_LEVEL = 0.025;
-const VOICE_ONSET_MS = 120;
-const SILENCE_MS = 800;
-const MIN_UTTERANCE_MS = 350;
-const MAX_UTTERANCE_MS = 15_000;
-
 interface PlayingAudio {
   element: HTMLAudioElement;
   url: string;
@@ -28,9 +22,9 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
   const speechVersion = useRef(0);
   const recorder = useRef<MediaRecorder | null>(null);
   const stream = useRef<MediaStream | null>(null);
-  const audioContext = useRef<AudioContext | null>(null);
-  const monitorFrame = useRef(0);
   const captureVersion = useRef(0);
+  /** The recording the user explicitly stopped and wants sent for transcription. */
+  const transcribeOnStop = useRef<number | null>(null);
   const startCapture = useRef<() => void>(() => {});
   question.current = onQuestion;
 
@@ -46,11 +40,8 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
   }, [client]);
 
   const releaseMedia = useCallback(() => {
-    cancelAnimationFrame(monitorFrame.current);
     stream.current?.getTracks().forEach((track) => track.stop());
     stream.current = null;
-    if (audioContext.current) void audioContext.current.close().catch(() => undefined);
-    audioContext.current = null;
   }, []);
 
   const clearAudio = useCallback(() => {
@@ -69,6 +60,7 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
 
   const stopCapture = useCallback(() => {
     captureVersion.current++;
+    transcribeOnStop.current = null;
     if (recorder.current?.state === "recording") recorder.current.stop();
     recorder.current = null;
     releaseMedia();
@@ -101,13 +93,22 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
       enabledRef.current = false;
       setEnabled(false);
       stopSpeaking();
-      stopCapture();
       setError(null);
+      if (recorder.current?.state === "recording") {
+        transcribeOnStop.current = captureVersion.current;
+        paused.current = true;
+        setRecording(false);
+        setProcessing(true);
+        recorder.current.stop();
+      } else {
+        stopCapture();
+      }
     } else {
       enabledRef.current = true;
       paused.current = false;
       setEnabled(true);
       setError(null);
+      setProcessing(false);
       startCapture.current();
     }
   }, [stopSpeaking, stopCapture]);
@@ -158,8 +159,8 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
 
   const beginCapture = useCallback(async () => {
     if (!enabledRef.current || paused.current || starting.current || stream.current) return;
-    if (typeof MediaRecorder === "undefined" || typeof AudioContext === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      setError("Continuous voice conversation is not supported in this browser.");
+    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setError("Voice recording is not supported in this browser.");
       return;
     }
 
@@ -175,120 +176,55 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
         return;
       }
       stream.current = media;
-      const context = new AudioContext();
-      audioContext.current = context;
-      await context.resume();
-      if (!enabledRef.current || paused.current || version !== captureVersion.current) return;
-
-      const source = context.createMediaStreamSource(media);
-      const analyser = context.createAnalyser();
-      analyser.fftSize = 2048;
-      source.connect(analyser);
-      const samples = new Uint8Array(analyser.fftSize);
-      let candidateSince: number | null = null;
-      let active: MediaRecorder | null = null;
-      let startedAt = 0;
-      let lastVoiceAt = 0;
-
-      const live = () => enabledRef.current && !paused.current && version === captureVersion.current;
-      const finish = () => {
-        if (!active || active.state !== "recording") return;
+      const current = new MediaRecorder(media);
+      recorder.current = current;
+      const chunks: Blob[] = [];
+      let failed = false;
+      current.ondataavailable = (event) => {
+        if (event.data.size) chunks.push(event.data);
+      };
+      current.onerror = () => {
+        failed = true;
+        if (version === captureVersion.current) setError("The recording failed. Please try again.");
+      };
+      current.onstop = () => {
+        const shouldTranscribe = transcribeOnStop.current === version;
+        if (shouldTranscribe) transcribeOnStop.current = null;
         paused.current = true;
         setRecording(false);
-        setProcessing(true);
-        cancelAnimationFrame(monitorFrame.current);
-        active.stop();
-      };
-      const begin = (now: number) => {
-        try {
-          const current = new MediaRecorder(media as MediaStream);
-          active = current;
-          recorder.current = current;
-          const chunks: Blob[] = [];
-          let failed = false;
-          current.ondataavailable = (event) => {
-            if (event.data.size) chunks.push(event.data);
-          };
-          current.onerror = () => {
-            failed = true;
-            if (enabledRef.current && version === captureVersion.current) setError("The recording failed. Please try again.");
-          };
-          current.onstop = () => {
-            active = null;
-            paused.current = true;
-            setRecording(false);
-            if (recorder.current === current) recorder.current = null;
-            releaseMedia();
-            if (!enabledRef.current || version !== captureVersion.current) return;
-            if (failed) {
-              setProcessing(false);
-              resume();
-              return;
-            }
-            const audio = new Blob(chunks, { type: current.mimeType || chunks[0]?.type });
-            if (!audio.size) {
-              setProcessing(false);
-              setError("No audio was recorded. Please try again.");
-              resume();
-              return;
-            }
-            client.transcribe(audio).then(
-              (text) => {
-                if (!enabledRef.current || version !== captureVersion.current) return;
-                setProcessing(false);
-                if (!text) {
-                  setError("I didn't catch that. Please try again.");
-                  resume();
-                  return;
-                }
-                setError(null);
-                question.current(text);
-              },
-              (cause: unknown) => {
-                if (!enabledRef.current || version !== captureVersion.current) return;
-                setError(errorMessage(cause));
-                resume();
-              },
-            );
-          };
-          current.start();
-          startedAt = now;
-          lastVoiceAt = now;
-          setRecording(true);
-        } catch (cause: unknown) {
-          active = null;
-          recorder.current = null;
-          paused.current = true;
-          releaseMedia();
-          setRecording(false);
+        if (recorder.current === current) recorder.current = null;
+        releaseMedia();
+        if (!shouldTranscribe || version !== captureVersion.current) return;
+        if (failed) {
           setProcessing(false);
-          if (enabledRef.current && version === captureVersion.current) setError(errorMessage(cause));
+          return;
         }
+        const audio = new Blob(chunks, { type: current.mimeType || chunks[0]?.type });
+        if (!audio.size) {
+          setProcessing(false);
+          setError("No audio was recorded. Please try again.");
+          return;
+        }
+        client.transcribe(audio).then(
+          (text) => {
+            if (version !== captureVersion.current) return;
+            setProcessing(false);
+            if (!text) {
+              setError("I didn't catch that. Please try again.");
+              return;
+            }
+            setError(null);
+            question.current(text);
+          },
+          (cause: unknown) => {
+            if (version !== captureVersion.current) return;
+            setProcessing(false);
+            setError(errorMessage(cause));
+          },
+        );
       };
-
-      const monitor = () => {
-        if (!live()) return;
-        analyser.getByteTimeDomainData(samples);
-        let sum = 0;
-        for (const sample of samples) {
-          const centered = (sample - 128) / 128;
-          sum += centered * centered;
-        }
-        const level = Math.sqrt(sum / samples.length);
-        const now = performance.now();
-        if (active) {
-          if (level >= VOICE_LEVEL) lastVoiceAt = now;
-          const utteranceLongEnough = now - startedAt >= MIN_UTTERANCE_MS;
-          if ((utteranceLongEnough && now - lastVoiceAt >= SILENCE_MS) || now - startedAt >= MAX_UTTERANCE_MS) finish();
-        } else if (level >= VOICE_LEVEL) {
-          candidateSince ??= now;
-          if (now - candidateSince >= VOICE_ONSET_MS) begin(now);
-        } else {
-          candidateSince = null;
-        }
-        monitorFrame.current = requestAnimationFrame(monitor);
-      };
-      monitor();
+      current.start();
+      setRecording(true);
     } catch (cause: unknown) {
       media?.getTracks().forEach((track) => track.stop());
       if (version === captureVersion.current) {
@@ -301,7 +237,7 @@ export function useVoice(client: VoiceClient, onQuestion: (text: string) => void
       starting.current = false;
       if (version !== captureVersion.current && enabledRef.current && !paused.current && !stream.current) startCapture.current();
     }
-  }, [client, releaseMedia, resume]);
+  }, [client, releaseMedia]);
 
   useEffect(() => {
     startCapture.current = () => void beginCapture();
