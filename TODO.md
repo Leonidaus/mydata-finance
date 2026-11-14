@@ -35,8 +35,8 @@ Five criteria, 20% each. What we have for each, and where the gap is:
    forecast only.
 4. [ ] Re-run the chat evaluation (`npm run eval:chat -w @mydata/backend`). The last
    run was before three fixes (two test cases, unfillable placeholders).
-5. [ ] Replace the personal free-tier Gemini key with the Junction key
-   (`gh secret set GEMINI_API_KEY`, re-run Deploy), then rotate the personal key.
+5. [x] The Junction Gemini key is in production. [ ] Delete the personal key that
+   was used before it.
 6. [ ] Test on a real phone: chat, voice on, the animated widgets (WebGL), the
    transaction drawer. The app is light on every device now; the dark palette is
    only shown with `?theme=dark`.
@@ -67,26 +67,28 @@ Counts towards: originality of AI integration, financial literacy.
   parses, no network)
 - [x] Replies follow the language of the question (Finnish or English)
 - [x] Chat evaluation with the real model against the engine, 11 questions
+- [x] Models chosen from measurements, and two of them sharing the work: a fast one
+  for most turns, a stronger one for goals, plans, advice and second tries
+- [x] Years in a reply are checked like any other number
 
 ### Coaching profile
-One coach with configurable behaviour, stored per customer and sent with each chat
-request. The figures and the feasibility finding stay the same in every style; only
+One coach with configurable behaviour, stored per customer on the server. The figures and the feasibility finding stay the same in every style; only
 wording, initiative and the suggested next steps change.
 
-- [ ] Three styles: encouraging, direct, exploratory. "Strict" means holding the user
+- [x] Three styles: encouraging, direct, exploratory. "Strict" means holding the user
   to a plan they chose, never shaming
-- [ ] Protected categories in the profile, merged into `savingsOptions` by the server.
+- [x] Protected categories in the profile, merged into `savingsOptions` by the server.
   Today a category is only left out when the model remembers to pass `protect`
-- [ ] A style picker in the app: two taps, skippable, editable later. Goal amounts
+- [x] A style picker in the app: two taps, skippable, editable later. Goal amounts
   and dates are asked when the user starts a goal, not in onboarding
-- [ ] Profile fields are fixed choices and category names only, never free text: the
+- [x] Profile fields are fixed choices and category names only, never free text: the
   profile goes into the system prompt
-- [ ] Evaluation case: one question in all three styles, figures must be identical
+- [x] Evaluation case: one question in all three styles, figures must be identical
 - [ ] Later: how big a change feels realistic (small, balanced, ambitious), only if
   it sets something concrete such as the default cut in `savingsOptions`
 - [ ] Later: change preferences in the chat ("be more direct", "leave my travel
   budget alone"), with a short acknowledgement
-- [ ] Keep mood separate from style, and avoid a face that looks disappointed in
+- [x] Keep mood separate from style, and avoid a face that looks disappointed in
   the user
 
 ### Trust in the answers
@@ -96,7 +98,10 @@ wording, initiative and the suggested next steps change.
 - [ ] Verify what the prompt promises: a custom view that fails on screen is swapped
   for the standard card. That swap was not found in the renderer
 - [ ] Add a multi-turn goal conversation to the evaluation
-- [ ] Pace the evaluation for the free-tier quota, or run it with the Junction key
+- [ ] The fast model decides by itself whether to hand over advice questions; it
+  kept "what kind of spender am I?" for itself. Decide whether that one should always
+  go to the stronger model
+- [ ] The browser-only dev mode (no backend) still uses the fast model alone
 - [ ] Check that the coach explains a concept in plain language when asked
   ("what is a buffer?"); the brief names this explicitly
 
@@ -124,7 +129,10 @@ Counts towards: financial literacy, feasibility.
 - [x] Backtest on all customers (`npm run backtest -w @mydata/backend`): median
   error 381 €, payday within two days in 80% of cases
 - [ ] A library card for safe to save (the coach can only state the figure today)
-- [ ] Decide whether safe to spend should always keep a fixed cushion
+- [x] Safe to spend counts this pay period's money only; what was on the account
+  before the last salary is a reserve that is shown but not counted
+- [ ] Let the user say how much of the account is savings, instead of inferring it
+  from the balance before the last salary
 
 ## What-if and savings goals
 

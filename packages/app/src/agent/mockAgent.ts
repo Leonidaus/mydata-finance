@@ -24,6 +24,7 @@ export interface AgentReply {
   /** The coach's face for this answer and the next steps it offers; only the model sets these. */
   mood?: Mood | null;
   suggestions?: string[];
+  blocked?: string[];
 }
 
 /** Runs an engine function for the customer being answered, through the app's data source. */

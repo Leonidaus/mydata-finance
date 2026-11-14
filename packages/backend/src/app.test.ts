@@ -592,7 +592,10 @@ describe("number check for explanations", () => {
     const sources = [227.57, 5543.54, -826.28, 1913.06, 62];
     assert.deepEqual(unbackedNumbers("You can spend €227.57, about €228, of €5,543.54.", sources), []);
     assert.deepEqual(unbackedNumbers("Voit käyttää 227,57 € viikossa; laskuja on 826,28 € ja 1 913,06 € jää.", sources), []);
-    assert.deepEqual(unbackedNumbers("That is 62% of it, over 12 months, until 15 October 2026.", sources), []);
+    assert.deepEqual(unbackedNumbers("That is 62% of it, over 12 months, until 15 October.", sources), []);
+    // A year is a figure too: one that is not in the figures is not let through.
+    assert.deepEqual(unbackedNumbers("You will get there in December 2027.", [...sources, 2028]), ["2027"]);
+    assert.deepEqual(unbackedNumbers("You will get there around 4/2028, in April 2028.", [...sources, 2028]), []);
     assert.deepEqual(unbackedNumbers("You can spend €250.00 this week.", sources), ["250.00"]);
     assert.deepEqual(unbackedNumbers("That leaves €5,315.97 (5,543.54 minus 227.57).", sources), ["5,315.97"]);
     assert.deepEqual(unbackedNumbers("Voit käyttää 1 500 €.", sources), ["1 500"]);

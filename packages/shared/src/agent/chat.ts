@@ -10,6 +10,11 @@
  * 3. Check the reply: every number in it must be one the coach was shown. If not, or if the
  *    reply is missing, it is asked for the reply alone, now with the figures of the cards it
  *    built. A reply that still fails is replaced by a standard sentence.
+ *
+ * With two models (ChatModels), a fast one answers most turns in a couple of seconds and may
+ * hand a turn over to a stronger, slower one: goals and plans, open coaching questions, custom
+ * views. The second tries in steps 2 and 3 also go to the stronger model, since the fast one
+ * has by then got it wrong once.
  */
 import { applyOps, type Block, type DashboardOp } from "../blocks";
 import { ENGINE_FNS, type EngineFn, type EngineResult } from "../engine/types";
@@ -17,8 +22,19 @@ import { describeResult, numbersIn, questionLanguage, requestLabel, resultNumber
 import { placeholders } from "./placeholders";
 import { buildSystemPrompt } from "./prompt";
 import { buildSnapshot, type Figures, type Lookup, runLookup } from "./snapshot";
-import { LOOKUP_DECLARATION, LOOKUP_TOOL, type Mood, REPLY_TOOL, TOOL_DECLARATIONS, type ToolCall, type ToolDeclaration } from "./tools";
+import {
+  HAND_OVER_DECLARATION,
+  HAND_OVER_TOOL,
+  LOOKUP_DECLARATION,
+  LOOKUP_TOOL,
+  type Mood,
+  REPLY_TOOL,
+  TOOL_DECLARATIONS,
+  type ToolCall,
+  type ToolDeclaration,
+} from "./tools";
 import { type CardPick, parseToolCalls } from "./validate";
+import type { CoachingProfile, ProtectedCategory } from "../profile";
 
 /** A turn in the conversation. `raw` is the provider's own message, replayed as-is on a retry. */
 export interface ChatTurn {
@@ -44,6 +60,12 @@ export interface ChatModel {
   generate(request: ChatModelRequest, signal?: AbortSignal): Promise<ChatModelResponse>;
 }
 
+/** A fast model for most turns and, optionally, a stronger one for the turns that gain from it. */
+export interface ChatModels {
+  fast: ChatModel;
+  strong?: ChatModel;
+}
+
 export interface ChatInput {
   question: string;
   /** Earlier turns, as the user saw them or with placeholders still in the assistant's text. */
@@ -56,6 +78,8 @@ export interface ChatInput {
    * to a card's headline figure with a placeholder.
    */
   lookup?: Lookup;
+  profile?: CoachingProfile;
+  allowProtected?: readonly ProtectedCategory[];
 }
 
 export interface ChatOutput {
@@ -75,6 +99,8 @@ export interface ChatOutput {
    * False when a standard sentence stands in for a reply that was missing or failed the check.
    */
   checked: boolean;
+  /** Which model wrote the answer: "strong" when the fast one handed the turn over. */
+  answeredBy: "fast" | "strong";
 }
 
 /** The reply used when the model built a card but said nothing, and the card's figures are not known here. */
@@ -89,7 +115,47 @@ const MAX_LOOKUPS_PER_ROUND = 4;
 const MAX_CARD_FIGURES = 3;
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-const answerCalls = (res: ChatModelResponse) => res.calls.filter((c) => c.name !== LOOKUP_TOOL);
+const answerCalls = (res: ChatModelResponse) => res.calls.filter((c) => c.name !== LOOKUP_TOOL && c.name !== HAND_OVER_TOOL);
+
+/** The engine functions and library cards for planning towards a goal. A turn that uses them is one for the stronger model. */
+const PLANNING_FNS: readonly string[] = ["goalPlan", "savingsOptions"];
+const PLANNING_COMPONENTS: readonly string[] = ["goal_plan", "saving_options"];
+
+/**
+ * Whether the fast model's answer is a planning turn it should have handed over: it asked to
+ * hand over, or it reached for a planning function, a planning card, or a plan on the dashboard.
+ */
+function isForStrongModel(calls: ToolCall[], blocks: Block[]): boolean {
+  return calls.some((call) => {
+    if (call.name === HAND_OVER_TOOL) return true;
+    const { fn, component, id } = call.args;
+    if (typeof fn === "string" && PLANNING_FNS.includes(fn)) return true;
+    if (typeof component === "string" && PLANNING_COMPONENTS.includes(component)) return true;
+    if (call.name !== "update_block" || typeof id !== "string") return false;
+    const block = blocks.find((b) => b.id === id);
+    return block?.data.kind === "engine" && PLANNING_FNS.includes(block.data.fn);
+  });
+}
+
+/** One turn of this answer, with the model that wrote it (none for the user's turns). */
+interface Said {
+  turn: ChatTurn;
+  by?: ChatModel;
+}
+
+/** What a model answered, as a turn: its own message for replaying to itself, and the same as text. */
+const modelTurn = (res: ChatModelResponse, by: ChatModel): Said => ({
+  turn: { role: "model", raw: res.raw, text: res.text?.trim() || `Tool calls: ${JSON.stringify(res.calls).slice(0, 4000)}` },
+  by,
+});
+const userTurn = (text: string): Said => ({ turn: { role: "user", text } });
+
+/**
+ * The conversation as `model` should see it. A provider's own message is only replayed to the
+ * model that wrote it; another model gets the same turn as text.
+ */
+const turnsFor = (said: Said[], model: ChatModel): ChatTurn[] =>
+  said.map(({ turn, by }) => (by && by !== model ? { role: turn.role, text: turn.text } : turn));
 
 /** Runs the lookups of one model turn. A call that makes no sense comes back as a message for the model. */
 async function lookUp(lookup: Lookup, calls: ToolCall[]): Promise<Figures> {
@@ -183,51 +249,78 @@ async function repair(call: () => Promise<ChatModelResponse>, signal?: AbortSign
   }
 }
 
-export async function runChat(model: ChatModel, input: ChatInput, signal?: AbortSignal): Promise<ChatOutput> {
+export async function runChat(models: ChatModel | ChatModels, input: ChatInput, signal?: AbortSignal): Promise<ChatOutput> {
+  const { fast, strong } = "generate" in models ? { fast: models, strong: undefined } : models;
   const question = input.question.trim().slice(0, MAX_QUESTION_CHARS);
   const history = input.history.slice(-MAX_HISTORY_TURNS);
-  const turns: ChatTurn[] = [
-    ...history.map((t): ChatTurn => ({ role: t.role === "assistant" ? "model" : "user", text: t.text })),
-    { role: "user", text: question },
+  const said: Said[] = [
+    ...history.map((t): Said => ({ turn: { role: t.role === "assistant" ? "model" : "user", text: t.text } })),
+    userTurn(question),
   ];
   const { lookup } = input;
   const snapshot = lookup ? await buildSnapshot(lookup) : null;
-  const system = buildSystemPrompt(input.blocks, input.today, { snapshot: snapshot?.text });
+  const system = buildSystemPrompt(input.blocks, input.today, {
+    snapshot: snapshot?.text,
+    profile: input.profile,
+    allowProtected: input.allowProtected,
+  });
   // Every number the reply may quote: what the coach was shown, and what was said in the conversation.
-  const backed = [...(snapshot?.numbers ?? []), ...numbersIn(question), ...history.flatMap((t) => numbersIn(t.text))];
+  const backed = [...(snapshot?.numbers ?? []), ...numbersIn(question), ...history.flatMap((t) => numbersIn(t.text)), ...numbersIn(input.today)];
 
-  // 1. The answer, after at most MAX_LOOKUP_ROUNDS rounds of looking figures up.
+  // 1. The answer, after at most MAX_LOOKUP_ROUNDS rounds of looking figures up. The fast model
+  // starts, and may hand the turn over to the stronger one once.
+  let active = fast;
+  let handedOver = false;
+  let strongFailed = false;
   let res: ChatModelResponse;
-  for (let round = 0; ; round++) {
-    const mayLookUp = lookup !== undefined && round < MAX_LOOKUP_ROUNDS;
-    res = await model.generate({ system, turns, tools: mayLookUp ? [LOOKUP_DECLARATION, ...TOOL_DECLARATIONS] : TOOL_DECLARATIONS }, signal);
+  for (let rounds = 0; ; ) {
+    const mayLookUp = lookup !== undefined && rounds < MAX_LOOKUP_ROUNDS;
+    const mayHandOver = strong !== undefined && !handedOver;
+    const tools = [...(mayHandOver ? [HAND_OVER_DECLARATION] : []), ...(mayLookUp ? [LOOKUP_DECLARATION] : []), ...TOOL_DECLARATIONS];
+    try {
+      res = await active.generate({ system, turns: turnsFor(said, active), tools }, signal);
+    } catch (e) {
+      // The stronger model failing must not cost the answer: the fast one answers after all.
+      if (active === fast || signal?.aborted) throw e;
+      active = fast;
+      strongFailed = true;
+      continue;
+    }
+    // The fast model's answer is dropped: the stronger one starts from the same conversation.
+    if (mayHandOver && strong && isForStrongModel(res.calls, input.blocks)) {
+      active = strong;
+      handedOver = true;
+      continue;
+    }
     const lookups = res.calls.filter((c) => c.name === LOOKUP_TOOL);
     if (!mayLookUp || lookups.length === 0) break;
     const found = await lookUp(lookup, lookups);
     backed.push(...found.numbers);
-    const last = round + 1 === MAX_LOOKUP_ROUNDS;
-    turns.push(
-      { role: "model", raw: res.raw, text: res.text },
-      { role: "user", text: `LOOKED UP\n${found.text}\n\n${last ? "Now answer the user." : "Now answer the user, or look up what is still missing."}` },
+    rounds++;
+    said.push(
+      modelTurn(res, active),
+      userTurn(`LOOKED UP\n${found.text}\n\n${rounds === MAX_LOOKUP_ROUNDS ? "Now answer the user." : "Now answer the user, or look up what is still missing."}`),
     );
   }
+  const answeredBy = active === fast ? "fast" : "strong";
   let parsed = parseToolCalls(answerCalls(res), input.blocks);
+  // Second tries go to the stronger model when there is one that works.
+  const fixer = strong && !strongFailed ? strong : active;
+  let resBy = active;
 
   // 2. Something was rejected, or there is neither a card nor a reply: ask for the whole answer again.
   if (parsed.errors.length || (parsed.text === null && parsed.ops.length === 0)) {
     const problems = [...parsed.errors, ...(parsed.text === null ? ["reply: missing. Every answer needs a reply."] : [])];
-    turns.push(
-      { role: "model", raw: res.raw, text: res.text },
-      {
-        role: "user",
-        text: `Some tool calls were rejected:\n- ${problems.join("\n- ")}\nSend the whole answer again with corrected tool calls (all cards and the reply).`,
-      },
+    said.push(
+      modelTurn(res, resBy),
+      userTurn(`Some tool calls were rejected:\n- ${problems.join("\n- ")}\nSend the whole answer again with corrected tool calls (all cards and the reply).`),
     );
-    const retry = await repair(() => model.generate({ system, turns, tools: TOOL_DECLARATIONS }, signal), signal);
+    const retry = await repair(() => fixer.generate({ system, turns: turnsFor(said, fixer), tools: TOOL_DECLARATIONS }, signal), signal);
     const reparsed = retry && parseToolCalls(answerCalls(retry), input.blocks);
     // Keep the retry only if it is at least as useful as the first try.
     if (retry && reparsed && (reparsed.ops.length >= parsed.ops.length || reparsed.text !== null)) {
       res = retry;
+      resBy = fixer;
       parsed = {
         ...reparsed,
         text: reparsed.text ?? parsed.text,
@@ -259,21 +352,22 @@ export async function runChat(model: ChatModel, input: ChatInput, signal?: Abort
             .join(" ");
     const replyRequest: ChatModelRequest = {
       system,
-      turns: [
-        ...turns,
-        { role: "model", raw: res.raw, text: res.text },
-        {
-          role: "user",
-          text:
+      turns: turnsFor(
+        [
+          ...said,
+          modelTurn(res, resBy),
+          userTurn(
             `${problem} ${parsed.ops.length ? "The cards are in place. " : ""}Call reply once: answer the user's question in their language.` +
-            (figures ? `\n\nCARD FIGURES\n${figures}\n\n` : " ") +
-            "Use only numbers from SNAPSHOT, LOOKED UP and CARD FIGURES, as given or rounded to whole euros. Do not calculate; " +
-            "say it in words when the figure you want is not there.",
-        },
-      ],
+              (figures ? `\n\nCARD FIGURES\n${figures}\n\n` : " ") +
+              "Use only numbers from SNAPSHOT, LOOKED UP and CARD FIGURES, as given or rounded to whole euros. Do not calculate; " +
+              "say it in words when the figure you want is not there.",
+          ),
+        ],
+        fixer,
+      ),
       tools: TOOL_DECLARATIONS.filter((t) => t.name === REPLY_TOOL),
     };
-    const followUp = await repair(() => model.generate(replyRequest, signal), signal);
+    const followUp = await repair(() => fixer.generate(replyRequest, signal), signal);
     const reply = followUp && parseToolCalls(followUp.calls.filter((c) => c.name === REPLY_TOOL), []);
     if (reply && reply.text !== null) {
       faults = await faultsIn(reply.text);
@@ -304,5 +398,6 @@ export async function runChat(model: ChatModel, input: ChatInput, signal?: Abort
     mood: checked ? parsed.mood : null,
     suggestions: parsed.suggestions,
     checked,
+    answeredBy,
   };
 }
