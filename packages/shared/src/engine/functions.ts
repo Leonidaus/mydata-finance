@@ -276,7 +276,14 @@ interface Plan {
   latePayday: string;
   /** Essentials and buffer for the days between `payday` and `latePayday`, kept back in case the salary is late. */
   lateMargin: number;
-  /** What the account could bear in everyday spending until payday: the balance less everything above. */
+  /**
+   * What is expected to be on the account at payday before any everyday spending: the balance less
+   * bills, essentials and planned saving. Expected activity only, no precautions.
+   */
+  expectedLeft: number;
+  /** `expectedLeft` less the reserve: what is left of this pay period's money after expected costs. */
+  periodLeft: number;
+  /** What the account could bear in everyday spending until payday: `expectedLeft` less the buffer and the late-salary margin. */
   available: number;
   /**
    * What was on the account just before the latest salary came in: money left from earlier pay
@@ -347,6 +354,7 @@ function plan(ctx: EngineContext, statedReserve?: number): Plan {
   const reserve = statedReserve === undefined ? reserveBeforeLastSalary(ctx) : Math.min(statedReserve, Math.max(0, balance));
   const bufferCharged = Math.max(0, buffer - reserve);
   const lateMarginCharged = Math.max(0, lateMargin - Math.max(0, reserve - buffer));
+  const expectedLeft = balance - billsDue - essentialsDue - savingDue;
   return {
     balance,
     payday,
@@ -361,6 +369,8 @@ function plan(ctx: EngineContext, statedReserve?: number): Plan {
     expectedIrregular: irregularPerDay * daysLeft,
     latePayday,
     lateMargin,
+    expectedLeft,
+    periodLeft: expectedLeft - reserve,
     available,
     reserve,
     bufferCharged,
@@ -393,9 +403,12 @@ function planAssumptions(ctx: EngineContext, p: Plan): string[] {
   ];
 }
 
-/** The label of a precaution, saying so when the reserve pays for all or part of it. */
-const covered = (full: number, charged: number, label: string) =>
-  full > 0 && charged === 0 ? `${label}: covered by your reserve` : charged < full ? `${label}: partly covered by your reserve` : label;
+/**
+ * A precaution as a row: money the app suggests keeping available, not a bill and not spending.
+ * `amount` is the part that comes out of this pay period's money; the rest is covered by the reserve.
+ */
+const precaution = (term: string, planned: number, charged: number): Row[] =>
+  planned > 0 ? [{ term, amount: round2(-charged), kind: "precaution", planned: round2(planned), coveredByReserve: round2(planned - charged) }] : [];
 
 function safeToSpend(ctx: EngineContext, args: Record<string, unknown>): EngineResult {
   const stated = typeof args.reserve === "number";
@@ -403,32 +416,47 @@ function safeToSpend(ctx: EngineContext, args: Record<string, unknown>): EngineR
   const horizon = args.horizon === "until_payday" ? "until_payday" : "week";
   const perDay = p.spendable / p.daysLeft;
   const value = horizon === "week" ? Math.min(p.spendable, perDay * Math.min(7, p.daysLeft)) : p.spendable;
-  const rows: Row[] = [
-    { term: "Balance today", amount: round2(p.balance) },
-    ...(p.reserve > 0 ? [{ term: stated ? "Savings you keep on this account" : "Reserve from before your last salary", amount: round2(-p.reserve) }] : []),
-    { term: "Bills due before payday", amount: round2(-p.billsDue) },
-    { term: "Groceries and other essentials until payday", amount: round2(-p.essentialsDue) },
-    { term: "Planned saving before payday", amount: round2(-p.savingDue) },
-    { term: covered(p.buffer, p.bufferCharged, "Buffer for unexpected necessities"), amount: round2(-p.bufferCharged) },
-    { term: covered(p.lateMargin, p.lateMarginCharged, "Margin in case your salary arrives late"), amount: round2(-p.lateMarginCharged) },
-    { term: `Safe to spend until payday (${displayDate(p.payday)})`, amount: round2(p.spendable) },
+  // Recorded and expected amounts first, then a subtotal, then the precautions and the suggestion.
+  // The precautions are planning allowances: a card shows them in its calculation, not among the costs.
+  const precautions = [
+    ...precaution("Money kept available for unexpected costs", p.buffer, p.bufferCharged),
+    ...precaution("Extra allowance for a later payday", p.lateMargin, p.lateMarginCharged),
   ];
+  const rows: Row[] = [
+    { term: "Balance today", amount: round2(p.balance), kind: "balance" },
+    ...(p.reserve > 0 ? [{ term: stated ? "Savings you keep on this account" : "Reserve from before your last salary", amount: round2(-p.reserve), kind: "reserve" }] : []),
+    { term: "Bills due before payday", amount: round2(-p.billsDue), kind: "expected" },
+    { term: "Groceries and other essentials until payday", amount: round2(-p.essentialsDue), kind: "expected" },
+    { term: "Planned saving before payday", amount: round2(-p.savingDue), kind: "expected" },
+    ...(precautions.length ? [{ term: "Left of this pay period's money after expected costs", amount: round2(p.periodLeft), kind: "subtotal" }, ...precautions] : []),
+    { term: `Safe to spend until payday (${displayDate(p.payday)})`, amount: round2(p.spendable), kind: "result" },
+  ];
+  const payday = displayDate(p.payday);
+  // Why the suggestion is low, when it is. A shortfall that only the precautions cause is not a cash-flow problem.
+  const caption =
+    p.expectedLeft < 0
+      ? `Expected bills and living costs until payday on ${payday} come to ${euros(-p.expectedLeft)} more than is on the account.`
+      : p.periodLeft <= 0
+        ? p.reserve > 0
+          ? `This pay period's money is used up or spoken for until payday on ${payday}. Spending more would come out of the ${euros(p.reserve)} ${stated ? "you keep as savings" : "you had before your last salary"}.`
+          : `This pay period's money is all spoken for by expected bills and living costs until payday on ${payday}.`
+        : p.spendable <= 0
+          ? `Your expected costs fit within the available money. The suggestion is to keep the remaining ${euros(p.periodLeft)} available for unexpected costs${p.lateMarginCharged > 0 ? " and a possible later payday" : ""}.`
+          : `${horizon === "week" ? "This week" : `Until payday ${payday}`} · about ${euros(perDay)} a day for everyday spending`;
   return {
     rows,
     value: round2(Math.max(0, value)),
     unit: "€",
-    caption:
-      p.available <= 0
-        ? `Nothing is safe to spend before payday on ${displayDate(p.payday)}: commitments exceed your balance.`
-        : p.spendable <= 0
-          ? `This pay period's money is used up or spoken for until payday on ${displayDate(p.payday)}. Spending more would come out of the ${euros(p.reserve)} ${stated ? "you keep as savings" : "you had before your last salary"}.`
-          : `${horizon === "week" ? "This week" : `Until payday ${displayDate(p.payday)}`} · about ${euros(perDay)} a day for everyday spending`,
+    caption,
     assumptions: [
       stated
         ? `The ${euros(p.reserve)} you said you keep on this account as savings is left out. It also stands in for the buffer and for a late salary, as far as it reaches.`
         : p.reserve > 0
         ? `Only this pay period's money counts. The ${euros(p.reserve)} that was on the account just before your last salary came in is treated as a reserve and left out: it is yours to use, but it is not this month's income. The reserve also stands in for the buffer and for a late salary, as far as it reaches, so those are not taken from this month's money. If a different amount of this account is savings, tell the coach.`
         : "Nothing was left on the account before your last salary came in, so the whole balance is this pay period's money.",
+      ...(precautions.length
+        ? ["The money kept available for unexpected costs and for a later payday is a planning allowance. It is not a bill, a payment or spending, and nothing has been charged."]
+        : []),
       ...planAssumptions(ctx, p),
     ],
     filter: { from: addDays(ctx.today, -29), to: ctx.today, kind: "all" },
@@ -454,10 +482,13 @@ function safeToSave(ctx: EngineContext): EngineResult {
       : `Over the last ${months} months you spent about ${euros(-surplus)} a month more than came in.`;
 
   const rows: Row[] = [
-    { term: `Free on the account until payday (${displayDate(p.payday)}), reserve included`, amount: round2(p.available) },
-    { term: "Everyday spending at your usual pace", amount: round2(-everydayUntilPayday) },
-    { term: "Cushion kept: one month of regular essentials", amount: round2(-cushion) },
-    { term: left > 0 ? "Safe to move to savings now" : "Short of the cushion", amount: round2(left) },
+    { term: `Expected on the account at payday (${displayDate(p.payday)}), reserve included`, amount: round2(p.expectedLeft), kind: "balance" },
+    { term: "Everyday spending at your usual pace", amount: round2(-everydayUntilPayday), kind: "expected" },
+    ...(p.buffer + p.lateMargin > 0
+      ? [{ term: "Money kept available for unexpected costs and a later payday", amount: round2(-(p.buffer + p.lateMargin)), kind: "precaution" }]
+      : []),
+    { term: "Cushion kept: one month of regular essentials", amount: round2(-cushion), kind: "precaution" },
+    { term: left > 0 ? "Safe to move to savings now" : "Short of the cushion", amount: round2(left), kind: "result" },
   ];
   return {
     rows,
@@ -1015,7 +1046,7 @@ function afford(ctx: EngineContext, args: Record<string, unknown>): EngineResult
   return {
     rows: [
       { term: `Safe to spend until payday (${payday})`, amount: round2(safe) },
-      ...(necessity ? [{ term: "Buffer for unexpected necessities", amount: round2(buffer) }] : []),
+      ...(necessity ? [{ term: "Money kept available for unexpected costs", amount: round2(buffer) }] : []),
       { term: estimated ? `${label} (estimated price)` : label, amount: round2(-amount) },
       { term: left >= 0 ? "Left until payday after this" : "Missing from this pay period's money", amount: round2(left) },
     ],

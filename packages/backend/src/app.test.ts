@@ -157,7 +157,7 @@ describe("finance engine routes", () => {
     const { status, body } = await get<EngineBody>("/api/customers/CUST00001/engine/safeToSpend");
     assert.equal(status, 200);
     // Balance after the last transaction on or before today (tx 8), not the later tx 9.
-    assert.deepEqual(body.rows[0], { term: "Balance today", amount: 3207.5 });
+    assert.deepEqual(body.rows[0], { term: "Balance today", amount: 3207.5, kind: "balance" });
     assert.equal(typeof body.value, "number");
   });
 

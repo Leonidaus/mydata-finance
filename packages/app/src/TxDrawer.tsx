@@ -13,10 +13,12 @@ interface Props {
   customerId: string;
   title: string;
   filter: TxFilter;
+  /** Explains why this evidence was opened, without making its total look like a forecast. */
+  evidenceNote?: string;
   onClose: () => void;
 }
 
-export default function TxDrawer({ customerId, title, filter, onClose }: Props) {
+export default function TxDrawer({ customerId, title, filter, evidenceNote, onClose }: Props) {
   const { locale, t, category } = useI18n();
   // Asks for as many as a data source gives at once, so that the total covers every match in practice.
   const source = useDataSource();
@@ -47,6 +49,7 @@ export default function TxDrawer({ customerId, title, filter, onClose }: Props) 
                 {count > txs.length ? t("drawer.latestTotal", { count: txs.length }) : t("drawer.total")} {formatEurCents(total, locale)}
               </p>
             )}
+            {evidenceNote && <p className="drawer-evidence muted small">{evidenceNote}</p>}
           </div>
           <button ref={closeRef} type="button" className="icon-btn" onClick={onClose} aria-label={t("drawer.close")}>
             ×

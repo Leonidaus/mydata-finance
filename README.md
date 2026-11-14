@@ -563,9 +563,20 @@ Related definitions, used the same way everywhere:
     saved up earlier is told apart from this month's income;
   - bills still due before payday, groceries and other regular essentials at the
     recent daily rate, and the usual saving transfer;
-  - a buffer for unexpected necessities (at least one typical such purchase) and a
-    margin in case the salary arrives late, but only the part the reserve does not
-    cover. Precautions are what a reserve is for.
+  - two precautions: money kept available for unexpected costs (at least one typical
+    such purchase) and an allowance in case the salary arrives late, but only the
+    part the reserve does not cover. Precautions are what a reserve is for.
+
+  The precautions are planning allowances, not bills or spending, and they are shown
+  that way. Every row of the result has a `kind` (`balance`, `reserve`, `expected`,
+  `subtotal`, `precaution`, `result`). The card lists what is recorded and expected
+  up to a subtotal, "left of this pay period's money after expected costs", says in
+  one sentence that some money is kept available, and shows the allowances and the
+  final figure under "How this suggestion was calculated". A low figure is explained
+  by its cause: expected costs are more than the account holds (a real shortfall,
+  with its size); this period's money is used and more would come from the reserve;
+  or the expected costs fit and the rest is kept for the unexpected. Only the first
+  is described as a shortfall.
 
   What is left is for everyday spending. A customer with 20,000 € saved and one with
   nothing saved get the same figure if their month looks the same. The customer can
