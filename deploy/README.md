@@ -92,10 +92,10 @@ On every deploy the workflow writes the service keys that are set to
 container reads that file. A missing key just leaves that service off; `/api/health`
 shows which are on. To change a key, update the secret and re-run the Deploy workflow.
 
-When an ElevenLabs key is configured, the deploy workflow also synthesizes one short
-Finnish sentence and checks that `/api/tts` returns non-empty MP3 audio. This uses a
-small number of ElevenLabs credits, but catches provider, model, and output failures
-that the ordinary health check cannot see.
+When an ElevenLabs key is configured, the CI workflow synthesizes one short Finnish
+sentence after trusted pushes to `develop` or `main`. This uses a small number of
+ElevenLabs credits, but catches provider, model, voice, and output failures before a
+release is prepared. Deployment itself remains limited to its health check.
 
 The workflow refreshes both `docker-compose.yml` and `Caddyfile`. Hostnames stay in
 the host's `.env`, so a new release retains the configured primary name and aliases.
