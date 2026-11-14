@@ -2,6 +2,7 @@
  * Finance engine: deterministic functions over one customer's transactions.
  * The AI chooses which function to call with which arguments; it never does the arithmetic.
  */
+import { ageBandLabel, type BenchmarkBasis, nationalBenchmark, STATFIN } from "../benchmark/statfin";
 import { lookupMcc } from "../mcc";
 import type { Transaction } from "../schema";
 import { type TREND_METRICS, validateEngineArgs } from "./args";
@@ -510,6 +511,49 @@ function peerCompare(ctx: EngineContext, args: Record<string, unknown>): EngineR
   };
 }
 
+const monthLabel = (month: string) => `${Number(month.slice(5, 7))}/${month.slice(0, 4)}`;
+
+/**
+ * The customer's monthly average per category next to what people in Finland spend, from
+ * Statistics Finland's consumption survey raised to current prices (benchmark/statfin.ts).
+ */
+function nationalCompare(ctx: EngineContext, args: Record<string, unknown>): EngineResult {
+  const basis = (args.basis as BenchmarkBasis | undefined) ?? "one_adult";
+  const [from, to] = resolvePeriod("last_12_months", ctx.today);
+  const months = monthsOfHistory(ctx);
+  const national = nationalBenchmark(ctx.customer.customer_age, basis, monthOf(from), monthOf(to));
+  const band = ageBandLabel(national.band);
+  const own = new Map<string, number>();
+  for (const t of ctx.tx) if (isSpending(t) && inRange(t, from, to)) own.set(t.category, (own.get(t.category) ?? 0) + out(t) / months);
+  const only = str(args.category);
+  const figures = national.figures.filter((f) => !only || f.category === only);
+  const rows = figures.flatMap((f): Row[] => {
+    const mine = round2(own.get(f.category) ?? 0);
+    const theirs = round2(f.amount);
+    return [
+      { category: f.category, who: "You", amount: mine, difference: round2(mine - theirs) },
+      { category: f.category, who: `Finland ${band}`, amount: theirs, in2022Prices: f.surveyAmount, covers: f.covers },
+    ];
+  });
+  const who = basis === "household" ? `the average household in Finland in the ${band} age group` : `the Finnish average for one adult in the ${band} age group`;
+  const priceWindow = `${monthLabel(national.priceWindow[0])} to ${monthLabel(national.priceWindow[1])}`;
+  return {
+    rows,
+    unit: "€/month",
+    caption: `Your monthly average next to ${who} (Statistics Finland, ${STATFIN.surveyYear} survey in today's prices)`,
+    assumptions: [
+      `Source: Statistics Finland, Households' consumption ${STATFIN.surveyYear}, by the age of the household member with the highest income. Each figure is raised from ${STATFIN.surveyYear} prices to those of ${priceWindow} with the consumer price index of its own category.`,
+      basis === "household"
+        ? "The national figure is for a whole household, whatever its size, and this is one account: it fits when this account pays for the whole household."
+        : "The national figure is per adult-equivalent member of a household (consumption unit): roughly what one adult living alone spends. If this account pays for a whole family, compare with a whole household instead.",
+      "Only prices are brought up to date; what people buy is as it was in the survey year.",
+      ...figures.map((f) => f.note).filter(Boolean),
+      "The customers in this demo are synthetic, so the comparison shows how the feature works, not how real customers spend.",
+    ],
+    filter: { from, to, kind: "spending" },
+  };
+}
+
 function recurring(ctx: EngineContext): EngineResult {
   const streams = detectStreams(ctx);
   const rows: Row[] = streams.map((s) => ({
@@ -582,6 +626,7 @@ const FNS: Record<EngineFn, (ctx: EngineContext, args: Record<string, unknown>) 
   balanceForecast,
   whatIf,
   peerCompare,
+  nationalCompare,
   dailySpend,
   recurring,
   goalProgress,

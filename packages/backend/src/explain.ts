@@ -49,6 +49,8 @@ function shares(result: EngineResult): Map<number, number> {
   const amounts = result.rows.map((row) => row.amount).filter((a): a is number => typeof a === "number" && a > 0);
   const total = amounts.reduce((a, b) => a + b, 0);
   const out = new Map<number, number>();
+  // A comparison (you next to peers or Finland) puts two parties side by side: its rows are not parts of one total.
+  if (result.rows.some((row) => "who" in row)) return out;
   if (amounts.length !== result.rows.length || amounts.length < 2 || amounts.length > MAX_ROWS || total <= 0) return out;
   result.rows.forEach((row, index) => out.set(index, round((100 * (row.amount as number)) / total, 0)));
   return out;

@@ -76,6 +76,16 @@ export const COMPONENTS = {
     args: ["category"],
     build: (a) => catalog.peers(s(a.category)),
   },
+  finland_compare: {
+    description:
+      "The customer's monthly spending next to the average for their age group in Finland (Statistics Finland, in today's prices), " +
+      "for housing, utilities, groceries, restaurants and transport. Use it for questions about the average person, Finns or Finland; " +
+      "peer_compare is for other customers of the bank.",
+    examples: ["Do I spend more on food than the average Finn?", "How does my spending compare with people my age in Finland?", "Is my rent normal?"],
+    fn: "nationalCompare",
+    args: ["category", "basis"],
+    build: (a) => catalog.national(s(a.category), a.basis === "household" ? "household" : "one_adult"),
+  },
   spending_calendar: {
     description: "Calendar heatmap of spending per day; tap a day for its payments.",
     examples: ["Show my spending per day", "Which days did I spend the most?"],
