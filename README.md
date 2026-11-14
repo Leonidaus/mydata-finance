@@ -146,11 +146,14 @@ Questions for the S-Pankki mentors:
 
 Current layout from the first skeleton. If we go with Next.js, `packages/app`
 becomes the Next.js app and `packages/backend` the finance engine and AI layer.
+`packages/voice` is the ElevenLabs voice service (TTS/STT); its handlers can be
+re-exported as Next.js route handlers (`@mydata/voice`).
 
 ```
 packages/
   app/       # App (empty for now)
-  backend/   # Voice service (ElevenLabs TTS/STT) + finance engine and AI layer
+  backend/   # Finance engine and AI layer (empty for now)
+  voice/     # Voice service: ElevenLabs TTS/STT, standalone HTTP handlers
   infra/     # Infrastructure code (empty for now)
   shared/    # Dataset schema + shared types (the single source of truth)
 data/

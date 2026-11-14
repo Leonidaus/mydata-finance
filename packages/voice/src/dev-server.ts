@@ -10,6 +10,14 @@ const routes: Record<string, (request: Request) => Promise<Response>> = {
 
 createServer(async (req, res) => {
   try {
+    res.setHeader("access-control-allow-origin", "*");
+    res.setHeader("access-control-allow-methods", "POST, OPTIONS");
+    res.setHeader("access-control-allow-headers", "content-type");
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     const handler = routes[url.pathname];
     if (!handler) {

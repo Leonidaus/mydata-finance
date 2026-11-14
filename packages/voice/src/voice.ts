@@ -3,7 +3,7 @@ import { getVoiceConfig, type VoiceConfig } from "./config.js";
 
 export class VoiceNotConfiguredError extends Error {
   constructor() {
-    super("ELEVENLABS_API_KEY is not set. Copy packages/backend/.env.example to .env and add your key.");
+    super("ELEVENLABS_API_KEY is not set. Copy packages/voice/.env.example to .env and add your key.");
     this.name = "VoiceNotConfiguredError";
   }
 }
@@ -24,12 +24,17 @@ export interface Transcription {
   languageCode: string;
 }
 
+let cached: { apiKey: string; client: ElevenLabsClient } | undefined;
+
 function getClient(): { client: ElevenLabsClient; config: VoiceConfig } {
   const config = getVoiceConfig();
   if (!config.apiKey) {
     throw new VoiceNotConfiguredError();
   }
-  return { client: new ElevenLabsClient({ apiKey: config.apiKey }), config };
+  if (!cached || cached.apiKey !== config.apiKey) {
+    cached = { apiKey: config.apiKey, client: new ElevenLabsClient({ apiKey: config.apiKey }) };
+  }
+  return { client: cached.client, config };
 }
 
 export async function speak(text: string, options: SpeakOptions = {}): Promise<ReadableStream<Uint8Array>> {
@@ -41,7 +46,8 @@ export async function speak(text: string, options: SpeakOptions = {}): Promise<R
     modelId,
     outputFormat: "mp3_44100_128",
     // multilingual_v2 infers the language from the text and does not accept languageCode.
-    ...(modelId === "eleven_multilingual_v2" ? {} : { languageCode }),
+    // When no language is set, omit it so other models auto-detect too.
+    ...(modelId !== "eleven_multilingual_v2" && languageCode ? { languageCode } : {}),
     // Flash skips number normalization by default, which mangles currency amounts.
     ...(modelId === "eleven_flash_v2_5" ? { applyTextNormalization: "on" as const } : {}),
   });
