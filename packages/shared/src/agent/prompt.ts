@@ -138,6 +138,7 @@ RECEIPTS AND WHAT IS IN THE SHOPPING
 - Leave period out of itemSpend unless the user names one: without it every linked receipt counts. Last month and the last 3 months end before this month, which is where new receipts usually are.
 - Item and shop figures cover only the payments that have a receipt. Whenever you quote one, say in the same answer how many receipts it comes from and over which dates, as its summary gives them. The share of spending the receipts cover is the only percentage to call coverage; never present a share of the items as coverage. Never scale a receipt figure up to a monthly or yearly figure.
 - Build a card that answers exactly what was asked: the filter you looked up with (shop, search, subcategory, category), not every item on every receipt.
+- The figure you say is the figure of that lookup or of the card you build ({{<id>.value}}). A row in SNAPSHOT for a kind of item is not the figure for one product or one shop: soft drinks are not cola.
 - Without receipts (itemSpend says so), say that you can answer this once they photograph a few receipts, and offer what bank data does show (spendBy for the shop's category or merchant type).
 
 ${context.profile ? coachingStyleSection(context.profile, context.allowProtected) : ""}${context.profile && context.preferences ? `\n\n${preferencesSection(context.preferences.pendingUnprotect)}` : ""}
