@@ -15,6 +15,8 @@ import {
   matchReceipt,
   isChatImage,
   readReceipt,
+  isEmptyReceipt,
+  type ReceiptRead,
   IMAGE_MIME_TYPES,
 } from "@mydata/shared";
 import { serveStatic } from "@hono/node-server/serve-static";
@@ -131,6 +133,8 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
   const profiles = options.profiles ?? new MemoryProfileStore();
   const receipts = options.receipts ?? new ReceiptStore();
   const linkedReceipts = (id: string) => receipts.linked(id);
+  /** Saves a receipt read for a customer and matches it to their payments: the chat and the receipts route alike. */
+  const saveReceiptFor = (id: string) => (read: ReceiptRead) => saveAndMatch(receipts, id, read, loadEngineContext(db, id)?.tx ?? [], db.today);
   // Chat answers and receipt photos share one budget: each costs model calls.
   const chatLimit = requestBudget("chat", options.chatBudget ?? DEFAULT_CHAT_BUDGET);
   const protectedEngine = new ProtectedEngine(db, profiles, linkedReceipts);
@@ -322,15 +326,15 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
     const model = "generate" in options.chatModel ? options.chatModel : options.chatModel.fast;
     let read: Awaited<ReturnType<typeof readReceipt>>;
     try {
-      read = await readReceipt(model, { mimeType: body.image.mimeType, data: body.image.data }, AbortSignal.timeout(CHAT_TIMEOUT_MS));
+      // Strict: a model that fails is an error to report, not a photo that could not be read.
+      read = await readReceipt(model, { mimeType: body.image.mimeType, data: body.image.data }, AbortSignal.timeout(CHAT_TIMEOUT_MS), { strict: true });
     } catch (error) {
-      // readReceipt passes on only a cancelled call: here, the time running out. Said as /api/chat says it.
       if (error instanceof Error && error.name === "TimeoutError") throw new HTTPException(504, { message: "Reading the receipt took too long. Try again in a moment." });
       console.error("Receipt reading failed:", error);
-      throw new HTTPException(502, { message: error instanceof Error ? error.message : "The receipt could not be read." });
+      throw new HTTPException(502, { message: "The model could not read the receipt just now. Try again in a moment." });
     }
-    if (read.total === null && read.lines.length === 0) return c.json({ receipt: null, unreadable: true });
-    return c.json({ receipt: saveAndMatch(receipts, id, read, loadEngineContext(db, id)?.tx ?? [], db.today), unreadable: false });
+    if (isEmptyReceipt(read)) return c.json({ receipt: null, unreadable: true });
+    return c.json({ receipt: saveReceiptFor(id)(read), unreadable: false });
   });
 
   app.get("/api/customers/:id/receipts", (c) => {
@@ -422,7 +426,7 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
         profile: profiles.get(id) ?? DEFAULT_PROFILE,
         allowProtected: request.allowProtected,
         // A receipt photo is saved for this customer and matched to one of their payments.
-        saveReceipt: (read) => saveAndMatch(receipts, id, read, loadEngineContext(db, id)?.tx ?? [], db.today),
+        saveReceipt: saveReceiptFor(id),
         // The coach may change the saved preferences when the user asks. Taking a category off the
         // keep-as-is list only goes through for categories the previous answer asked the user about.
         preferences: {

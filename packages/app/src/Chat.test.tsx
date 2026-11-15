@@ -126,4 +126,9 @@ describe("several receipts sent at once", () => {
     expect(html).toContain("Bistro Esplanadi");
     expect(html.match(/class="receipt-card"/g)).toHaveLength(2);
   });
+
+  it("says one photo in the singular", () => {
+    open([{ id: 1, role: "user", text: "", photoCount: 1 }]);
+    expect(renderChat()).toContain("1 receipt photo<");
+  });
 });
