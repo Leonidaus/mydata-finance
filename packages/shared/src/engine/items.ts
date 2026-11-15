@@ -7,7 +7,7 @@
  * spending they cover, because receipts are only ever a sample: "sweets 18 €" means something else
  * from 2 receipts than from 40. Item names never leave the engine; a search word is matched here.
  */
-import { ITEM_SUBCATEGORY_LABELS, type ItemSubcategory, type LinkedReceipt, type ReceiptLine } from "../receipts/types";
+import { ITEM_SUBCATEGORY_LABELS, ITEM_TYPE_WORDS, type ItemSubcategory, type LinkedReceipt, type ReceiptLine } from "../receipts/types";
 import type { Transaction } from "../schema";
 import { EngineArgumentError } from "./args";
 import type { EngineContext, EngineResult, Row, TxFilter } from "./types";
@@ -30,6 +30,31 @@ export function hasWords(text: string, query: string): boolean {
   if (asked.length === 0) return false; // punctuation alone asks for nothing
   const words = wordsOf(text);
   return asked.every((q) => words.some((w) => w.startsWith(q)));
+}
+
+/** A Finnish word may be this much longer than its stem: -a, -ia, -eja, -eihin. Longer is another word ("lihapullat"). */
+const MAX_ENDING = 5;
+
+const isTypeWord = (word: string, entry: string) =>
+  entry.endsWith("*")
+    ? word.startsWith(entry.slice(0, -1)) && word.length - (entry.length - 1) <= MAX_ENDING
+    : word === entry || word === `${entry}s`;
+
+/**
+ * The kind of item a search names, when its words are an everyday name for exactly one kind:
+ * "sweets" and "karkkia" are Snacks and sweets, "fuel" is Fuel. A product ("cola"), a word for
+ * two kinds ("alcohol") or anything else gives none.
+ */
+export function itemTypeNamed(search: string): ItemSubcategory | undefined {
+  const asked = wordsOf(search);
+  if (asked.length === 0) return undefined;
+  const named = (Object.entries(ITEM_TYPE_WORDS) as [ItemSubcategory, readonly string[]][]).filter(([, entries]) =>
+    entries.some((entry) => {
+      const words = entry.split(" ");
+      return words.length === asked.length && words.every((w, i) => isTypeWord(asked[i], w));
+    }),
+  );
+  return named.length === 1 ? named[0][0] : undefined;
 }
 
 /** A receipt's shop as one key: the name in lower case, or "-" when none was read. Rows per shop use it. */
@@ -160,8 +185,30 @@ function readFilters(args: Record<string, unknown>) {
   for (const [name, value] of [["shop", f.shop], ["search", f.item]] as const) {
     if (value !== undefined && wordsOf(value).length === 0) throw new EngineArgumentError(`${name} must contain at least one word.`);
   }
+  // The kind of item together with a search for its own name ("snacks_sweets" and "sweets") asks one
+  // thing twice, and the word would find nothing on lines that print product names: the kind is enough.
+  if (subcategory && f.item && itemTypeNamed(f.item) === subcategory) f.item = undefined;
   return { subcategory, category: str(args.category), f };
 }
+
+/**
+ * A search that found no line, though its word is an everyday name for a kind of item: the lines
+ * print product names in the shop's language, so "sweets" is not on them. The question is then
+ * answered with that kind, and the result says so. Null when the search stands as it is.
+ */
+function kindInsteadOfSearch<T extends Record<string, unknown>>(args: T, sample: Selected[], subcategory: ItemSubcategory | undefined, f: ReceiptFilter): { args: T; note: string } | null {
+  if (!f.item || subcategory || sample.length === 0 || sample.some((s) => s.lines.length > 0)) return null;
+  const kind = itemTypeNamed(f.item);
+  if (!kind) return null;
+  const { search: _search, ...rest } = args;
+  return {
+    args: { ...rest, subcategory: kind } as unknown as T,
+    note: `No line on these receipts has the word "${f.item}": lines print product names in the shop's language. This shows the kind of item, ${ITEM_SUBCATEGORY_LABELS[kind]}, instead.`,
+  };
+}
+
+/** What to tell the coach when a search found nothing and names no kind of item. */
+const SEARCH_HINT = "A search looks for words printed on the item lines, which are product names in the shop's language. For a kind of item (sweets, fuel, ready meals), use subcategory instead of search.";
 
 const drillFilter = (from: string, to: string, category: string | undefined, f: ReceiptFilter): TxFilter => ({
   from,
@@ -182,6 +229,11 @@ export function itemSpend(ctx: EngineContext, args: Record<string, unknown>): En
   const all = p ? null : select(ctx, "0000-01-01", ctx.today, category, f);
   const [from, to] = p ? resolvePeriod(p, ctx.today) : [all?.[0]?.t.tx_date ?? ctx.today, ctx.today];
   const sample = all ?? select(ctx, from, to, category, f);
+  const swap = kindInsteadOfSearch(args, sample, subcategory, f);
+  if (swap) {
+    const shown = itemSpend(ctx, swap.args);
+    return { ...shown, assumptions: [swap.note, ...(shown.assumptions ?? [])] };
+  }
   const filter = drillFilter(from, to, category, f);
   if (sample.length === 0) return noReceipts(ctx, filter, `${p ? PERIODS[p] : "So far"}: no receipts`);
 
@@ -215,6 +267,7 @@ export function itemSpend(ctx: EngineContext, args: Record<string, unknown>): En
     assumptions: [
       `${plural(c.receipts, "receipt")} checked, ${span}${found}. Payments with a receipt are ${c.coverage}% of the ${list(c.categories)} spending ${p ? `in ${PERIODS[p].toLowerCase()}` : `from ${displayDate(from)} to ${displayDate(to)}`}; spending without a receipt is not itemised.`,
       ...(lines && c.matching === 0 ? [`No receipt here matches what was asked (${lines}).`] : []),
+      ...(f.item && c.matching === 0 ? [SEARCH_HINT] : []),
     ],
     filter,
     facts: { receipts: c.receipts, matching: c.matching, first: c.first, last: c.last, coverage: c.coverage, categories: c.categories.join(","), ...structured(subcategory, f) },
@@ -228,6 +281,11 @@ export function itemTrend(ctx: EngineContext, args: Record<string, unknown>): En
   const from = startOfMonth(addMonths(startOfMonth(ctx.today), -(months - 1)));
   const to = ctx.today;
   const sample = select(ctx, from, to, category, f);
+  const swap = kindInsteadOfSearch(args, sample, subcategory, f);
+  if (swap) {
+    const shown = itemTrend(ctx, swap.args);
+    return { ...shown, assumptions: [swap.note, ...(shown.assumptions ?? [])] };
+  }
   const asked = describeFilter(subcategory, f);
   const filter = drillFilter(from, to, category, f);
   if (sample.length === 0) return noReceipts(ctx, filter, `Last ${months} months: no receipts`);
@@ -253,6 +311,7 @@ export function itemTrend(ctx: EngineContext, args: Record<string, unknown>): En
     assumptions: [
       "A month without receipts shows 0: nothing was photographed, which does not mean nothing was spent.",
       `Payments with a receipt are ${c.coverage}% of the ${list(c.categories)} spending in these months.`,
+      ...(f.item && c.matching === 0 ? [SEARCH_HINT] : []),
     ],
     filter,
     facts: { receipts: c.receipts, matching: c.matching, months, monthsWithReceipts: withReceipts, coverage: c.coverage, categories: c.categories.join(","), ...structured(subcategory, f) },
