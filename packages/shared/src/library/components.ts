@@ -63,12 +63,19 @@ export const COMPONENTS = {
   },
   receipt_items: {
     description:
-      "Bars of what is inside the shopping, per kind of item (sweets, alcohol, ready meals, fuel, ...), from the receipts the user has linked to card payments. " +
-      "subcategory for one kind of item, category for one bank category (Groceries). A sample: it covers only payments with a receipt.",
-    examples: ["What's in my grocery shopping?", "How much do I spend on sweets?", "Paljonko ostan karkkia?"],
+      "Bars from the receipts the user has linked to card payments: per kind of item (sweets, alcohol, ready meals, fuel, ...), or with per shop per shop name. " +
+      "Narrow it to what was asked: shop for one shop by name, search for a word on the item lines, subcategory for one kind of item, category for one bank category. A sample: it covers only payments with a receipt.",
+    examples: ["What's in my grocery shopping?", "How much have I spent at Alko? (shop)", "How much cola do I buy? (search)", "Paljonko ostan karkkia?"],
     fn: "itemSpend",
-    args: ["period", "subcategory", "category"],
-    build: (a) => catalog.itemBars({ period: s(a.period), subcategory: s(a.subcategory), category: s(a.category) }),
+    args: ["period", "per", "subcategory", "category", "shop", "search"],
+    build: (a) => catalog.itemBars({ period: s(a.period), per: a.per === "shop" ? "shop" : undefined, subcategory: s(a.subcategory), category: s(a.category), shop: s(a.shop), search: s(a.search) }),
+  },
+  receipt_trend: {
+    description: "Line per month of the money on linked receipts: one kind of item, one shop, or a word on the lines. Months without receipts show 0 (nothing photographed).",
+    examples: ["Is my sweets spending going up?", "How has my spending at Alko changed?"],
+    fn: "itemTrend",
+    args: ["months", "subcategory", "category", "shop", "search"],
+    build: (a) => catalog.itemTrend({ months: n(a.months), subcategory: s(a.subcategory), category: s(a.category), shop: s(a.shop), search: s(a.search) }),
   },
   spending_trend: {
     description: "Line of one figure per month: spending (optionally one category), income, saving or net.",

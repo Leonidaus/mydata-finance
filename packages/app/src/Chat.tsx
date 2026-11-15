@@ -1,5 +1,5 @@
 import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
-import { type Block, type ChatImage, MAX_HISTORY_TURNS, type PhotoRead, type ProtectedCategory, type TxFilter } from "@mydata/shared";
+import { type Block, type ChatImage, MAX_HISTORY_TURNS, type PhotoRead, type ProtectedCategory, type ReceiptView, type TxFilter } from "@mydata/shared";
 import type { ChatMode } from "./agent";
 import BlockCard, { displayTitle } from "./BlockCard";
 import CoachFace from "./CoachFace";
@@ -19,13 +19,16 @@ import { apiBase } from "./data";
 import { formatEurCents } from "./format";
 import { errorMessage } from "./latest";
 import { preparePhoto } from "./photo";
-import ReceiptCard from "./receipts";
+import ReceiptCard, { receiptModelText, useReceipts } from "./receipts";
 import { createVoiceClient } from "./voice/client";
 import { useVoice } from "./voice/useVoice";
 import { useI18n } from "./i18n";
 
 /** A photo waiting in the input row: what goes to the coach, and the same picture for the screen. */
 type Attached = { image: ChatImage; url: string };
+
+/** At most this many receipt photos go at once: each costs a model call and counts against the chat's budget. */
+export const MAX_RECEIPT_PHOTOS = 6;
 
 /** What was read from a photo, under the picture: the user checks it against what they see. */
 function photoReading(photo: PhotoRead, locale: ReturnType<typeof useI18n>["locale"], t: ReturnType<typeof useI18n>["t"]): string {
@@ -40,12 +43,20 @@ function photoReading(photo: PhotoRead, locale: ReturnType<typeof useI18n>["loca
 function UserBubble({ message }: { message: Message }) {
   const { locale, t } = useI18n();
   // A conversation opened again keeps what was read from a photo, not the photo itself.
-  const photoOnly = !message.text && !message.photoUrl;
+  const photoOnly = !message.text && !message.photoUrl && !message.photoUrls;
   return (
     <div className="bubble bubble-user">
       {message.photoUrl && <img className="bubble-photo" src={message.photoUrl} alt={t("chat.photoSent")} />}
+      {message.photoUrls && (
+        <div className="bubble-photos" role="group" aria-label={t("chat.photosSent")}>
+          {message.photoUrls.map((url, i) => (
+            <img key={i} className="bubble-photo" src={url} alt="" />
+          ))}
+        </div>
+      )}
       {message.text}
-      {photoOnly && !message.photo && t("chat.photoSent")}
+      {photoOnly && message.photoCount !== undefined && (message.photoCount === 1 ? t("chat.photosCountOne") : t("chat.photosCount", { count: message.photoCount }))}
+      {photoOnly && message.photoCount === undefined && !message.photo && t("chat.photoSent")}
       {message.photo && <span className={photoOnly ? undefined : "bubble-photo-read"}>{photoReading(message.photo, locale, t)}</span>}
     </div>
   );
@@ -89,6 +100,12 @@ export interface Focus {
   title: string;
 }
 
+/** The top bar's "Add receipts" button: shown when receipts can be read, and what it does. */
+export interface ReceiptControls {
+  pick: () => void;
+  busy: boolean;
+}
+
 export interface VoiceControls {
   available: boolean;
   speechEnabled: boolean;
@@ -121,12 +138,14 @@ interface Props {
   onActive?: (active: boolean) => void;
   /** Makes reply narration available from the app's top-bar controls. */
   onVoiceControls?: (controls: VoiceControls | null) => void;
+  /** Gives the top bar its "Add receipts" button; null when receipts cannot be read here. */
+  onReceiptControls?: (controls: ReceiptControls | null) => void;
 }
 
 const noCards: Block[] = [];
 
-export default function Chat({ onAsk, customerId, today = "", request, mode, header, showLog = true, overview = noCards, onSave, onDrill, focus = null, onFocus, onActive, onVoiceControls }: Props) {
-  const { t, category: categoryName } = useI18n();
+export default function Chat({ onAsk, customerId, today = "", request, mode, header, showLog = true, overview = noCards, onSave, onDrill, focus = null, onFocus, onActive, onVoiceControls, onReceiptControls }: Props) {
+  const { locale, t, category: categoryName } = useI18n();
   // The conversation and the customer it is with are one value, so the messages always belong to that customer.
   const [conv, setConv] = useState(() => ({ customerId, messages: loadConversation(customerId) }));
   const messages = conv.customerId === customerId ? conv.messages : [];
@@ -137,6 +156,14 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
   /** A photo the user has taken and not yet sent: it goes out with their next message. */
   const [attached, setAttached] = useState<Attached | null>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
+  const receiptsRef = useRef<HTMLInputElement>(null);
+  /** Cancels the receipts still being read when the conversation is reset. */
+  const receiptsAbort = useRef<AbortController | null>(null);
+  /** How far reading several receipts has got. */
+  const [batch, setBatch] = useState<{ done: number; total: number } | null>(null);
+  const { client: receiptClient, changed: receiptsChanged } = useReceipts();
+  // Receipts are read one by one by the backend; that needs it and its model.
+  const canReadReceipts = mode === "server" && receiptClient !== null;
   const inputRef = useRef<HTMLInputElement>(null);
   const nextId = useRef(1);
   const logRef = useRef<HTMLDivElement>(null);
@@ -168,6 +195,9 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
     setPending(false);
     setPhotoError(null);
     setAttached(null);
+    setBatch(null);
+    receiptsAbort.current?.abort();
+    receiptsAbort.current = null;
     setShowBackToLatest(false);
     onFocus?.(null);
     voice.reset();
@@ -238,18 +268,21 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
     log.scrollTo({ top: log.scrollHeight, behavior: "smooth" });
   }
 
+  /** Adds a message to `forCustomer`'s conversation and returns its id. */
+  function addTo(forCustomer: string, role: Message["role"], text: string, extra: Omit<Message, "id" | "role" | "text"> = {}) {
+    const id = (nextId.current = Math.max(nextId.current, ...live.current.messages.map((m) => m.id + 1)));
+    nextId.current++;
+    setMessages(forCustomer, (prev) => [...prev, { id, role, text, ...extra }]);
+    return id;
+  }
+
   function send(text: string, canned = false, allowProtected?: ProtectedCategory[], photo?: Attached) {
     const trimmed = text.trim();
     // A photo can go without words; the coach then takes it as "can I afford this?".
     if ((!trimmed && !photo) || pendingRef.current) return;
     voice.pause();
     const { customerId: forCustomer, messages: before, focus: about } = live.current;
-    const add = (role: Message["role"], text: string, extra: Omit<Message, "id" | "role" | "text"> = {}) => {
-      const id = (nextId.current = Math.max(nextId.current, ...live.current.messages.map((m) => m.id + 1)));
-      nextId.current++;
-      setMessages(forCustomer, (prev) => [...prev, { id, role, text, ...extra }]);
-      return id;
-    };
+    const add = (role: Message["role"], text: string, extra: Omit<Message, "id" | "role" | "text"> = {}) => addTo(forCustomer, role, text, extra);
     // A reply that arrives after the conversation was reset belongs to the previous one: drop it.
     const askedIn = conversation.current;
     const current = () => conversation.current === askedIn;
@@ -314,6 +347,95 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
     e.preventDefault();
     sendOwn(input);
   }
+
+  /**
+   * Receipts from the top bar's button, one or several at once: each is read, saved and matched by
+   * the backend, one after the other, and one reply sums them up with a card per receipt.
+   */
+  async function onReceipts(e: ChangeEvent<HTMLInputElement>) {
+    const files = [...(e.target.files ?? [])];
+    e.target.value = ""; // so that the same photos can be chosen again
+    if (!files.length || !receiptClient || pendingRef.current) return;
+    setPhotoError(files.length > MAX_RECEIPT_PHOTOS ? t("chat.photosTooMany", { max: MAX_RECEIPT_PHOTOS }) : null);
+    const askedIn = conversation.current;
+    const current = () => conversation.current === askedIn;
+    // Busy from here: nothing else may be sent while the photos are prepared, or they would be dropped.
+    pendingRef.current = true;
+    setPending(true);
+    const total = Math.min(files.length, MAX_RECEIPT_PHOTOS);
+    setBatch({ done: 0, total });
+    let photos: Attached[];
+    try {
+      photos = await Promise.all(files.slice(0, MAX_RECEIPT_PHOTOS).map((file) => preparePhoto(file)));
+    } catch (error) {
+      if (current()) {
+        setPhotoError(errorMessage(error));
+        pendingRef.current = false;
+        setPending(false);
+        setBatch(null);
+      }
+      return;
+    }
+    if (!current()) return;
+    voice.pause();
+    const forCustomer = live.current.customerId;
+    addTo(forCustomer, "user", "", { photoUrls: photos.map((p) => p.url), photoCount: photos.length, modelText: `[${photos.length} RECEIPT PHOTOS sent]` });
+    const abort = new AbortController();
+    receiptsAbort.current = abort;
+    const saved: ReceiptView[] = [];
+    const failed: string[] = [];
+    let unread = 0;
+    for (const [i, photo] of photos.entries()) {
+      try {
+        const read = await receiptClient.read(forCustomer, photo.image, abort.signal);
+        if (read.receipt) saved.push(read.receipt);
+        else unread++;
+      } catch (error) {
+        if (abort.signal.aborted) break;
+        failed.push(errorMessage(error));
+      }
+      if (!current()) break;
+      setBatch({ done: i + 1, total: photos.length });
+    }
+    // Saved receipts belong in the overview's list and in item figures, linked or not yet: also when
+    // the conversation was reset meanwhile, since the backend has kept them.
+    if (saved.length) receiptsChanged();
+    if (!current()) return;
+    receiptsAbort.current = null;
+    const linked = saved.filter((r) => r.status === "confirmed").length;
+    const summary = [
+      saved.length === 1
+        ? t(linked ? "receipt.batchOneLinked" : "receipt.batchOneWaiting")
+        : saved.length
+          ? t("receipt.batchReply", { saved: saved.length, linked, waiting: saved.length - linked })
+          : "",
+      unread === 1 ? t("receipt.batchUnreadOne") : unread ? t("receipt.batchUnread", { count: unread }) : "",
+      failed.length ? t("receipt.batchFailed", { count: failed.length, error: failed[0] }) : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    // The coach is told what each receipt was, as for a single receipt, so it can answer about them later.
+    addTo(forCustomer, "assistant", summary, {
+      modelText: [...saved.map(receiptModelText), ...(unread ? [`[${unread} receipt photos could not be read]`] : [])].join(" ") || summary,
+      receipts: saved,
+    });
+    try {
+      await voice.speak(summary);
+    } finally {
+      if (current()) {
+        pendingRef.current = false;
+        setPending(false);
+        setBatch(null);
+        voice.resume();
+      }
+    }
+  }
+
+  // The top bar's button opens this component's file picker.
+  useEffect(() => {
+    onReceiptControls?.(canReadReceipts ? { pick: () => receiptsRef.current?.click(), busy: pending } : null);
+  }, [onReceiptControls, canReadReceipts, pending]);
+  useEffect(() => () => onReceiptControls?.(null), [onReceiptControls]);
 
   /** A photo from the camera waits in the input row, so the user can ask what they like about it. */
   async function onPhoto(e: ChangeEvent<HTMLInputElement>) {
@@ -404,6 +526,20 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
                       onChange={(next) => setMessages(customerId, (prev) => prev.map((x) => (x.id === m.id ? (next ? { ...x, receipt: next } : { ...x, receipt: undefined }) : x)))}
                     />
                   )}
+                  {/* Receipts sent several at once: one card each. */}
+                  {m.receipts?.map((r) => (
+                    <ReceiptCard
+                      key={r.id}
+                      receipt={r}
+                      customerId={customerId}
+                      today={today}
+                      onChange={(next) =>
+                        setMessages(customerId, (prev) =>
+                          prev.map((x) => (x.id === m.id ? { ...x, receipts: (x.receipts ?? []).flatMap((old) => (old.id !== r.id ? [old] : next ? [next] : [])) } : x)),
+                        )
+                      }
+                    />
+                  ))}
                   {/* What the answer is about, right under it: the card is this answer's own copy. */}
                   {m.cards?.map((card) => (
                     <BlockCard
@@ -416,7 +552,7 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
                       onDrill={(title, filter, evidenceNote) => onDrill?.(title, filter, evidenceNote)}
                       onSave={onSave && (() => onSave(card))}
                       saved={savedState(overview, card)}
-                      onAsk={onFocus && (() => onFocus({ id: card.id, title: displayTitle(card, t) }))}
+                      onAsk={onFocus && (() => onFocus({ id: card.id, title: displayTitle(card, t, locale) }))}
                     />
                   ))}
                   {(asked.length > 0 || showOverride) && (
@@ -441,7 +577,7 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
               <div className="coach-row" role="status">
                 <CoachFace face="thinking" />
                 <div className="bubble bubble-assistant">
-                  {mode === "mock" ? t("chat.thinking") : last?.photoUrl ? t("chat.readingPhoto") : t("chat.looking")}
+                  {mode === "mock" ? t("chat.thinking") : batch ? t("chat.readingReceipts", batch) : last?.photoUrl ? t("chat.readingPhoto") : t("chat.looking")}
                 </div>
               </div>
             )}
@@ -510,6 +646,8 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
             <>
               {/* capture opens the phone's camera directly; a computer shows its file picker instead. */}
               <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={onPhoto} />
+              {/* The top bar's "Add receipts": several photos from the library, or the camera, as the phone offers. */}
+              {canReadReceipts && <input ref={receiptsRef} type="file" accept="image/*" multiple hidden onChange={onReceipts} aria-label={t("receipts.add", { max: MAX_RECEIPT_PHOTOS })} />}
               <button
                 type="button"
                 className={`voice-btn${attached ? " on" : ""}`}
