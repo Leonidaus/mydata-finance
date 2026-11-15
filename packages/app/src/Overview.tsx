@@ -24,7 +24,7 @@ function Figure({ block, customerId }: { block: Block; customerId: string }) {
   const figure = result && headline(block, result, locale);
   return (
     <span className="overview-figure">
-      {figure && <strong>{figure}</strong>} {displayTitle(block, t)}
+      {figure && <strong>{figure}</strong>} {displayTitle(block, t, locale)}
     </span>
   );
 }

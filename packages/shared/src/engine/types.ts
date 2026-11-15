@@ -44,6 +44,8 @@ export interface TxFilter {
   shop?: string;
   /** Only payments whose receipt has a line with this in its name (implies withReceipt). */
   item?: string;
+  /** Only payments whose receipt is from exactly this shop, as its key (a tapped bar per shop). */
+  receiptShop?: string;
 }
 
 export type Row = Record<string, string | number | null>;

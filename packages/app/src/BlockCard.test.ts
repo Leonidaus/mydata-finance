@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { catalog, type EngineResult } from "@mydata/shared";
-import { presentResult } from "./BlockCard";
+import { displayTitle, presentResult } from "./BlockCard";
+import { itemDrill } from "./blocks/templates";
 import { translate } from "./i18n";
 
 const fi = (key: Parameters<typeof translate>[1], values?: Record<string, string | number>) => translate("fi", key, values);
@@ -70,5 +71,27 @@ describe("receipt cards in Finnish", () => {
     const shown = presentResult(catalog.itemTrend({ subcategory: "snacks_sweets" }), result, "fi", fi);
     expect(shown.caption).toBe("Kuukausittain, viimeiset 12 kk, Herkut ja naposteltavat: kuitteja 3");
     expect(shown.assumptions?.[0]).toContain("mitään ei kuvattu");
+  });
+});
+
+describe("receipt cards: titles, matches and drill-down", () => {
+  it("names the card by what it shows, in the user's language", () => {
+    expect(displayTitle(catalog.itemBars({ subcategory: "snacks_sweets" }), fi, "fi")).toBe("Herkut ja naposteltavat kuiteissasi");
+    expect(displayTitle(catalog.itemBars({ per: "shop" }), fi, "fi")).toBe("Kaupat kuiteissasi");
+    expect(displayTitle(catalog.itemTrend({ shop: "Alko" }), fi, "fi")).toBe("Alko kuukausittain");
+    expect(displayTitle(catalog.itemBars({ search: "cola" }), (k, v) => translate("en", k, v), "en")).toBe('"cola" on your receipts');
+  });
+
+  it("says how many of the receipts checked had what was asked", () => {
+    const result: EngineResult = { rows: [], facts: { receipts: 10, matching: 2, first: "2026-08-01", last: "2026-09-14", coverage: 20, categories: "Groceries", subcategory: "snacks_sweets" } };
+    expect(presentResult(catalog.itemBars({ subcategory: "snacks_sweets" }), result, "fi", fi).caption).toBe(
+      "Kuitteja 10, 1.8.2026–14.9.2026, joista 2: Herkut ja naposteltavat · 20 % kulutuksesta luokissa Ruokaostokset",
+    );
+  });
+
+  it("opens exactly the tapped shop, or the tapped kind of item", () => {
+    expect(itemDrill({ key: "prisma", label: "Prisma" }, catalog.itemBars({ per: "shop" }))).toEqual({ receiptShop: "prisma" });
+    expect(itemDrill({ key: "alcohol" }, catalog.itemBars())).toEqual({ subcategory: "alcohol" });
+    expect(itemDrill({ key: "Groceries" }, catalog.categoryBars())).toBeNull();
   });
 });

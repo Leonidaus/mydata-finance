@@ -425,7 +425,7 @@ export default function App() {
                         today={info.today}
                         onChange={(patch) => updateBlocks(dashboard.customerId, (prev) => prev.map((x) => (x.id === b.id ? { ...x, ...patch } : x)))}
                         onRemove={() => updateBlocks(dashboard.customerId, (prev) => prev.filter((x) => x.id !== b.id))}
-                        onAsk={() => setFocus({ id: b.id, title: displayTitle(b, t) })}
+                        onAsk={() => setFocus({ id: b.id, title: displayTitle(b, t, locale) })}
                         onDrill={(title, filter, evidenceNote) => setDrill({ customerId: dashboard.customerId, title, filter, evidenceNote })}
                       />
                     ))}
