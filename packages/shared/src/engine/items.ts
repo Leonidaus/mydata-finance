@@ -157,15 +157,24 @@ function describeFilter(subcategory: ItemSubcategory | undefined, f: ReceiptFilt
   return [subcategory && ITEM_SUBCATEGORY_LABELS[subcategory], f.shop && `at "${f.shop}"`, f.item && `lines with "${f.item}"`].filter(Boolean).join(", ");
 }
 
-/** Nothing to show: why, so the coach can say it. */
-function noReceipts(ctx: EngineContext, filter: TxFilter, caption: string): EngineResult {
+/**
+ * Nothing to show: why, so the coach can say it. `outside` are the linked receipts that the
+ * period left out: the coach is told how many and from when, so that it does not answer "you
+ * have no receipts" when it only asked about the wrong dates.
+ */
+function noReceipts(ctx: EngineContext, filter: TxFilter, caption: string, outside: Selected[] = []): EngineResult {
+  const n = outside.length;
+  const first = outside[0]?.t.tx_date ?? "";
+  const last = outside.at(-1)?.t.tx_date ?? "";
   return {
     rows: [],
     caption,
     assumptions: [
       !ctx.receipts?.length
         ? "The user has not linked any receipts to card payments yet. Item and shop figures come only from receipts: suggest photographing the next one."
-        : "No receipt linked to a card payment falls in this period. Another period may have some.",
+        : n > 0
+          ? `No linked receipt falls in this period, but ${plural(n, "linked receipt")} ${first === last ? `on ${displayDate(first)}` : `from ${displayDate(first)} to ${displayDate(last)}`} ${n === 1 ? "is" : "are"} outside it. Look it up again without period to include ${n === 1 ? "it" : "them"}; do not tell the user there are no receipts.`
+          : "No receipt linked to a card payment falls in this period. Another period may have some.",
     ],
     filter,
     facts: { receipts: 0 },
@@ -235,7 +244,7 @@ export function itemSpend(ctx: EngineContext, args: Record<string, unknown>): En
     return { ...shown, assumptions: [swap.note, ...(shown.assumptions ?? [])] };
   }
   const filter = drillFilter(from, to, category, f);
-  if (sample.length === 0) return noReceipts(ctx, filter, `${p ? PERIODS[p] : "So far"}: no receipts`);
+  if (sample.length === 0) return noReceipts(ctx, filter, `${p ? PERIODS[p] : "So far"}: no receipts`, p ? select(ctx, "0000-01-01", ctx.today, category, f) : []);
 
   const groups = new Map<string, { label: string; amount: number; count: number; trips: number }>();
   for (const { receipt, lines } of sample) {
@@ -288,7 +297,7 @@ export function itemTrend(ctx: EngineContext, args: Record<string, unknown>): En
   }
   const asked = describeFilter(subcategory, f);
   const filter = drillFilter(from, to, category, f);
-  if (sample.length === 0) return noReceipts(ctx, filter, `Last ${months} months: no receipts`);
+  if (sample.length === 0) return noReceipts(ctx, filter, `Last ${months} months: no receipts`, select(ctx, "0000-01-01", ctx.today, category, f));
 
   // receipts: how many were checked that month, also those without what was asked.
   const totals = new Map<string, { amount: number; receipts: number }>();
