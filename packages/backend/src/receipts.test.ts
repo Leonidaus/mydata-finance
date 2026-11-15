@@ -142,6 +142,53 @@ describe("receipts in the chat and the API", () => {
     assert.equal((await call(app, "/api/customers/CUST00001/receipts/not-a-uuid", { method: "DELETE" })).status, 400);
   });
 
+  it("reads one receipt photo without a chat answer, for sending several at once", async () => {
+    const { model, seen } = receiptModel(readArgs);
+    const app = createApp(createFixtureDb(), { chatModel: model });
+    const sent = await call<{ receipt: ReceiptView; unreadable: boolean }>(app, "/api/customers/CUST00001/receipts", { method: "POST", body: { image } });
+    assert.equal(sent.status, 200);
+    assert.equal(sent.body.receipt.txId, 3);
+    assert.equal(sent.body.unreadable, false);
+    assert.deepEqual(seen.map((r) => r.tools[0]?.name), ["receipt_read"]); // no photo classification, no coach
+
+    // Nothing readable: nothing is saved.
+    const blank = createApp(createFixtureDb(), { chatModel: receiptModel({ merchant: "", lines: [] }).model });
+    const empty = await call<{ receipt: null; unreadable: boolean }>(blank, "/api/customers/CUST00001/receipts", { method: "POST", body: { image } });
+    assert.deepEqual(empty.body, { receipt: null, unreadable: true });
+    assert.equal((await call<{ receipts: unknown[] }>(blank, "/api/customers/CUST00001/receipts")).body.receipts.length, 0);
+
+    assert.equal((await call(app, "/api/customers/CUST00001/receipts", { method: "POST", body: { image: { mimeType: "text/html", data: "AAAA" } } })).status, 400);
+    assert.equal((await call(createApp(createFixtureDb()), "/api/customers/CUST00001/receipts", { method: "POST", body: { image } })).status, 503);
+
+    // A model that fails is reported as such: the photo was not the problem.
+    const down: ChatModel = { generate: () => Promise.reject(new Error("503 overloaded")) };
+    const failing = await call<{ error: string }>(createApp(createFixtureDb(), { chatModel: down }), "/api/customers/CUST00001/receipts", { method: "POST", body: { image } });
+    assert.equal(failing.status, 502);
+    assert.match(failing.body.error, /could not read the receipt just now/);
+
+    // In the chat, a receipt photo with nothing readable is not saved either.
+    const blankChat = createApp(createFixtureDb(), { chatModel: receiptModel({ merchant: "", lines: [] }).model });
+    const sentBlank = await call<{ text: string; receipt?: unknown; receiptUnreadable?: boolean }>(blankChat, "/api/chat", { method: "POST", body: { customerId: "CUST00001", question: "", image } });
+    assert.equal(sentBlank.body.receiptUnreadable, true);
+    assert.equal(sentBlank.body.receipt, undefined);
+    assert.equal((await call<{ receipts: unknown[] }>(blankChat, "/api/customers/CUST00001/receipts")).body.receipts.length, 0);
+
+    // A model that does not answer in time gives a clear 504, not an internal error.
+    const stuck: ChatModel = {
+      generate: (_request, signal) =>
+        new Promise((_, reject) => signal?.addEventListener("abort", () => reject(Object.assign(new Error("timed out"), { name: "TimeoutError" })))),
+    };
+    const realTimeout = AbortSignal.timeout;
+    AbortSignal.timeout = () => realTimeout.call(AbortSignal, 10);
+    try {
+      const slow = await call<{ error: string }>(createApp(createFixtureDb(), { chatModel: stuck }), "/api/customers/CUST00001/receipts", { method: "POST", body: { image } });
+      assert.equal(slow.status, 504);
+      assert.match(slow.body.error, /took too long/);
+    } finally {
+      AbortSignal.timeout = realTimeout;
+    }
+  });
+
   it("refuses a second receipt for a payment that already has one", async () => {
     const receipts = new ReceiptStore();
     const app = createApp(createFixtureDb(), { receipts });

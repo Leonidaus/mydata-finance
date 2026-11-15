@@ -3,7 +3,7 @@
  * this lists them, links one to a card payment, unlinks it, or deletes it. API mode only: the
  * bundled fixtures have nowhere to keep a receipt.
  */
-import type { MatchCandidate, MatchResult, ReceiptView } from "@mydata/shared";
+import type { ChatImage, MatchCandidate, MatchResult, ReceiptView } from "@mydata/shared";
 import { failureMessage } from "./api";
 
 export interface ReceiptCandidates {
@@ -12,7 +12,15 @@ export interface ReceiptCandidates {
   nearby: MatchCandidate[];
 }
 
+/** One photo read as a receipt: saved and matched, or nothing readable on it (not saved). */
+export interface ReceiptReadResult {
+  receipt: ReceiptView | null;
+  unreadable: boolean;
+}
+
 export interface ReceiptClient {
+  /** Reads one receipt photo, saves it and matches it to a payment, without a chat answer. */
+  read(customerId: string, image: ChatImage, signal?: AbortSignal): Promise<ReceiptReadResult>;
   list(customerId: string, signal?: AbortSignal): Promise<ReceiptView[]>;
   candidates(customerId: string, receiptId: string, signal?: AbortSignal): Promise<ReceiptCandidates>;
   confirm(customerId: string, receiptId: string, txId: number): Promise<ReceiptView>;
@@ -43,6 +51,10 @@ export function createReceiptClient(base = "", fetchFn: typeof fetch = (...args)
     call(url, { method: "POST", ...(body !== undefined && { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) });
 
   return {
+    async read(customerId, image, signal) {
+      const body = await call(path(customerId), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ image }), signal });
+      return { receipt: isRecord(body.receipt) ? (body.receipt as unknown as ReceiptView) : null, unreadable: body.unreadable === true };
+    },
     async list(customerId, signal) {
       const body = await call(path(customerId), { signal });
       return Array.isArray(body.receipts) ? (body.receipts as ReceiptView[]) : [];

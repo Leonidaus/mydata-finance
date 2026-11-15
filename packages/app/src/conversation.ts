@@ -31,12 +31,18 @@ export interface Message {
   proposedUnprotect?: ProtectedCategory[];
   /** A photo sent with the message, as a data URL. Not kept when the conversation is stored. */
   photoUrl?: string;
+  /** Several receipt photos sent at once, as data URLs. Not kept either. */
+  photoUrls?: string[];
+  /** How many receipt photos were sent at once: kept, so a reopened conversation can say so. */
+  photoCount?: number;
   /** What the coach read from the photo, once it has answered. */
   photo?: PhotoRead;
   /** The cards this answer showed. */
   cards?: Block[];
   /** The receipt this answer saved, as it is now. */
   receipt?: ReceiptView;
+  /** The receipts saved from several photos sent at once. */
+  receipts?: ReceiptView[];
   /** The title of the card the user asked about, when they chose one. */
   about?: string;
   /** How the coach looked and what it offered next. */
@@ -207,7 +213,7 @@ const isMessage = (value: unknown): value is Message => {
 
 /** What is stored of a conversation: the newest messages, without the photos (a data URL each). */
 export function toStored(messages: Message[]): Message[] {
-  return messages.slice(-MAX_STORED_MESSAGES).map(({ photoUrl: _photo, ...kept }) => kept);
+  return messages.slice(-MAX_STORED_MESSAGES).map(({ photoUrl: _photo, photoUrls: _photos, ...kept }) => kept);
 }
 
 /** Reads a stored conversation; anything that is not one gives an empty conversation. */
