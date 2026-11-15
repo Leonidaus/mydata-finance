@@ -14,7 +14,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { askAgent, cannedReply, type ChatMode, chatMode, geminiAvailable, type RunEngine } from "./agent";
 import BlockCard, { displayTitle } from "./BlockCard";
-import Chat, { type Focus, type ReceiptControls, type VoiceControls } from "./Chat";
+import Chat, { type Focus, MAX_RECEIPT_PHOTOS, type ReceiptControls, type VoiceControls } from "./Chat";
 import CoachingSettings from "./CoachingSettings";
 import CoachFace from "./CoachFace";
 import { applyReply, type AskInput, type AskResult, contextBlocks, savedCard, savedState, saveToOverview } from "./conversation";
@@ -189,6 +189,11 @@ export default function App() {
       language: locale,
     };
     const reply = await (canned ? cannedReply : askAgent)(question, ctx);
+    // A receipt with nothing readable on it, sent without words: nothing was saved, and the app says so.
+    if (reply.receiptUnreadable && !reply.text) {
+      const text = t("receipt.replyUnread");
+      return { text, modelText: text, userText: "[RECEIPT PHOTO sent: nothing could be read]", photo: reply.photo, cards: [], mood: null, suggestions: [] };
+    }
     // A receipt sent without words: saving it was the answer, and the app says so in the user's language.
     if (reply.receipt && !reply.text) {
       if (reply.receipt.status === "confirmed") receiptsChanged();
@@ -297,8 +302,8 @@ export default function App() {
                 type="button"
                 onClick={receiptControls.pick}
                 disabled={receiptControls.busy}
-                aria-label={t("receipts.add")}
-                title={t("receipts.add")}
+                aria-label={t("receipts.add", { max: MAX_RECEIPT_PHOTOS })}
+                title={t("receipts.add", { max: MAX_RECEIPT_PHOTOS })}
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M5 3h14v18l-2.33-1.5L14.33 21 12 19.5 9.67 21l-2.34-1.5L5 21V3Z" />

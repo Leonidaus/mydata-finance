@@ -160,6 +160,19 @@ describe("receipts in the chat and the API", () => {
     assert.equal((await call(app, "/api/customers/CUST00001/receipts", { method: "POST", body: { image: { mimeType: "text/html", data: "AAAA" } } })).status, 400);
     assert.equal((await call(createApp(createFixtureDb()), "/api/customers/CUST00001/receipts", { method: "POST", body: { image } })).status, 503);
 
+    // A model that fails is reported as such: the photo was not the problem.
+    const down: ChatModel = { generate: () => Promise.reject(new Error("503 overloaded")) };
+    const failing = await call<{ error: string }>(createApp(createFixtureDb(), { chatModel: down }), "/api/customers/CUST00001/receipts", { method: "POST", body: { image } });
+    assert.equal(failing.status, 502);
+    assert.match(failing.body.error, /could not read the receipt just now/);
+
+    // In the chat, a receipt photo with nothing readable is not saved either.
+    const blankChat = createApp(createFixtureDb(), { chatModel: receiptModel({ merchant: "", lines: [] }).model });
+    const sentBlank = await call<{ text: string; receipt?: unknown; receiptUnreadable?: boolean }>(blankChat, "/api/chat", { method: "POST", body: { customerId: "CUST00001", question: "", image } });
+    assert.equal(sentBlank.body.receiptUnreadable, true);
+    assert.equal(sentBlank.body.receipt, undefined);
+    assert.equal((await call<{ receipts: unknown[] }>(blankChat, "/api/customers/CUST00001/receipts")).body.receipts.length, 0);
+
     // A model that does not answer in time gives a clear 504, not an internal error.
     const stuck: ChatModel = {
       generate: (_request, signal) =>

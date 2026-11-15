@@ -36,6 +36,8 @@ export interface AgentReply {
   photo?: PhotoRead;
   /** The receipt the photo was, as the backend saved it. */
   receipt?: ReceiptView;
+  /** The photo was a receipt with nothing readable on it: nothing was saved. */
+  receiptUnreadable?: boolean;
 }
 
 /** Runs an engine function for the customer being answered, through the app's data source. */
