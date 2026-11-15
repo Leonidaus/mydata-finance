@@ -1,5 +1,16 @@
 # DOMAIN is the primary hostname; DOMAIN_ALIASES optionally lists other hostnames
 # separated by spaces. Every name must resolve to this server for automatic HTTPS.
 {$DOMAIN} {$DOMAIN_ALIASES:} {
+	# Keep JSON access logs in the persistent caddy_data volume.
+	log {
+		output file /data/access-logs/access.log {
+			mode 0600
+			roll_size 10MiB
+			roll_interval 24h
+			roll_keep 7
+			roll_keep_for 168h
+		}
+		format json
+	}
 	reverse_proxy app:8787
 }
