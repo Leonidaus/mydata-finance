@@ -58,10 +58,10 @@ describe("receipt cards in Finnish", () => {
       rows: [{ key: "kino kamppi", label: "Kino Kamppi", amount: 59.55, count: 4, trips: 2 }],
       value: 59.55,
       caption: "2 receipts from 26.1.2026 to 25.7.2026, at \"Kino Kamppi\" (3% of Entertainment spending)",
-      facts: { receipts: 2, first: "2026-01-26", last: "2026-07-25", coverage: 3, categories: "Entertainment", shop: "Kino Kamppi" },
+      facts: { receipts: 2, matching: 2, first: "2026-01-26", last: "2026-07-25", coverage: 3, categories: "Entertainment", shop: "Kino Kamppi" },
     };
     const shown = presentResult(catalog.itemBars({ shop: "Kino Kamppi" }), result, "fi", fi);
-    expect(shown.caption).toBe("Kuitteja 2, 26.1.2026–25.7.2026, kauppa Kino Kamppi · 3 % kulutuksesta luokissa Viihde");
+    expect(shown.caption).toBe("Kuitteja 2, 26.1.2026–25.7.2026, joista 2: kaupasta Kino Kamppi · 3 % kulutuksesta luokissa Viihde");
     expect(shown.assumptions).toEqual([fi("card.itemsAssumption")]);
     expect(presentResult(catalog.itemBars(), { rows: [], facts: { receipts: 0 } }, "fi", fi).caption).toBe("Ei kuitteja");
   });

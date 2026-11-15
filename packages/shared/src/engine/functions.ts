@@ -1100,7 +1100,7 @@ export function runEngine(ctx: EngineContext, fn: EngineFn, args: Record<string,
 }
 
 export function filterTransactions(ctx: EngineContext, f: TxFilter): Transaction[] {
-  const byTx = f.withReceipt || f.subcategory || f.shop || f.item ? receiptsByTx(ctx) : null;
+  const byTx = f.withReceipt || f.subcategory || f.shop || f.item || f.receiptShop ? receiptsByTx(ctx) : null;
   const receiptFilter = receiptFilterOf(f);
   return ctx.tx.filter((t) => {
     if (byTx && !hasReceipt(t, byTx, receiptFilter)) return false;

@@ -350,15 +350,15 @@ export function presentResult(block: Block, result: EngineResult, locale: Return
 function presentItems(fn: "itemSpend" | "itemTrend", result: EngineResult, locale: ReturnType<typeof useI18n>["locale"], t: Translate): PresentedResult {
   const facts = result.facts ?? {};
   // The shop narrows which receipts were checked; an item kind or a search, which lines count in them.
-  const lines = [
+  // How many of the receipts checked are from the shop asked about, or have the kind of item or the words.
+  const what = [
+    typeof facts.shop === "string" ? t("card.itemsWhatShop", { shop: facts.shop }) : "",
     typeof facts.subcategory === "string" ? subcategoryLabel(locale, facts.subcategory) : "",
     typeof facts.search === "string" ? t("card.itemsAskedSearch", { search: facts.search }) : "",
   ]
     .filter(Boolean)
     .join(", ");
-  const asked =
-    (typeof facts.shop === "string" ? t("card.itemsAskedShop", { shop: facts.shop }) : "") +
-    (lines && typeof facts.matching === "number" ? t("card.itemsMatching", { matching: facts.matching, what: lines }) : lines ? `, ${lines}` : "");
+  const asked = what && typeof facts.matching === "number" ? t("card.itemsMatching", { matching: facts.matching, what }) : what ? `, ${what}` : "";
   if (!facts.receipts) return { ...result, caption: t("card.itemsNone", { asked }), explanation: t("card.itemsDescription"), assumptions: [t("card.itemsAssumption")] };
   const categories = String(facts.categories ?? "")
     .split(",")

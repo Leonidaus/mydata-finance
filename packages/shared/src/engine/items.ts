@@ -85,9 +85,10 @@ interface Selected {
 }
 
 /**
- * The sample: every linked payment in [from, to] (in the bank category and from the shop asked
- * about), with the lines of its receipt that count. A receipt without such lines still belongs to
- * the sample: it was checked, and had none.
+ * The sample: every linked payment in [from, to] (in the bank category asked about), with the
+ * lines of its receipt that count: from the shop asked about, of the kind or with the words asked
+ * about. A receipt without such lines still belongs to the sample: it was checked, and had none.
+ * So a filter never makes the receipts look like a smaller share of the spending than they are.
  */
 function select(ctx: EngineContext, from: string, to: string, category: string | undefined, f: ReceiptFilter): Selected[] {
   const byTx = receiptsByTx(ctx);
@@ -95,8 +96,8 @@ function select(ctx: EngineContext, from: string, to: string, category: string |
   for (const t of ctx.tx) {
     if (!isSpending(t) || t.tx_id === undefined || !inRange(t, from, to) || t.tx_date > ctx.today || (category && t.category !== category)) continue;
     const receipt = byTx.get(t.tx_id);
-    if (!receipt || !shopMatches(receipt, f)) continue;
-    sample.push({ t, receipt, lines: receipt.lines.filter((line) => lineMatches(line, f)) });
+    if (!receipt) continue;
+    sample.push({ t, receipt, lines: matchingLines(receipt, f) });
   }
   return sample;
 }
@@ -120,9 +121,11 @@ function coverageOf(ctx: EngineContext, sample: Selected[], from: string, to: st
   };
 }
 
-/** Which lines were asked for, in words: "Snacks and sweets", "lines with "cola"". */
-const describeLines = (subcategory: ItemSubcategory | undefined, f: ReceiptFilter) =>
-  [subcategory && ITEM_SUBCATEGORY_LABELS[subcategory], f.item && `lines with "${f.item}"`].filter(Boolean).join(", ");
+/** What was asked, in words, after a count: `from "Alko"`, `with Snacks and sweets`, `with lines with "cola"`. Empty when nothing narrows it. */
+function describeLines(subcategory: ItemSubcategory | undefined, f: ReceiptFilter): string {
+  const kinds = [subcategory && ITEM_SUBCATEGORY_LABELS[subcategory], f.item && `lines with "${f.item}"`].filter(Boolean).join(", ");
+  return [f.shop && `from "${f.shop}"`, kinds && `with ${kinds}`].filter(Boolean).join(" ");
+}
 
 /** What the filters ask for, in words: "Snacks and sweets", "at Alko", "lines with "cola"". */
 function describeFilter(subcategory: ItemSubcategory | undefined, f: ReceiptFilter): string {
@@ -130,16 +133,14 @@ function describeFilter(subcategory: ItemSubcategory | undefined, f: ReceiptFilt
 }
 
 /** Nothing to show: why, so the coach can say it. */
-function noReceipts(ctx: EngineContext, asked: string, filter: TxFilter, caption: string): EngineResult {
+function noReceipts(ctx: EngineContext, filter: TxFilter, caption: string): EngineResult {
   return {
     rows: [],
     caption,
     assumptions: [
       !ctx.receipts?.length
         ? "The user has not linked any receipts to card payments yet. Item and shop figures come only from receipts: suggest photographing the next one."
-        : asked
-          ? `No ${asked} are linked in this period. Another period, or another spelling of the shop, may have some.`
-          : "No receipt linked to a card payment falls in this period. Another period may have some.",
+        : "No receipt linked to a card payment falls in this period. Another period may have some.",
     ],
     filter,
     facts: { receipts: 0 },
@@ -181,9 +182,8 @@ export function itemSpend(ctx: EngineContext, args: Record<string, unknown>): En
   const all = p ? null : select(ctx, "0000-01-01", ctx.today, category, f);
   const [from, to] = p ? resolvePeriod(p, ctx.today) : [all?.[0]?.t.tx_date ?? ctx.today, ctx.today];
   const sample = all ?? select(ctx, from, to, category, f);
-  const asked = describeFilter(subcategory, f);
   const filter = drillFilter(from, to, category, f);
-  if (sample.length === 0) return noReceipts(ctx, f.shop ? `receipts from "${f.shop}"` : "", filter, `${p ? PERIODS[p] : "So far"}: no receipts${asked ? ` with ${asked}` : ""}`);
+  if (sample.length === 0) return noReceipts(ctx, filter, `${p ? PERIODS[p] : "So far"}: no receipts`);
 
   const groups = new Map<string, { label: string; amount: number; count: number; trips: number }>();
   for (const { receipt, lines } of sample) {
@@ -206,15 +206,15 @@ export function itemSpend(ctx: EngineContext, args: Record<string, unknown>): En
   const span = c.first === c.last ? `on ${displayDate(c.first)}` : `from ${displayDate(c.first)} to ${displayDate(c.last)}`;
   const lines = describeLines(subcategory, f);
   // A search or one kind of item: how many of the receipts checked had it. Receipts without it still count as checked.
-  const found = lines ? `, ${c.matching} with ${lines}` : "";
+  const found = lines ? `, ${c.matching} ${lines}` : "";
   return {
     rows,
     value: round2(rows.reduce((s, r) => s + (r.amount as number), 0)),
     unit: "€",
-    caption: `${plural(c.receipts, "receipt")} ${span}${f.shop ? ` at "${f.shop}"` : ""}${found} (${c.coverage}% of ${list(c.categories)} spending)`,
+    caption: `${plural(c.receipts, "receipt")} ${span}${found} (${c.coverage}% of ${list(c.categories)} spending)`,
     assumptions: [
       `${plural(c.receipts, "receipt")} checked, ${span}${found}. Payments with a receipt are ${c.coverage}% of the ${list(c.categories)} spending ${p ? `in ${PERIODS[p].toLowerCase()}` : `from ${displayDate(from)} to ${displayDate(to)}`}; spending without a receipt is not itemised.`,
-      ...(lines && c.matching === 0 ? [`None of these receipts has ${lines}.`] : []),
+      ...(lines && c.matching === 0 ? [`No receipt here matches what was asked (${lines}).`] : []),
     ],
     filter,
     facts: { receipts: c.receipts, matching: c.matching, first: c.first, last: c.last, coverage: c.coverage, categories: c.categories.join(","), ...structured(subcategory, f) },
@@ -230,7 +230,7 @@ export function itemTrend(ctx: EngineContext, args: Record<string, unknown>): En
   const sample = select(ctx, from, to, category, f);
   const asked = describeFilter(subcategory, f);
   const filter = drillFilter(from, to, category, f);
-  if (sample.length === 0) return noReceipts(ctx, f.shop ? `receipts from "${f.shop}"` : "", filter, `Last ${months} months: no receipts${asked ? ` with ${asked}` : ""}`);
+  if (sample.length === 0) return noReceipts(ctx, filter, `Last ${months} months: no receipts`);
 
   // receipts: how many were checked that month, also those without what was asked.
   const totals = new Map<string, { amount: number; receipts: number }>();
@@ -249,7 +249,7 @@ export function itemTrend(ctx: EngineContext, args: Record<string, unknown>): En
     rows,
     value: round2(rows.reduce((s, r) => s + (r.amount as number), 0)),
     unit: "€",
-    caption: `Per month, last ${months} months${asked ? `, ${asked}` : ""}: ${plural(c.receipts, "receipt")} in ${plural(withReceipts, "month")}${lines ? `, ${c.matching} with it` : ""}`,
+    caption: `Per month, last ${months} months${asked ? `, ${asked}` : ""}: ${plural(c.receipts, "receipt")} in ${plural(withReceipts, "month")}${lines ? `, ${c.matching} ${lines}` : ""}`,
     assumptions: [
       "A month without receipts shows 0: nothing was photographed, which does not mean nothing was spent.",
       `Payments with a receipt are ${c.coverage}% of the ${list(c.categories)} spending in these months.`,
