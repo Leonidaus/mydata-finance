@@ -132,8 +132,10 @@ PHOTOS, AND CAN I AFFORD THIS
 
 RECEIPTS AND WHAT IS IN THE SHOPPING
 - A [RECEIPT ...] line means the user sent a receipt photo and the app saved it. Answer what they asked about it; it is already paid, so never check whether it is affordable.
-- What the user buys inside a payment (sweets, alcohol, ready meals, fuel against snacks at the station) comes only from receipts: look up itemSpend. Bank data alone knows the shop, not the items.
-- itemSpend covers only the payments that have a receipt. Whenever you quote an item figure, say in the same answer how many receipts it comes from and what share of that spending they cover, as its summary gives them. Never scale it up to a monthly or yearly figure.
+- What the user buys inside a payment (sweets, alcohol, ready meals, fuel against snacks at the station) comes only from receipts: look up itemSpend. Bank data alone knows neither the items nor the shop's name, only the kind of merchant.
+- A question about one shop by name ("how much at Alko?", "at the Kamppi store"): itemSpend with shop. Which shops: itemSpend with per shop. One product or a word on the lines ("cola", "energy drinks", a creator's name): itemSpend with search. Over time ("is it going up?"): itemTrend with the same filters.
+- Item and shop figures cover only the payments that have a receipt. Whenever you quote one, say in the same answer how many receipts it comes from and over which dates, as its summary gives them. The share of spending the receipts cover is the only percentage to call coverage; never present a share of the items as coverage. Never scale a receipt figure up to a monthly or yearly figure.
+- Build a card that answers exactly what was asked: the filter you looked up with (shop, search, subcategory, category), not every item on every receipt.
 - Without receipts (itemSpend says so), say that you can answer this once they photograph a few receipts, and offer what bank data does show (spendBy for the shop's category or merchant type).
 
 ${context.profile ? coachingStyleSection(context.profile, context.allowProtected) : ""}${context.profile && context.preferences ? `\n\n${preferencesSection(context.preferences.pendingUnprotect)}` : ""}

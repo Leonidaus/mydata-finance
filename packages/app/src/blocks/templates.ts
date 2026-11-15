@@ -19,12 +19,14 @@ const values = (result: EngineResult) => ({ values: result.rows });
 const str = (v: unknown) => (typeof v === "string" ? v : undefined);
 const chart = (locale: Locale, key: Parameters<typeof translate>[1]) => translate(locale, key);
 const isItems = (b: Block) => b.data.kind === "engine" && b.data.fn === "itemSpend";
+/** Item bars per shop: the labels are shop names as printed, not item types to translate. */
+const perShop = (b: Block) => isItems(b) && b.data.kind === "engine" && b.data.args.per === "shop";
 
 export const VEGA_TEMPLATES: Partial<Record<TemplateId, VegaTemplate>> = {
   category_bars: {
     spec: (b, r, locale) => ({
       // Item sub-categories are named in the user's language; their ids stay as the key.
-      data: isItems(b) ? { values: r.rows.map((row) => ({ ...row, label: subcategoryLabel(locale, String(row.key)) })) } : values(r),
+      data: isItems(b) && !perShop(b) ? { values: r.rows.map((row) => ({ ...row, label: subcategoryLabel(locale, String(row.key)) })) } : values(r),
       height: { step: 26 },
       mark: { type: "bar", cornerRadiusEnd: 4, cursor: "pointer" },
       encoding: {
@@ -42,6 +44,7 @@ export const VEGA_TEMPLATES: Partial<Record<TemplateId, VegaTemplate>> = {
       const by = b.data.kind === "engine" ? b.data.args.by : "category";
       const key = str(d.key);
       if (!key) return null;
+      if (perShop(b)) return { shop: String(d.label ?? key) };
       if (isItems(b)) return { subcategory: key };
       return by === "merchant_type" ? { mcc: key } : { category: key };
     },

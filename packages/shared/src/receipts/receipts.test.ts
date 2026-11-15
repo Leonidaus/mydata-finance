@@ -148,6 +148,7 @@ describe("itemSpend", () => {
   const recent = groceries.slice(-3);
   const receipts: LinkedReceipt[] = recent.map((t) => ({
     txId: t.tx_id as number,
+    merchant: "Prisma Kamppi",
     lines: [
       { name: "Sweets", subcategory: "snacks_sweets", amount: 4, kind: "item" },
       { name: "Bananas", subcategory: "produce", amount: Math.round((-t.tx_amount_eur - 4) * 100) / 100, kind: "item" },
@@ -162,8 +163,12 @@ describe("itemSpend", () => {
     expect(sweets).toMatchObject({ amount: 12, count: 3, trips: 3 });
     const total = recent.reduce((s, t) => s - t.tx_amount_eur, 0);
     expect(r.value).toBeCloseTo(total, 2);
-    expect(r.caption).toMatch(/from 3 receipts \(\d+% of Groceries\)/);
-    expect(r.assumptions?.[0]).toMatch(/cover \d+% of the Groceries spending/);
+    // How many receipts, over which dates, and what share of the spending they cover.
+    expect(r.caption).toMatch(/^3 receipts from \d+\.\d+\.\d{4} to \d+\.\d+\.\d{4} \(\d+% of Groceries spending\)$/);
+    expect(r.assumptions?.[0]).toMatch(/Payments with a receipt are \d+% of the Groceries spending from/);
+    expect(r.facts).toMatchObject({ receipts: 3, first: recent[0].tx_date, last: recent[2].tx_date, categories: "Groceries" });
+    // A share of the items is not offered as a figure: the coach once quoted it as coverage.
+    expect(Object.keys(r.rows[0])).not.toContain("share");
   });
 
   it("gives one sub-category's figure, and its payments behind it", () => {
@@ -179,6 +184,52 @@ describe("itemSpend", () => {
     expect(r.rows).toEqual([]);
     expect(r.value).toBeUndefined();
     expect(r.assumptions?.[0]).toMatch(/not linked any receipts/);
+  });
+
+  // Two receipts on cinema payments: the bank says Entertainment and cinema, the receipt names the cinema.
+  const cinema = ctx.tx.filter((t) => t.mcc_code === "7832").slice(-2);
+  const online: LinkedReceipt[] = cinema.map((t, i) => ({
+    txId: t.tx_id as number,
+    merchant: "Kino Kamppi",
+    lines: [
+      { name: `Ticket for ${i ? "Woman" : "Man"}`, subcategory: "other", amount: 4.99, kind: "item" },
+      { name: `Popcorn for ${i ? "Woman" : "Man"}`, subcategory: "other", amount: Math.round((-t.tx_amount_eur - 4.99) * 100) / 100, kind: "item" },
+    ],
+  }));
+  const both: EngineContext = { ...ctx, receipts: [...receipts, ...online] };
+
+  it("adds up a shop by the name on its receipts, which the bank data does not have", () => {
+    const r = runEngine(both, "itemSpend", { shop: "kino" });
+    const paid = cinema.reduce((s, t) => s - t.tx_amount_eur, 0);
+    expect(r.value).toBeCloseTo(paid, 2);
+    expect(r.facts).toMatchObject({ receipts: 2, shop: "kino", categories: "Entertainment" });
+    expect(filterTransactions(both, r.filter ?? {}).map((t) => t.tx_id)).toEqual(cinema.map((t) => t.tx_id));
+
+    const shops = runEngine(both, "itemSpend", { per: "shop" });
+    expect(shops.rows.map((row) => [row.label, row.trips])).toEqual(expect.arrayContaining([["Prisma Kamppi", 3], ["Kino Kamppi", 2]]));
+  });
+
+  it("finds a word on the item lines without giving the lines out", () => {
+    const r = runEngine(both, "itemSpend", { search: "woman" });
+    expect(r.value).toBeCloseTo(-cinema[1].tx_amount_eur, 2);
+    expect(r.facts).toMatchObject({ receipts: 1, search: "woman" });
+    expect(JSON.stringify(r)).not.toContain("Popcorn for");
+    // A word matches from the start of a word: "man" is not part of "Woman". Every word must be there.
+    expect(runEngine(both, "itemSpend", { search: "man" }).value).toBeCloseTo(-cinema[0].tx_amount_eur, 2);
+    expect(runEngine(both, "itemSpend", { search: "popcorn man" }).rows[0].count).toBe(1);
+    expect(runEngine(both, "itemSpend", { search: "popcorn woman" }).value).toBeCloseTo(-cinema[1].tx_amount_eur - 4.99, 2);
+    const none = runEngine(both, "itemSpend", { search: "champagne" });
+    expect(none.rows).toEqual([]);
+    expect(none.assumptions?.[0]).toMatch(/No linked receipt in this period has lines with "champagne"/);
+  });
+
+  it("follows receipts per month, with the months that have none at 0", () => {
+    const r = runEngine(both, "itemTrend", { shop: "Kino Kamppi", months: 24 });
+    expect(r.rows).toHaveLength(24);
+    expect(r.rows.at(-1)?.month).toBe(ctx.today.slice(0, 7));
+    expect(r.rows.reduce((n, row) => n + (row.receipts as number), 0)).toBe(2);
+    expect(r.value).toBeCloseTo(cinema.reduce((s, t) => s - t.tx_amount_eur, 0), 2);
+    expect(r.assumptions?.[0]).toMatch(/nothing was photographed/);
   });
 
   it("rejects a sub-category that is not on the list", () => {
