@@ -145,7 +145,7 @@ interface Props {
 const noCards: Block[] = [];
 
 export default function Chat({ onAsk, customerId, today = "", request, mode, header, showLog = true, overview = noCards, onSave, onDrill, focus = null, onFocus, onActive, onVoiceControls, onReceiptControls }: Props) {
-  const { t, category: categoryName } = useI18n();
+  const { locale, t, category: categoryName } = useI18n();
   // The conversation and the customer it is with are one value, so the messages always belong to that customer.
   const [conv, setConv] = useState(() => ({ customerId, messages: loadConversation(customerId) }));
   const messages = conv.customerId === customerId ? conv.messages : [];
@@ -552,7 +552,7 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
                       onDrill={(title, filter, evidenceNote) => onDrill?.(title, filter, evidenceNote)}
                       onSave={onSave && (() => onSave(card))}
                       saved={savedState(overview, card)}
-                      onAsk={onFocus && (() => onFocus({ id: card.id, title: displayTitle(card, t) }))}
+                      onAsk={onFocus && (() => onFocus({ id: card.id, title: displayTitle(card, t, locale) }))}
                     />
                   ))}
                   {(asked.length > 0 || showOverride) && (

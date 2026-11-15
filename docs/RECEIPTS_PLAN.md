@@ -313,6 +313,19 @@ Where the code differs from the plan above:
 - **The item chart reuses `category_bars`.** Labels are translated by sub-category id, and tapping a bar opens the payments whose receipt has that kind of item. As on every other card, the engine's caption and assumptions are in English.
 - **The stream cache is keyed by the transaction list.** The backend gives the engine a fresh context per call with the current receipts, and keying by context would have thrown the cache away each time.
 
+### Shops, product search and trends (follow-up)
+
+Testing with receipts from a shop the bank data calls something else showed that the coach could
+not answer "how much at <that shop>?". The bank data has no shop names, and `itemSpend` gave the coach item types only. Now:
+
+- `itemSpend` with `shop` (part of the shop name on the receipt) or `per: "shop"` (one row per shop). Shop names, tidied and shortened, are the only receipt text the coach sees.
+- `itemSpend` with `search`: a word matched against the item lines in the engine. The coach gets the sum, never the lines.
+- `itemTrend`: the same filters per calendar month, this month included. A month without receipts is 0, and the result says that means nothing was photographed.
+- Coverage always comes with the dates the receipts span ("3 receipts from 26.1.2026 to 25.7.2026 (3% of Entertainment spending)"). The per-item `share` column is gone: the coach had quoted it as coverage.
+- The coach is told to build a card for exactly what was asked (the same shop, search or item type), not every item on every receipt.
+- Receipt cards have Finnish captions, worded in the app from the figures the engine returns as `facts`.
+- `per`, not `by`: tool schemas merge arguments by name, and `spendBy` already uses `by` with other values.
+
 Not yet checked: the photo → receipt path with the real Gemini model, and the screens in a
 real browser. The tests use a stand-in model. Try it with the staged receipts before the demo,
 and compare against `expected.json`.
