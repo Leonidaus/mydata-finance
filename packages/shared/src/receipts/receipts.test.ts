@@ -202,7 +202,10 @@ describe("itemSpend", () => {
     const r = runEngine(both, "itemSpend", { shop: "kino" });
     const paid = cinema.reduce((s, t) => s - t.tx_amount_eur, 0);
     expect(r.value).toBeCloseTo(paid, 2);
-    expect(r.facts).toMatchObject({ receipts: 2, shop: "kino", categories: "Entertainment" });
+    // Every receipt checked counts for coverage; two of them are from the cinema.
+    expect(r.facts).toMatchObject({ receipts: 5, matching: 2, shop: "kino" });
+    expect(r.facts?.coverage).toBe(runEngine(both, "itemSpend", {}).facts?.coverage);
+    expect(r.caption).toMatch(/, 2 from "kino" \(/);
     expect(filterTransactions(both, r.filter ?? {}).map((t) => t.tx_id)).toEqual(cinema.map((t) => t.tx_id));
 
     // A tapped bar per shop opens exactly that shop's payments, not every shop that starts the same.
@@ -228,7 +231,7 @@ describe("itemSpend", () => {
     const none = runEngine(both, "itemSpend", { search: "champagne" });
     expect(none.rows).toEqual([]);
     expect(none.value).toBe(0);
-    expect(none.assumptions).toContain('None of these receipts has lines with "champagne".');
+    expect(none.assumptions).toContain('No receipt here matches what was asked (with lines with "champagne").');
     // Punctuation alone is not a search.
     expect(() => runEngine(both, "itemSpend", { search: '"' })).toThrow(/search must contain at least one word/);
   });
@@ -237,7 +240,9 @@ describe("itemSpend", () => {
     const r = runEngine(both, "itemTrend", { shop: "Kino Kamppi", months: 24 });
     expect(r.rows).toHaveLength(24);
     expect(r.rows.at(-1)?.month).toBe(ctx.today.slice(0, 7));
-    expect(r.rows.reduce((n, row) => n + (row.receipts as number), 0)).toBe(2);
+    // Every receipt checked is counted per month; the amounts are only the cinema's.
+    expect(r.rows.reduce((n, row) => n + (row.receipts as number), 0)).toBe(5);
+    expect(r.facts).toMatchObject({ receipts: 5, matching: 2 });
     expect(r.value).toBeCloseTo(cinema.reduce((s, t) => s - t.tx_amount_eur, 0), 2);
     expect(r.assumptions?.[0]).toMatch(/nothing was photographed/);
   });
