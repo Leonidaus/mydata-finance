@@ -5,6 +5,7 @@ import { cleanReceiptRead, foldLines, readReceipt, receiptQuestion } from "../ag
 import type { ChatModel } from "../agent/chat";
 import { contextFromFixture, type FixtureBundle, type FixtureIndex } from "../engine/fixture";
 import { filterTransactions, runEngine } from "../engine/functions";
+import { itemTypeNamed } from "../engine/items";
 import type { EngineContext } from "../engine/types";
 import type { Transaction } from "../schema";
 import { matchReceipt, nearbyPayments } from "./match";
@@ -249,6 +250,74 @@ describe("itemSpend", () => {
 
   it("rejects a sub-category that is not on the list", () => {
     expect(() => runEngine(withReceipts, "itemSpend", { subcategory: "candy" })).toThrow(/subcategory must be one of/);
+  });
+
+  // Receipts as a Finnish shop prints them: product names, not the kind of item.
+  const finnish: LinkedReceipt[] = recent.map((t) => ({
+    txId: t.tx_id as number,
+    merchant: "Ruokakauppa Kamppi",
+    lines: [
+      { name: "Irtokarkit 380g", subcategory: "snacks_sweets", amount: 4.18, kind: "item" },
+      { name: "Cola 1,5l", subcategory: "soft_drinks", amount: 2.89, kind: "item" },
+      { name: "Banaani", subcategory: "produce", amount: Math.round((-t.tx_amount_eur - 7.07) * 100) / 100, kind: "item" },
+    ],
+  }));
+  const printedInFinnish: EngineContext = { ...ctx, receipts: finnish };
+
+  it("knows an everyday word for a kind of item from a product or a word for two kinds", () => {
+    expect(itemTypeNamed("sweets")).toBe("snacks_sweets");
+    expect(itemTypeNamed("Candy")).toBe("snacks_sweets");
+    expect(itemTypeNamed("karkkia")).toBe("snacks_sweets");
+    expect(itemTypeNamed("karkit")).toBe("snacks_sweets");
+    expect(itemTypeNamed("polttoainetta")).toBe("fuel");
+    expect(itemTypeNamed("ready meals")).toBe("ready_meals");
+    expect(itemTypeNamed("lääkkeitä")).toBe("pharmacy");
+    for (const other of ["cola", "alcohol", "coffee", "lihapullat", "sweets and fuel", "frozen", "energy drink", ""]) expect(itemTypeNamed(other)).toBeUndefined();
+  });
+
+  it("answers with the kind of item when a search for its name finds no line", () => {
+    const kind = runEngine(printedInFinnish, "itemSpend", { subcategory: "snacks_sweets" });
+    expect(kind.value).toBeCloseTo(3 * 4.18, 2);
+    for (const search of ["sweets", "karkkia"]) {
+      const r = runEngine(printedInFinnish, "itemSpend", { search });
+      expect(r.value).toBe(kind.value);
+      expect(r.rows).toEqual(kind.rows);
+      expect(r.caption).toBe(kind.caption);
+      expect(r.assumptions?.[0]).toBe(`No line on these receipts has the word "${search}": lines print product names in the shop's language. This shows the kind of item, Snacks and sweets, instead.`);
+      // The card's own words and the payments behind it follow the kind, not the search.
+      expect(r.facts).toMatchObject({ subcategory: "snacks_sweets", matching: 3 });
+      expect(r.facts?.search).toBeUndefined();
+      expect(r.filter).toMatchObject({ subcategory: "snacks_sweets" });
+      expect(r.filter?.item).toBeUndefined();
+    }
+    // The same over time, and together with a period and a bank category.
+    expect(runEngine(printedInFinnish, "itemTrend", { search: "sweets", months: 6 }).rows).toEqual(runEngine(printedInFinnish, "itemTrend", { subcategory: "snacks_sweets", months: 6 }).rows);
+    expect(runEngine(printedInFinnish, "itemSpend", { search: "sweets", category: "Groceries", period: "last_12_months" }).value).toBe(kind.value);
+  });
+
+  it("drops a search that only repeats the kind of item it comes with", () => {
+    const kind = runEngine(printedInFinnish, "itemSpend", { subcategory: "snacks_sweets" });
+    const both = runEngine(printedInFinnish, "itemSpend", { subcategory: "snacks_sweets", search: "sweets" });
+    expect(both.value).toBe(kind.value);
+    expect(both.facts?.search).toBeUndefined();
+    // A search for something else within a kind still narrows it.
+    expect(runEngine(printedInFinnish, "itemSpend", { subcategory: "soft_drinks", search: "cola" }).facts).toMatchObject({ search: "cola", matching: 3 });
+    expect(runEngine(printedInFinnish, "itemSpend", { subcategory: "produce", search: "sweets" }).value).toBe(0);
+  });
+
+  it("leaves a search alone when it finds lines, or names no kind of item", () => {
+    // "Sweets" is printed on these receipts: the search stands.
+    expect(runEngine(withReceipts, "itemSpend", { search: "sweets" }).facts).toMatchObject({ search: "sweets", matching: 3 });
+    const cola = runEngine(printedInFinnish, "itemSpend", { search: "cola" });
+    expect(cola.value).toBeCloseTo(3 * 2.89, 2);
+    expect(cola.facts).toMatchObject({ search: "cola" });
+    // Nothing found and no kind named: the figure is 0, and the coach is told what a search is for.
+    const none = runEngine(printedInFinnish, "itemSpend", { search: "champagne" });
+    expect(none.value).toBe(0);
+    expect(none.assumptions?.at(-1)).toMatch(/For a kind of item .* use subcategory instead of search/);
+    expect(runEngine(printedInFinnish, "itemTrend", { search: "champagne" }).assumptions?.at(-1)).toMatch(/use subcategory instead of search/);
+    // A word for two kinds is not guessed at.
+    expect(runEngine(printedInFinnish, "itemSpend", { search: "alcohol" }).value).toBe(0);
   });
 });
 

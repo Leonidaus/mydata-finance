@@ -122,7 +122,7 @@ export const ENGINE_DOCS: Record<EngineFn, EngineDoc> = {
       "Money from the receipts the user has photographed and linked to card payments. The bank data has no shop names and no items; receipts have both. " +
       "per item_type (default): per kind of item (sweets, alcohol, ready meals, fuel, ...). per shop: per shop name as printed on the receipts. " +
       "shop: only receipts from a shop with this in its name (\"how much at Alko\"). search: only item lines with these words in their name, each word starting a word on the line (\"tip man\" finds tips to Man; \"man\" does not find Woman). Several lookups compare them, e.g. search \"man\" and search \"woman\" (\"cola\", \"energy drink\", a person's name on a line); the lines themselves are never shown. " +
-      "subcategory: one kind of item. category: the bank category of the payments (e.g. Groceries). Without period: since the first matching receipt. " +
+      "subcategory: one kind of item; always this, not search, when the user names a kind (sweets, fuel, clothes), because the lines print product names. category: the bank category of the payments (e.g. Groceries). Without period: since the first matching receipt. " +
       "Only payments with a receipt count: the summary says how many receipts were checked, over which dates, how many of them had what was asked (subcategory or search), and what share of that spending they cover.",
     rows: "key (sub-category id, or the shop name in lower case), label, amount (€), count (lines), trips (receipts). Biggest first.",
     unit: "€ in total for what was asked",
