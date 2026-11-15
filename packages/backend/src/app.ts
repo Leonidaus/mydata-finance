@@ -13,6 +13,9 @@ import {
   type ReceiptView,
   nearbyPayments,
   matchReceipt,
+  isChatImage,
+  readReceipt,
+  IMAGE_MIME_TYPES,
 } from "@mydata/shared";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { handleStt, handleTts } from "@mydata/voice";
@@ -128,6 +131,8 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
   const profiles = options.profiles ?? new MemoryProfileStore();
   const receipts = options.receipts ?? new ReceiptStore();
   const linkedReceipts = (id: string) => receipts.linked(id);
+  // Chat answers and receipt photos share one budget: each costs model calls.
+  const chatLimit = requestBudget("chat", options.chatBudget ?? DEFAULT_CHAT_BUDGET);
   const protectedEngine = new ProtectedEngine(db, profiles, linkedReceipts);
 
   // The data is synthetic and the API read-only, so any origin may call it during the demo.
@@ -304,6 +309,22 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
     return { ...receipt, payment: { txId: receipt.txId as number, date: t.tx_date, timestamp: t.tx_timestamp, amount: Math.round(-t.tx_amount_eur * 100) / 100, category: t.category, mcc: t.mcc_code, score: 0 } };
   }
 
+  /**
+   * One receipt photo, read, saved and matched to a payment, without a chat answer: for sending
+   * several receipts at once. A photo with nothing readable on it is not saved.
+   */
+  app.post("/api/customers/:id/receipts", chatLimit, async (c) => {
+    const id = customerId(c.req.param("id"));
+    if (!getCustomer(db, id)) throw new HTTPException(404, { message: "Customer not found" });
+    if (!options.chatModel) throw new HTTPException(503, { message: "Reading receipts needs the language model (GEMINI_API_KEY)." });
+    const body = await jsonBody(c.req.raw);
+    if (!isChatImage(body.image)) badRequest(`image must be { mimeType, data }: a ${IMAGE_MIME_TYPES.join(", ")} picture as base64`);
+    const model = "generate" in options.chatModel ? options.chatModel : options.chatModel.fast;
+    const read = await readReceipt(model, { mimeType: body.image.mimeType, data: body.image.data }, AbortSignal.timeout(CHAT_TIMEOUT_MS));
+    if (read.total === null && read.lines.length === 0) return c.json({ receipt: null, unreadable: true });
+    return c.json({ receipt: saveAndMatch(receipts, id, read, loadEngineContext(db, id)?.tx ?? [], db.today), unreadable: false });
+  });
+
   app.get("/api/customers/:id/receipts", (c) => {
     const id = customerId(c.req.param("id"));
     if (!getCustomer(db, id)) throw new HTTPException(404, { message: "Customer not found" });
@@ -362,7 +383,7 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
   // The prompt is built here, the model is called here with the server's key, and the model's
   // tool calls are checked here. The caller cannot supply instructions or choose the model.
 
-  app.use("/api/chat", requestBudget("chat", options.chatBudget ?? DEFAULT_CHAT_BUDGET));
+  app.use("/api/chat", chatLimit);
   app.post("/api/chat", async (c) => {
     let request: ChatRequest;
     try {

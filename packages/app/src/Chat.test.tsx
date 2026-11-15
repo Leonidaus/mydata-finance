@@ -107,3 +107,23 @@ describe("an answer and its cards", () => {
     expect(renderChat({ showLog: false })).not.toContain("You spent €42 on taxis.");
   });
 });
+
+describe("several receipts sent at once", () => {
+  const receipt = (id: string, merchant: string) => ({
+    id, createdAt: "", merchant, mcc: "5411", date: "2026-09-14", time: "13:20", total: 62.52, paidBy: "card" as const,
+    lines: [{ name: "Maito", subcategory: "dairy_eggs" as const, amount: 62.52, kind: "item" as const }],
+    linesMismatch: false, status: "confirmed" as const, txId: 1, autoMatched: true,
+  });
+
+  it("shows one card per receipt under the summary, and how many photos were sent once they are gone", () => {
+    open([
+      { id: 1, role: "user", text: "", photoCount: 2, modelText: "[2 RECEIPT PHOTOS sent]" },
+      { id: 2, role: "assistant", text: "I saved 2 receipts: 2 linked to a card payment, 0 waiting for you to pick the payment.", receipts: [receipt("a", "Ruokakauppa Kamppi"), receipt("b", "Bistro Esplanadi")] },
+    ]);
+    const html = renderChat();
+    expect(html).toContain("2 receipt photos");
+    expect(html).toContain("Ruokakauppa Kamppi");
+    expect(html).toContain("Bistro Esplanadi");
+    expect(html.match(/class="receipt-card"/g)).toHaveLength(2);
+  });
+});
