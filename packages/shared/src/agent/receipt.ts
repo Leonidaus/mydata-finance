@@ -156,14 +156,21 @@ export function cleanReceiptRead(args: Record<string, unknown>): ReceiptRead {
 
 export const EMPTY_RECEIPT: ReceiptRead = { merchant: "", mcc: null, date: null, time: null, total: null, paidBy: "unknown", lines: [], linesMismatch: false };
 
-/** Reads a receipt. A failed or empty reading comes back empty; only a cancelled request is an error. */
-export async function readReceipt(model: ChatModel, image: ChatImage, signal?: AbortSignal): Promise<ReceiptRead> {
+/** Nothing could be read: no total and no lines. Such a receipt is not saved. */
+export const isEmptyReceipt = (read: ReceiptRead) => read.total === null && read.lines.length === 0;
+
+/**
+ * Reads a receipt. A reading the model could make nothing of comes back empty. A model that
+ * fails (overloaded, unreachable, cancelled) is an error with `strict`; without it, the chat
+ * carries on and the failure reads as empty.
+ */
+export async function readReceipt(model: ChatModel, image: ChatImage, signal?: AbortSignal, options: { strict?: boolean } = {}): Promise<ReceiptRead> {
   try {
     const res = await model.generate({ system: RECEIPT_SYSTEM, turns: [{ role: "user", text: "Read this receipt.", image }], tools: [RECEIPT_DECLARATION] }, signal);
     const args = res.calls.find((call) => call.name === RECEIPT_TOOL)?.args;
     return args ? cleanReceiptRead(args) : EMPTY_RECEIPT;
   } catch (e) {
-    if (signal?.aborted) throw e;
+    if (signal?.aborted || options.strict) throw e;
     return EMPTY_RECEIPT;
   }
 }

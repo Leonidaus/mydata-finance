@@ -22,7 +22,7 @@ import { describeResult, numbersIn, questionLanguage, requestLabel, resultNumber
 import { catalog } from "../library/catalog";
 import { type ChatImage, type PhotoRead, photoQuestion, readPhoto } from "./photo";
 import { placeholders } from "./placeholders";
-import { readReceipt, receiptQuestion, type SaveReceipt } from "./receipt";
+import { isEmptyReceipt, readReceipt, receiptQuestion, type SaveReceipt } from "./receipt";
 import type { ReceiptView } from "../receipts/types";
 import { type PreferenceAccess, PREFERENCES_DECLARATION, PREFERENCES_TOOL, updatePreferences } from "./preferences";
 import { buildSystemPrompt } from "./prompt";
@@ -133,6 +133,8 @@ export interface ChatOutput {
    * writes the reply itself, in the user's language, from this.
    */
   receipt?: ReceiptView;
+  /** The photo was a receipt with nothing readable on it, sent without words: nothing was saved. `text` is empty. */
+  receiptUnreadable?: boolean;
 }
 
 /** The reply used when the model built a card but said nothing, and the card's figures are not known here. */
@@ -322,10 +324,12 @@ export async function runChat(models: ChatModel | ChatModels, input: ChatInput, 
     lookup ? usedMerchantTypes(lookup) : [],
   ]);
   // A receipt is read line by line and saved. Sent without words, saving it is the whole answer.
-  const receipt =
-    photo?.kind === "receipt" && input.image && input.saveReceipt ? await input.saveReceipt(await readReceipt(fast, input.image, signal)) : undefined;
-  if (receipt && asked === "") {
-    return { text: "", ops: [], rejected: [], picks: [], mood: null, suggestions: [], checked: true, answeredBy: "fast", proposedUnprotect: [], photo, receipt };
+  // A receipt with nothing readable on it is not saved.
+  const read = photo?.kind === "receipt" && input.image && input.saveReceipt ? await readReceipt(fast, input.image, signal) : undefined;
+  const receipt = read && !isEmptyReceipt(read) && input.saveReceipt ? await input.saveReceipt(read) : undefined;
+  if (read && asked === "") {
+    const answer = { text: "", ops: [], rejected: [], picks: [], mood: null, suggestions: [], checked: true, answeredBy: "fast" as const, proposedUnprotect: [], photo };
+    return receipt ? { ...answer, receipt } : { ...answer, receiptUnreadable: true };
   }
   const question = receipt ? receiptQuestion(asked, receipt) : photo ? photoQuestion(asked, photo) : asked;
   // A photo with no words asks "can I afford this?". With words, the user asks what they like about it.
