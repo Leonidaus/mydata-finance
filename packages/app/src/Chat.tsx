@@ -28,7 +28,7 @@ import { useI18n } from "./i18n";
 type Attached = { image: ChatImage; url: string };
 
 /** At most this many receipt photos go at once: each costs a model call and counts against the chat's budget. */
-export const MAX_PHOTOS = 6;
+export const MAX_RECEIPT_PHOTOS = 6;
 
 /** What was read from a photo, under the picture: the user checks it against what they see. */
 function photoReading(photo: PhotoRead, locale: ReturnType<typeof useI18n>["locale"], t: ReturnType<typeof useI18n>["t"]): string {
@@ -100,6 +100,12 @@ export interface Focus {
   title: string;
 }
 
+/** The top bar's "Add receipts" button: shown when receipts can be read, and what it does. */
+export interface ReceiptControls {
+  pick: () => void;
+  busy: boolean;
+}
+
 export interface VoiceControls {
   available: boolean;
   speechEnabled: boolean;
@@ -132,11 +138,13 @@ interface Props {
   onActive?: (active: boolean) => void;
   /** Makes reply narration available from the app's top-bar controls. */
   onVoiceControls?: (controls: VoiceControls | null) => void;
+  /** Gives the top bar its "Add receipts" button; null when receipts cannot be read here. */
+  onReceiptControls?: (controls: ReceiptControls | null) => void;
 }
 
 const noCards: Block[] = [];
 
-export default function Chat({ onAsk, customerId, today = "", request, mode, header, showLog = true, overview = noCards, onSave, onDrill, focus = null, onFocus, onActive, onVoiceControls }: Props) {
+export default function Chat({ onAsk, customerId, today = "", request, mode, header, showLog = true, overview = noCards, onSave, onDrill, focus = null, onFocus, onActive, onVoiceControls, onReceiptControls }: Props) {
   const { t, category: categoryName } = useI18n();
   // The conversation and the customer it is with are one value, so the messages always belong to that customer.
   const [conv, setConv] = useState(() => ({ customerId, messages: loadConversation(customerId) }));
@@ -145,14 +153,15 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
   const [pending, setPending] = useState(false);
   const [showBackToLatest, setShowBackToLatest] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
-  /** Photos the user has taken and not yet sent: they go out with their next message. Several are receipts. */
-  const [attached, setAttached] = useState<Attached[]>([]);
+  /** A photo the user has taken and not yet sent: it goes out with their next message. */
+  const [attached, setAttached] = useState<Attached | null>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const receiptsRef = useRef<HTMLInputElement>(null);
   /** How far reading several receipts has got. */
   const [batch, setBatch] = useState<{ done: number; total: number } | null>(null);
   const { client: receiptClient, changed: receiptsChanged } = useReceipts();
-  // Several photos at once are receipts, read one by one by the backend; that needs it and its model.
-  const canBatch = mode === "server" && receiptClient !== null;
-  const cameraRef = useRef<HTMLInputElement>(null);
+  // Receipts are read one by one by the backend; that needs it and its model.
+  const canReadReceipts = mode === "server" && receiptClient !== null;
   const inputRef = useRef<HTMLInputElement>(null);
   const nextId = useRef(1);
   const logRef = useRef<HTMLDivElement>(null);
@@ -183,7 +192,7 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
     pendingRef.current = false;
     setPending(false);
     setPhotoError(null);
-    setAttached([]);
+    setAttached(null);
     setBatch(null);
     setShowBackToLatest(false);
     onFocus?.(null);
@@ -323,28 +332,40 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request?.n]);
 
-  /** The user's own message, typed or spoken: it takes the waiting photos with it. Chips and buttons do not. */
+  /** The user's own message, typed or spoken: it takes the waiting photo with it. Chips and buttons do not. */
   function sendOwn(text: string) {
-    if ((!text.trim() && attached.length === 0) || pendingRef.current) return;
-    if (attached.length > 1) void sendReceipts(text, attached);
-    else send(text, false, undefined, attached[0]);
-    setAttached([]);
+    if ((!text.trim() && !attached) || pendingRef.current) return;
+    send(text, false, undefined, attached ?? undefined);
+    setAttached(null);
+  }
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    sendOwn(input);
   }
 
   /**
-   * Several photos at once are receipts: each is read, saved and matched by the backend, one after
-   * the other, and one reply sums them up. Words sent with them go to the coach afterwards, when the
-   * receipts are in its figures.
+   * Receipts from the top bar's button, one or several at once: each is read, saved and matched by
+   * the backend, one after the other, and one reply sums them up with a card per receipt.
    */
-  async function sendReceipts(text: string, photos: Attached[]) {
-    if (!receiptClient || pendingRef.current) return;
-    voice.pause();
-    const forCustomer = live.current.customerId;
+  async function onReceipts(e: ChangeEvent<HTMLInputElement>) {
+    const files = [...(e.target.files ?? [])];
+    e.target.value = ""; // so that the same photos can be chosen again
+    if (!files.length || !receiptClient || pendingRef.current) return;
+    setPhotoError(files.length > MAX_RECEIPT_PHOTOS ? t("chat.photosTooMany", { max: MAX_RECEIPT_PHOTOS }) : null);
     const askedIn = conversation.current;
     const current = () => conversation.current === askedIn;
+    let photos: Attached[];
+    try {
+      photos = await Promise.all(files.slice(0, MAX_RECEIPT_PHOTOS).map((file) => preparePhoto(file)));
+    } catch (error) {
+      setPhotoError(errorMessage(error));
+      return;
+    }
+    if (!current() || pendingRef.current) return;
+    voice.pause();
+    const forCustomer = live.current.customerId;
     addTo(forCustomer, "user", "", { photoUrls: photos.map((p) => p.url), photoCount: photos.length, modelText: `[${photos.length} RECEIPT PHOTOS sent]` });
-    setInput("");
-    onFocus?.(null);
     pendingRef.current = true;
     setPending(true);
     setBatch({ done: 0, total: photos.length });
@@ -356,14 +377,15 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
         const read = await receiptClient.read(forCustomer, photo.image);
         if (read.receipt) saved.push(read.receipt);
         else unread++;
-      } catch (e) {
-        failed.push(errorMessage(e));
+      } catch (error) {
+        failed.push(errorMessage(error));
       }
       if (!current()) return;
       setBatch({ done: i + 1, total: photos.length });
     }
+    // Saved receipts belong in the overview's list and in item figures, linked or not yet.
+    if (saved.length) receiptsChanged();
     const linked = saved.filter((r) => r.status === "confirmed").length;
-    if (linked) receiptsChanged();
     const summary = [
       saved.length ? t("receipt.batchReply", { saved: saved.length, linked, waiting: saved.length - linked }) : "",
       unread ? t("receipt.batchUnread", { count: unread }) : "",
@@ -385,31 +407,24 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
         voice.resume();
       }
     }
-    if (current() && text.trim()) send(text);
   }
 
-  function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    sendOwn(input);
-  }
+  // The top bar's button opens this component's file picker.
+  useEffect(() => {
+    onReceiptControls?.(canReadReceipts ? { pick: () => receiptsRef.current?.click(), busy: pending } : null);
+  }, [onReceiptControls, canReadReceipts, pending]);
+  useEffect(() => () => onReceiptControls?.(null), [onReceiptControls]);
 
-  /**
-   * A photo from the camera waits in the input row, so the user can ask what they like about it.
-   * With the backend, more photos can be added: several at once are read as receipts.
-   */
+  /** A photo from the camera waits in the input row, so the user can ask what they like about it. */
   async function onPhoto(e: ChangeEvent<HTMLInputElement>) {
-    const files = [...(e.target.files ?? [])];
+    const file = e.target.files?.[0];
     e.target.value = ""; // so that the same photo can be chosen again
-    if (!files.length) return;
+    if (!file) return;
     const askedIn = conversation.current;
     setPhotoError(null);
     try {
-      const photos = await Promise.all(files.slice(0, MAX_PHOTOS).map((file) => preparePhoto(file)));
-      if (conversation.current !== askedIn) return;
-      if (!canBatch) return setAttached(photos.slice(0, 1));
-      const next = [...attached, ...photos];
-      if (next.length > MAX_PHOTOS || files.length > MAX_PHOTOS) setPhotoError(t("chat.photosTooMany", { max: MAX_PHOTOS }));
-      setAttached(next.slice(0, MAX_PHOTOS));
+      const photo = await preparePhoto(file);
+      if (conversation.current === askedIn) setAttached(photo);
     } catch (error) {
       setPhotoError(errorMessage(error));
     }
@@ -588,26 +603,11 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
             </button>
           </div>
         )}
-        {attached.length > 1 && (
+        {attached && (
           <div className="chat-attached">
-            <div className="chat-attached-photos">
-              {attached.map((photo, i) => (
-                <div key={photo.url} className="chat-attached-photo">
-                  <img src={photo.url} alt={t("chat.photoPending")} />
-                  <button type="button" onClick={() => setAttached((prev) => prev.filter((_, j) => j !== i))} aria-label={t("chat.photoRemove")} title={t("chat.photoRemove")}>
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-            <span>{t("chat.photosAttached", { count: attached.length })}</span>
-          </div>
-        )}
-        {attached.length === 1 && (
-          <div className="chat-attached">
-            <img src={attached[0].url} alt={t("chat.photoPending")} />
+            <img src={attached.url} alt={t("chat.photoPending")} />
             <span>{t("chat.photoAdd")}</span>
-            <button type="button" onClick={() => setAttached([])} aria-label={t("chat.photoRemove")} title={t("chat.photoRemove")}>
+            <button type="button" onClick={() => setAttached(null)} aria-label={t("chat.photoRemove")} title={t("chat.photoRemove")}>
               ×
             </button>
           </div>
@@ -617,20 +617,21 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={attached.length ? t("chat.photoPlaceholder") : focus ? t("chat.aboutPlaceholder") : t("chat.placeholder")}
+            placeholder={attached ? t("chat.photoPlaceholder") : focus ? t("chat.aboutPlaceholder") : t("chat.placeholder")}
             aria-label={t("chat.question")}
           />
           {mode !== "mock" && (
             <>
               {/* capture opens the phone's camera directly; a computer shows its file picker instead. */}
-              {/* With the backend several photos can be picked at once (receipts); without, the camera opens directly. */}
-              <input ref={cameraRef} type="file" accept="image/*" hidden onChange={onPhoto} {...(canBatch ? { multiple: true } : { capture: "environment" })} />
+              <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={onPhoto} />
+              {/* The top bar's "Add receipts": several photos from the library, or the camera, as the phone offers. */}
+              {canReadReceipts && <input ref={receiptsRef} type="file" accept="image/*" multiple hidden onChange={onReceipts} aria-label={t("receipts.add")} />}
               <button
                 type="button"
-                className={`voice-btn${attached.length ? " on" : ""}`}
+                className={`voice-btn${attached ? " on" : ""}`}
                 onClick={() => cameraRef.current?.click()}
-                aria-label={attached.length && !canBatch ? t("chat.photoRetake") : t("chat.photoAdd")}
-                title={attached.length && !canBatch ? t("chat.photoRetake") : t("chat.photoAddTitle")}
+                aria-label={attached ? t("chat.photoRetake") : t("chat.photoAdd")}
+                title={attached ? t("chat.photoRetake") : t("chat.photoAddTitle")}
               >
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" />
@@ -654,7 +655,7 @@ export default function Chat({ onAsk, customerId, today = "", request, mode, hea
               </svg>
             </button>
           )}
-          <button type="submit" disabled={(!input.trim() && attached.length === 0) || pending}>
+          <button type="submit" disabled={(!input.trim() && !attached) || pending}>
             {t("chat.ask")}
           </button>
         </form>

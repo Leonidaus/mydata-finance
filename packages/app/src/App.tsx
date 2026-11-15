@@ -14,7 +14,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { askAgent, cannedReply, type ChatMode, chatMode, geminiAvailable, type RunEngine } from "./agent";
 import BlockCard, { displayTitle } from "./BlockCard";
-import Chat, { type Focus, type VoiceControls } from "./Chat";
+import Chat, { type Focus, type ReceiptControls, type VoiceControls } from "./Chat";
 import CoachingSettings from "./CoachingSettings";
 import CoachFace from "./CoachFace";
 import { applyReply, type AskInput, type AskResult, contextBlocks, savedCard, savedState, saveToOverview } from "./conversation";
@@ -127,6 +127,8 @@ export default function App() {
   const [chatRequest, setChatRequest] = useState<{ text: string; n: number; canned?: boolean } | null>(null);
   const [voiceControls, setVoiceControls] = useState<VoiceControls | null>(null);
   const onVoiceControls = useCallback((controls: VoiceControls | null) => setVoiceControls(controls), []);
+  const [receiptControls, setReceiptControls] = useState<ReceiptControls | null>(null);
+  const onReceiptControls = useCallback((controls: ReceiptControls | null) => setReceiptControls(controls), []);
 
   const toggleDev = (on: boolean) => {
     setDev(on);
@@ -289,6 +291,21 @@ export default function App() {
           </span>
           <h1 className="topbar-title"><CoachFace face="neutral" />{t("app.title")}</h1>
           <div className="topbar-actions">
+            {receiptControls && (
+              <button
+                className="topbar-icon topbar-receipts"
+                type="button"
+                onClick={receiptControls.pick}
+                disabled={receiptControls.busy}
+                aria-label={t("receipts.add")}
+                title={t("receipts.add")}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M5 3h14v18l-2.33-1.5L14.33 21 12 19.5 9.67 21l-2.34-1.5L5 21V3Z" />
+                  <path d="M12 7.5v7M8.5 11h7" />
+                </svg>
+              </button>
+            )}
             {voiceControls?.available && (
               <button
                 className={`topbar-icon topbar-narration${voiceControls.speechEnabled ? " on" : ""}`}
@@ -387,6 +404,7 @@ export default function App() {
             onFocus={setFocus}
             onActive={(active) => setOverviewOpen(!active)}
             onVoiceControls={onVoiceControls}
+            onReceiptControls={onReceiptControls}
             header={
               <>
                 {index.status === "error" && <LoadError error={index.error} retry={index.retry} />}
