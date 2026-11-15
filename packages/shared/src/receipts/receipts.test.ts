@@ -205,14 +205,21 @@ describe("itemSpend", () => {
     expect(r.facts).toMatchObject({ receipts: 2, shop: "kino", categories: "Entertainment" });
     expect(filterTransactions(both, r.filter ?? {}).map((t) => t.tx_id)).toEqual(cinema.map((t) => t.tx_id));
 
+    // A tapped bar per shop opens exactly that shop's payments, not every shop that starts the same.
     const shops = runEngine(both, "itemSpend", { per: "shop" });
+    const kino = shops.rows.find((row) => row.label === "Kino Kamppi");
+    expect(filterTransactions(both, { ...shops.filter, receiptShop: kino?.key as string })).toHaveLength(2);
+    expect(filterTransactions(both, { ...shops.filter, receiptShop: "kino" })).toHaveLength(0);
     expect(shops.rows.map((row) => [row.label, row.trips])).toEqual(expect.arrayContaining([["Prisma Kamppi", 3], ["Kino Kamppi", 2]]));
   });
 
   it("finds a word on the item lines without giving the lines out", () => {
     const r = runEngine(both, "itemSpend", { search: "woman" });
     expect(r.value).toBeCloseTo(-cinema[1].tx_amount_eur, 2);
-    expect(r.facts).toMatchObject({ receipts: 1, search: "woman" });
+    // Every receipt checked counts for coverage, not only the one that had the word.
+    expect(r.facts).toMatchObject({ receipts: 5, matching: 1, search: "woman" });
+    expect(r.facts?.coverage).toBe(runEngine(both, "itemSpend", {}).facts?.coverage);
+    expect(r.caption).toMatch(/^5 receipts from .*, 1 with lines with "woman" \(/);
     expect(JSON.stringify(r)).not.toContain("Popcorn for");
     // A word matches from the start of a word: "man" is not part of "Woman". Every word must be there.
     expect(runEngine(both, "itemSpend", { search: "man" }).value).toBeCloseTo(-cinema[0].tx_amount_eur, 2);
@@ -220,7 +227,10 @@ describe("itemSpend", () => {
     expect(runEngine(both, "itemSpend", { search: "popcorn woman" }).value).toBeCloseTo(-cinema[1].tx_amount_eur - 4.99, 2);
     const none = runEngine(both, "itemSpend", { search: "champagne" });
     expect(none.rows).toEqual([]);
-    expect(none.assumptions?.[0]).toMatch(/No linked receipt in this period has lines with "champagne"/);
+    expect(none.value).toBe(0);
+    expect(none.assumptions).toContain('None of these receipts has lines with "champagne".');
+    // Punctuation alone is not a search.
+    expect(() => runEngine(both, "itemSpend", { search: '"' })).toThrow(/search must contain at least one word/);
   });
 
   it("follows receipts per month, with the months that have none at 0", () => {

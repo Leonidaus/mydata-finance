@@ -1,7 +1,7 @@
 import { type Block, type Control, type EngineResult, PERIOD_OPTIONS, type TxFilter } from "@mydata/shared";
 import { type ReactNode, useId, useMemo } from "react";
 import type { TopLevelSpec } from "vega-lite";
-import { type Datum, VEGA_TEMPLATES } from "./blocks/templates";
+import { type Datum, itemDrill, VEGA_TEMPLATES } from "./blocks/templates";
 import type { SavedState } from "./conversation";
 import { useDataSource } from "./data";
 import { formatDate, formatEur } from "./format";
@@ -32,7 +32,7 @@ interface Props {
 }
 
 export default function BlockCard({ block, customerId, today, onChange, onRemove, onSave, saved = "no", onAsk, variant = "card", onDrill }: Props) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   // The same card can be on screen more than once (in two answers, or in an answer and the overview).
   const titleId = useId();
   const source = useDataSource();
@@ -54,7 +54,7 @@ export default function BlockCard({ block, customerId, today, onChange, onRemove
     if (block.data.kind !== "engine") return;
     onChange({ data: { ...block.data, args: { ...block.data.args, [arg]: value } } });
   };
-  const title = displayTitle(block, t);
+  const title = displayTitle(block, t, locale);
 
   return (
     <article className={variant === "answer" ? "block block-answer" : "block"} aria-labelledby={titleId}>
@@ -349,11 +349,16 @@ export function presentResult(block: Block, result: EngineResult, locale: Return
 /** Receipt cards in Finnish, worded from the figures the engine gives as data. */
 function presentItems(fn: "itemSpend" | "itemTrend", result: EngineResult, locale: ReturnType<typeof useI18n>["locale"], t: Translate): PresentedResult {
   const facts = result.facts ?? {};
-  const asked = [
-    typeof facts.subcategory === "string" ? `, ${subcategoryLabel(locale, facts.subcategory)}` : "",
-    typeof facts.shop === "string" ? t("card.itemsAskedShop", { shop: facts.shop }) : "",
+  // The shop narrows which receipts were checked; an item kind or a search, which lines count in them.
+  const lines = [
+    typeof facts.subcategory === "string" ? subcategoryLabel(locale, facts.subcategory) : "",
     typeof facts.search === "string" ? t("card.itemsAskedSearch", { search: facts.search }) : "",
-  ].join("");
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const asked =
+    (typeof facts.shop === "string" ? t("card.itemsAskedShop", { shop: facts.shop }) : "") +
+    (lines && typeof facts.matching === "number" ? t("card.itemsMatching", { matching: facts.matching, what: lines }) : lines ? `, ${lines}` : "");
   if (!facts.receipts) return { ...result, caption: t("card.itemsNone", { asked }), explanation: t("card.itemsDescription"), assumptions: [t("card.itemsAssumption")] };
   const categories = String(facts.categories ?? "")
     .split(",")
@@ -429,11 +434,32 @@ export function monthSpend(result: EngineResult): number {
 }
 
 /** A card's title as shown: the two starting cards are named by the app, in the user's language. */
-export function displayTitle(block: Block, t: ReturnType<typeof useI18n>["t"]): string {
+export function displayTitle(block: Block, t: ReturnType<typeof useI18n>["t"], locale: ReturnType<typeof useI18n>["locale"] = "en"): string {
   if (block.data.kind !== "engine") return block.title;
   if (block.data.fn === "safeToSpend") return block.data.args.horizon === "until_payday" ? t("card.safeTitlePayday") : t("card.safeTitleWeek");
   if (block.data.fn === "monthSoFar") return t("card.monthTitle");
+  if (block.data.fn === "itemSpend" || block.data.fn === "itemTrend") return itemTitle(block.data.fn, block.data.args, t, locale);
   return block.title;
+}
+
+/** Receipt cards are named by what they show, in the user's language: the shop, the search, or the kind of item. */
+function itemTitle(fn: "itemSpend" | "itemTrend", args: Record<string, unknown>, t: Translate, locale: ReturnType<typeof useI18n>["locale"]): string {
+  const s = (v: unknown) => (typeof v === "string" && v ? v : undefined);
+  const shop = s(args.shop);
+  const search = s(args.search);
+  const subcategory = s(args.subcategory);
+  const category = s(args.category);
+  const what = shop
+    ? shop
+    : search
+      ? t("card.itemTitleSearch", { search })
+      : subcategory
+        ? t("card.itemTitleKind", { kind: subcategoryLabel(locale, subcategory) })
+        : category
+          ? t("card.itemTitleCategory", { category: categoryLabel(locale, category) })
+          : null;
+  if (fn === "itemTrend") return t("card.itemTitleTrend", { what: what ?? t("card.itemTitleReceipts") });
+  return what ?? (args.per === "shop" ? t("card.itemTitleShops") : t("card.itemTitleAll"));
 }
 
 /** A free-form spec without its own `data` gets the engine rows injected as `data.values`. */
@@ -445,9 +471,8 @@ const isStr = (v: unknown, re: RegExp): v is string => typeof v === "string" && 
 
 function genericDrill(datum: Datum, block: Block): Partial<TxFilter> | null {
   const args = block.data.kind === "engine" ? block.data.args : {};
-  if (block.data.kind === "engine" && block.data.fn === "itemSpend" && typeof datum.key === "string" && datum.key) {
-    return args.per === "shop" ? { shop: String(datum.label ?? datum.key) } : { subcategory: datum.key };
-  }
+  const items = itemDrill(datum, block);
+  if (items) return items;
   if (block.data.kind === "engine" && block.data.fn === "spendBy" && typeof datum.key === "string" && datum.key) {
     return args.by === "merchant_type" ? { mcc: datum.key } : { category: datum.key };
   }

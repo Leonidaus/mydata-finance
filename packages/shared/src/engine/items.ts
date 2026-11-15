@@ -9,6 +9,7 @@
  */
 import { ITEM_SUBCATEGORY_LABELS, type ItemSubcategory, type LinkedReceipt, type ReceiptLine } from "../receipts/types";
 import type { Transaction } from "../schema";
+import { EngineArgumentError } from "./args";
 import type { EngineContext, EngineResult, Row, TxFilter } from "./types";
 import { addMonths, displayDate, inRange, isSpending, monthOf, type Period, PERIODS, resolvePeriod, round2, startOfMonth } from "./util";
 
@@ -25,9 +26,14 @@ const wordsOf = (s: string) => normalizeText(s).split(/[^\p{L}\p{N}]+/u).filter(
  * not find "Woman", and "kahvi" finds "Kahvi 500g" and "KAHVIT".
  */
 export function hasWords(text: string, query: string): boolean {
+  const asked = wordsOf(query);
+  if (asked.length === 0) return false; // punctuation alone asks for nothing
   const words = wordsOf(text);
-  return wordsOf(query).every((q) => words.some((w) => w.startsWith(q)));
+  return asked.every((q) => words.some((w) => w.startsWith(q)));
 }
+
+/** A receipt's shop as one key: the name in lower case, or "-" when none was read. Rows per shop use it. */
+export const shopKey = (merchant: string | undefined) => normalizeText(merchant ?? "") || "-";
 
 /** The linked receipts by transaction id. */
 export function receiptsByTx(ctx: EngineContext): Map<number, LinkedReceipt> {
@@ -39,6 +45,8 @@ interface ReceiptFilter {
   subcategory?: string;
   /** Part of the shop's name as printed on the receipt. */
   shop?: string;
+  /** Exactly this shop, as its key (see shopKey): a tapped bar in a chart per shop. */
+  receiptShop?: string;
   /** Part of an item line's name. */
   item?: string;
 }
@@ -46,9 +54,12 @@ interface ReceiptFilter {
 const lineMatches = (line: ReceiptLine, f: ReceiptFilter) =>
   line.kind === "item" && (!f.subcategory || line.subcategory === f.subcategory) && (!f.item || hasWords(line.name, f.item));
 
+const shopMatches = (receipt: LinkedReceipt, f: ReceiptFilter) =>
+  (!f.shop || hasWords(receipt.merchant ?? "", f.shop)) && (!f.receiptShop || shopKey(receipt.merchant) === f.receiptShop);
+
 /** The lines of a receipt that count for `f`, or none when its shop does not match. */
 function matchingLines(receipt: LinkedReceipt, f: ReceiptFilter): ReceiptLine[] {
-  if (f.shop && !hasWords(receipt.merchant ?? "", f.shop)) return [];
+  if (!shopMatches(receipt, f)) return [];
   return receipt.lines.filter((line) => lineMatches(line, f));
 }
 
@@ -56,12 +67,12 @@ function matchingLines(receipt: LinkedReceipt, f: ReceiptFilter): ReceiptLine[] 
 export function hasReceipt(t: Transaction, byTx: Map<number, LinkedReceipt>, f: ReceiptFilter = {}): boolean {
   const receipt = t.tx_id === undefined ? undefined : byTx.get(t.tx_id);
   if (!receipt) return false;
-  if (!f.subcategory && !f.shop && !f.item) return true;
+  if (!f.subcategory && !f.shop && !f.item && !f.receiptShop) return true;
   return matchingLines(receipt, f).length > 0;
 }
 
 /** The receipt filter a drill-down carries. */
-export const receiptFilterOf = (f: TxFilter): ReceiptFilter => ({ subcategory: f.subcategory, shop: f.shop, item: f.item });
+export const receiptFilterOf = (f: TxFilter): ReceiptFilter => ({ subcategory: f.subcategory, shop: f.shop, item: f.item, receiptShop: f.receiptShop });
 
 const list = (names: string[]) => (names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`);
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -69,39 +80,49 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 interface Selected {
   t: Transaction;
   receipt: LinkedReceipt;
+  /** The lines that count; none when the receipt was checked and has nothing asked for. */
   lines: ReceiptLine[];
 }
 
-/** The linked payments in [from, to] whose receipt has lines that count, with those lines. */
+/**
+ * The sample: every linked payment in [from, to] (in the bank category and from the shop asked
+ * about), with the lines of its receipt that count. A receipt without such lines still belongs to
+ * the sample: it was checked, and had none.
+ */
 function select(ctx: EngineContext, from: string, to: string, category: string | undefined, f: ReceiptFilter): Selected[] {
   const byTx = receiptsByTx(ctx);
-  const picked: Selected[] = [];
+  const sample: Selected[] = [];
   for (const t of ctx.tx) {
     if (!isSpending(t) || t.tx_id === undefined || !inRange(t, from, to) || t.tx_date > ctx.today || (category && t.category !== category)) continue;
     const receipt = byTx.get(t.tx_id);
-    if (!receipt) continue;
-    const lines = matchingLines(receipt, f);
-    if (lines.length) picked.push({ t, receipt, lines });
+    if (!receipt || !shopMatches(receipt, f)) continue;
+    sample.push({ t, receipt, lines: receipt.lines.filter((line) => lineMatches(line, f)) });
   }
-  return picked;
+  return sample;
 }
 
 /**
- * How many receipts, over which dates, and what share of the spending they cover: the linked
- * payments against all spending in the same bank categories over the same period.
+ * How many receipts were checked, over which dates, how many had what was asked, and what share
+ * of the spending they cover: the linked payments against all spending in the same bank
+ * categories over the same period.
  */
-function coverageOf(ctx: EngineContext, picked: Selected[], from: string, to: string) {
-  const categories = [...new Set(picked.map((s) => s.t.category))].sort();
-  const covered = picked.reduce((s, p) => s + out(p.t), 0);
+function coverageOf(ctx: EngineContext, sample: Selected[], from: string, to: string) {
+  const categories = [...new Set(sample.map((s) => s.t.category))].sort();
+  const covered = sample.reduce((s, p) => s + out(p.t), 0);
   const all = ctx.tx.filter((t) => isSpending(t) && inRange(t, from, to) && categories.includes(t.category)).reduce((s, t) => s + out(t), 0);
   return {
-    receipts: picked.length,
-    first: picked[0]?.t.tx_date ?? from,
-    last: picked.at(-1)?.t.tx_date ?? to,
+    receipts: sample.length,
+    matching: sample.filter((s) => s.lines.length > 0).length,
+    first: sample[0]?.t.tx_date ?? from,
+    last: sample.at(-1)?.t.tx_date ?? to,
     categories,
     coverage: all > 0 ? Math.min(100, Math.round((covered / all) * 100)) : 100,
   };
 }
+
+/** Which lines were asked for, in words: "Snacks and sweets", "lines with "cola"". */
+const describeLines = (subcategory: ItemSubcategory | undefined, f: ReceiptFilter) =>
+  [subcategory && ITEM_SUBCATEGORY_LABELS[subcategory], f.item && `lines with "${f.item}"`].filter(Boolean).join(", ");
 
 /** What the filters ask for, in words: "Snacks and sweets", "at Alko", "lines with "cola"". */
 function describeFilter(subcategory: ItemSubcategory | undefined, f: ReceiptFilter): string {
@@ -117,7 +138,7 @@ function noReceipts(ctx: EngineContext, asked: string, filter: TxFilter, caption
       !ctx.receipts?.length
         ? "The user has not linked any receipts to card payments yet. Item and shop figures come only from receipts: suggest photographing the next one."
         : asked
-          ? `No linked receipt in this period has ${asked}. Another period, or a broader search, may have some.`
+          ? `No ${asked} are linked in this period. Another period, or another spelling of the shop, may have some.`
           : "No receipt linked to a card payment falls in this period. Another period may have some.",
     ],
     filter,
@@ -135,6 +156,9 @@ const structured = (subcategory: ItemSubcategory | undefined, f: ReceiptFilter) 
 function readFilters(args: Record<string, unknown>) {
   const subcategory = str(args.subcategory) as ItemSubcategory | undefined;
   const f: ReceiptFilter = { subcategory, shop: str(args.shop), item: str(args.search) };
+  for (const [name, value] of [["shop", f.shop], ["search", f.item]] as const) {
+    if (value !== undefined && wordsOf(value).length === 0) throw new EngineArgumentError(`${name} must contain at least one word.`);
+  }
   return { subcategory, category: str(args.category), f };
 }
 
@@ -152,20 +176,20 @@ const drillFilter = (from: string, to: string, category: string | undefined, f: 
 export function itemSpend(ctx: EngineContext, args: Record<string, unknown>): EngineResult {
   const { subcategory, category, f } = readFilters(args);
   const perShop = args.per === "shop";
-  // Without a period: everything since the first matching receipt, so a handful of receipts is not cut in half.
+  // Without a period: everything since the first receipt checked, so a handful of receipts is not cut in half.
   const p = args.period as Period | undefined;
   const all = p ? null : select(ctx, "0000-01-01", ctx.today, category, f);
   const [from, to] = p ? resolvePeriod(p, ctx.today) : [all?.[0]?.t.tx_date ?? ctx.today, ctx.today];
-  const picked = all ?? select(ctx, from, to, category, f);
+  const sample = all ?? select(ctx, from, to, category, f);
   const asked = describeFilter(subcategory, f);
   const filter = drillFilter(from, to, category, f);
-  if (picked.length === 0) return noReceipts(ctx, asked, filter, `${p ? PERIODS[p] : "So far"}: no receipts${asked ? ` with ${asked}` : ""}`);
+  if (sample.length === 0) return noReceipts(ctx, f.shop ? `receipts from "${f.shop}"` : "", filter, `${p ? PERIODS[p] : "So far"}: no receipts${asked ? ` with ${asked}` : ""}`);
 
   const groups = new Map<string, { label: string; amount: number; count: number; trips: number }>();
-  for (const { receipt, lines } of picked) {
+  for (const { receipt, lines } of sample) {
     const seen = new Set<string>();
     for (const line of lines) {
-      const key = perShop ? normalizeText(receipt.merchant || "?") : line.subcategory;
+      const key = perShop ? shopKey(receipt.merchant) : line.subcategory;
       const label = perShop ? receipt.merchant || "Unknown shop" : ITEM_SUBCATEGORY_LABELS[line.subcategory];
       const g = groups.get(key) ?? { label, amount: 0, count: 0, trips: 0 };
       g.amount += line.amount;
@@ -178,18 +202,22 @@ export function itemSpend(ctx: EngineContext, args: Record<string, unknown>): En
   const rows: Row[] = [...groups.entries()]
     .map(([key, g]) => ({ key, label: g.label, amount: round2(g.amount), count: g.count, trips: g.trips }))
     .sort((a, b) => b.amount - a.amount);
-  const c = coverageOf(ctx, picked, from, to);
+  const c = coverageOf(ctx, sample, from, to);
   const span = c.first === c.last ? `on ${displayDate(c.first)}` : `from ${displayDate(c.first)} to ${displayDate(c.last)}`;
+  const lines = describeLines(subcategory, f);
+  // A search or one kind of item: how many of the receipts checked had it. Receipts without it still count as checked.
+  const found = lines ? `, ${c.matching} with ${lines}` : "";
   return {
     rows,
     value: round2(rows.reduce((s, r) => s + (r.amount as number), 0)),
     unit: "€",
-    caption: `${plural(c.receipts, "receipt")} ${span}${asked ? `, ${asked}` : ""} (${c.coverage}% of ${list(c.categories)} spending)`,
+    caption: `${plural(c.receipts, "receipt")} ${span}${f.shop ? ` at "${f.shop}"` : ""}${found} (${c.coverage}% of ${list(c.categories)} spending)`,
     assumptions: [
-      `From ${plural(c.receipts, "receipt")} ${span}. Payments with a receipt are ${c.coverage}% of the ${list(c.categories)} spending ${p ? `in ${PERIODS[p].toLowerCase()}` : `from ${displayDate(from)} to ${displayDate(to)}`}; spending without a receipt is not itemised.`,
+      `${plural(c.receipts, "receipt")} checked, ${span}${found}. Payments with a receipt are ${c.coverage}% of the ${list(c.categories)} spending ${p ? `in ${PERIODS[p].toLowerCase()}` : `from ${displayDate(from)} to ${displayDate(to)}`}; spending without a receipt is not itemised.`,
+      ...(lines && c.matching === 0 ? [`None of these receipts has ${lines}.`] : []),
     ],
     filter,
-    facts: { receipts: c.receipts, first: c.first, last: c.last, coverage: c.coverage, categories: c.categories.join(","), ...structured(subcategory, f) },
+    facts: { receipts: c.receipts, matching: c.matching, first: c.first, last: c.last, coverage: c.coverage, categories: c.categories.join(","), ...structured(subcategory, f) },
   };
 }
 
@@ -199,32 +227,34 @@ export function itemTrend(ctx: EngineContext, args: Record<string, unknown>): En
   // This month counts too: receipts are often recent.
   const from = startOfMonth(addMonths(startOfMonth(ctx.today), -(months - 1)));
   const to = ctx.today;
-  const picked = select(ctx, from, to, category, f);
+  const sample = select(ctx, from, to, category, f);
   const asked = describeFilter(subcategory, f);
   const filter = drillFilter(from, to, category, f);
-  if (picked.length === 0) return noReceipts(ctx, asked, filter, `Last ${months} months: no receipts${asked ? ` with ${asked}` : ""}`);
+  if (sample.length === 0) return noReceipts(ctx, f.shop ? `receipts from "${f.shop}"` : "", filter, `Last ${months} months: no receipts${asked ? ` with ${asked}` : ""}`);
 
+  // receipts: how many were checked that month, also those without what was asked.
   const totals = new Map<string, { amount: number; receipts: number }>();
   for (let i = 0; i < months; i++) totals.set(monthOf(addMonths(from, i)), { amount: 0, receipts: 0 });
-  for (const { t, lines } of picked) {
+  for (const { t, lines } of sample) {
     const m = totals.get(monthOf(t.tx_date));
     if (!m) continue;
     m.amount += lines.reduce((s, l) => s + l.amount, 0);
     m.receipts += 1;
   }
   const rows: Row[] = [...totals.entries()].map(([month, m]) => ({ month, amount: round2(m.amount), receipts: m.receipts }));
-  const c = coverageOf(ctx, picked, from, to);
+  const c = coverageOf(ctx, sample, from, to);
   const withReceipts = rows.filter((r) => (r.receipts as number) > 0).length;
+  const lines = describeLines(subcategory, f);
   return {
     rows,
     value: round2(rows.reduce((s, r) => s + (r.amount as number), 0)),
     unit: "€",
-    caption: `Per month, last ${months} months${asked ? `, ${asked}` : ""}: ${plural(c.receipts, "receipt")} in ${plural(withReceipts, "month")}`,
+    caption: `Per month, last ${months} months${asked ? `, ${asked}` : ""}: ${plural(c.receipts, "receipt")} in ${plural(withReceipts, "month")}${lines ? `, ${c.matching} with it` : ""}`,
     assumptions: [
       "A month without receipts shows 0: nothing was photographed, which does not mean nothing was spent.",
       `Payments with a receipt are ${c.coverage}% of the ${list(c.categories)} spending in these months.`,
     ],
     filter,
-    facts: { receipts: c.receipts, months, monthsWithReceipts: withReceipts, coverage: c.coverage, categories: c.categories.join(","), ...structured(subcategory, f) },
+    facts: { receipts: c.receipts, matching: c.matching, months, monthsWithReceipts: withReceipts, coverage: c.coverage, categories: c.categories.join(","), ...structured(subcategory, f) },
   };
 }
