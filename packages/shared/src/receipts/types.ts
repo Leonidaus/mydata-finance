@@ -177,5 +177,7 @@ export interface ReceiptView extends ReceiptRead {
 /** What the engine gets of a linked receipt. */
 export interface LinkedReceipt {
   txId: number;
+  /** The shop as printed on the receipt: the bank data has no shop names. */
+  merchant: string;
   lines: ReceiptLine[];
 }

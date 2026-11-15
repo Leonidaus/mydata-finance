@@ -66,7 +66,7 @@ function parsePeriod(query: Record<string, string>, today: string): Period {
   return { from, to };
 }
 
-const TX_FILTER_KEYS = ["from", "to", "kind", "category", "mcc", "basket", "month", "date", "subcategory"] as const;
+const TX_FILTER_KEYS = ["from", "to", "kind", "category", "mcc", "basket", "month", "date", "subcategory", "shop", "item"] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

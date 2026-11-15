@@ -7,7 +7,7 @@ import { lookupMcc } from "../mcc";
 import type { Transaction } from "../schema";
 import { EngineArgumentError, type TREND_METRICS, validateEngineArgs } from "./args";
 import { BASKET_LABELS, basketOf } from "./baskets";
-import { hasReceipt, itemSpend, receiptsByTx } from "./items";
+import { hasReceipt, itemSpend, itemTrend, receiptFilterOf, receiptsByTx } from "./items";
 import { detectStreams, SINGLE_PAYMENT_MAX_PER_MONTH, type Stream, streamKey } from "./streams";
 import type { Basket, EngineContext, EngineFn, EngineResult, Row, TxFilter } from "./types";
 import {
@@ -1090,6 +1090,7 @@ const FNS: Record<EngineFn, (ctx: EngineContext, args: Record<string, unknown>) 
   goalReview,
   afford,
   itemSpend,
+  itemTrend,
 };
 
 export function runEngine(ctx: EngineContext, fn: EngineFn, args: Record<string, unknown> = {}): EngineResult {
@@ -1099,9 +1100,10 @@ export function runEngine(ctx: EngineContext, fn: EngineFn, args: Record<string,
 }
 
 export function filterTransactions(ctx: EngineContext, f: TxFilter): Transaction[] {
-  const byTx = f.withReceipt || f.subcategory ? receiptsByTx(ctx) : null;
+  const byTx = f.withReceipt || f.subcategory || f.shop || f.item ? receiptsByTx(ctx) : null;
+  const receiptFilter = receiptFilterOf(f);
   return ctx.tx.filter((t) => {
-    if (byTx && !hasReceipt(t, byTx, f.subcategory)) return false;
+    if (byTx && !hasReceipt(t, byTx, receiptFilter)) return false;
     if (f.from && t.tx_date < f.from) return false;
     if (f.to && t.tx_date > f.to) return false;
     if (f.date && t.tx_date !== f.date) return false;

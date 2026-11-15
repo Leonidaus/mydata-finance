@@ -219,6 +219,16 @@ const en = {
   "receipts.linkPayment": "Choose payment",
   "drawer.showReceipt": "Show the receipt",
   "drawer.hideReceipt": "Hide the receipt",
+  "card.itemsScope": "Receipts: {{receipts}}, {{span}}{{asked}} · {{coverage}}% of {{categories}} spending",
+  "card.itemsSpanRange": "{{first}} to {{last}}",
+  "card.itemsSpanDay": "{{date}}",
+  "card.itemsAskedShop": ", at {{shop}}",
+  "card.itemsAskedSearch": ", lines with \"{{search}}\"",
+  "card.itemsNone": "No receipts{{asked}}",
+  "card.itemsDescription": "The receipts you have photographed and linked to a card payment. Payments without a receipt are not included, so this is a sample: the caption says how much of the spending the receipts cover.",
+  "card.itemsAssumption": "Only payments with a receipt are included, so the figures are a sample of your spending.",
+  "card.itemTrendScope": "Per month, last {{months}} months{{asked}}: {{receipts}} receipts",
+  "card.itemTrendAssumption": "A month without receipts shows 0: nothing was photographed, which does not mean nothing was spent.",
   "chat.unprotectYes": "Yes, stop keeping {{category}} as is",
   "chat.unprotectNo": "No, keep it",
   "chat.unprotectYesMessage": "Yes, take {{category}} off my keep-as-is list.",
@@ -484,6 +494,16 @@ const fi: Record<keyof typeof en, string> = {
   "receipts.linkPayment": "Valitse maksu",
   "drawer.showReceipt": "Näytä kuitti",
   "drawer.hideReceipt": "Piilota kuitti",
+  "card.itemsScope": "Kuitteja {{receipts}}, {{span}}{{asked}} · {{coverage}} % kulutuksesta luokissa {{categories}}",
+  "card.itemsSpanRange": "{{first}}–{{last}}",
+  "card.itemsSpanDay": "{{date}}",
+  "card.itemsAskedShop": ", kauppa {{shop}}",
+  "card.itemsAskedSearch": ", rivit, joissa \"{{search}}\"",
+  "card.itemsNone": "Ei kuitteja{{asked}}",
+  "card.itemsDescription": "Kuvaamasi ja korttimaksuun yhdistetyt kuitit. Maksut ilman kuittia eivät ole mukana, joten tämä on otos: tarkennus kertoo, kuinka suuren osan kulutuksesta kuitit kattavat.",
+  "card.itemsAssumption": "Mukana ovat vain maksut, joista on kuitti, joten luvut ovat otos kulutuksestasi.",
+  "card.itemTrendScope": "Kuukausittain, viimeiset {{months}} kk{{asked}}: kuitteja {{receipts}}",
+  "card.itemTrendAssumption": "Kuukausi ilman kuitteja näkyy nollana: mitään ei kuvattu, mikä ei tarkoita, ettei rahaa kulunut.",
   "chat.unprotectYes": "Kyllä, lopeta {{category}}-kulujen suojaaminen",
   "chat.unprotectNo": "Ei, pidä suojattuna",
   "chat.unprotectYesMessage": "Kyllä, poista {{category}} suojattujen listalta.",
@@ -566,6 +586,9 @@ const subcategoryNames: Record<Locale, Record<ItemSubcategory, string>> = {
     household: "Kodin tarvikkeet", hygiene_beauty: "Hygienia ja kauneus", pharmacy: "Apteekki", baby: "Vauvatarvikkeet", pet: "Lemmikkitarvikkeet", clothing: "Vaatteet", electronics: "Elektroniikka", fuel: "Polttoaine", other: "Muut",
   },
 };
+
+/** A bank category's name in `locale`; for use outside React. Unknown values are shown as they are. */
+export const categoryLabel = (locale: Locale, value: string): string => categoryNames[locale][value as TransactionCategory] ?? value;
 
 /** An item sub-category's name in `locale`; for use outside React (charts). */
 export const subcategoryLabel = (locale: Locale, value: string): string => (isItemSubcategory(value) ? subcategoryNames[locale][value] : value);

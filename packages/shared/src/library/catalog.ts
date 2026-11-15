@@ -19,6 +19,29 @@ const categoryControl = (withAll: boolean): Control => ({
   options: [...(withAll ? [{ value: "", label: "All categories" }] : []), ...SPENDING_CATEGORIES.map((c) => ({ value: c, label: c }))],
 });
 
+interface ItemOptions {
+  subcategory?: string;
+  category?: string;
+  shop?: string;
+  search?: string;
+}
+
+const itemArgs = (o: ItemOptions) => ({
+  ...(o.subcategory && { subcategory: o.subcategory }),
+  ...(o.category && { category: o.category }),
+  ...(o.shop && { shop: o.shop }),
+  ...(o.search && { search: o.search }),
+});
+
+/** "Alko", "Snacks and sweets", "\"cola\"", or the fallback. */
+function itemTitle(o: ItemOptions, fallback: string): string {
+  if (o.shop) return o.shop;
+  if (o.search) return `"${o.search}" on your receipts`;
+  if (isItemSubcategory(o.subcategory)) return `${ITEM_SUBCATEGORY_LABELS[o.subcategory]} on your receipts`;
+  if (o.category) return `What's in your ${o.category} receipts`;
+  return fallback;
+}
+
 export const PERIOD_OPTIONS = Object.entries(PERIODS).map(([value, label]) => ({ value, label }));
 
 export const catalog = {
@@ -92,19 +115,28 @@ export const catalog = {
     };
   },
 
-  /** What is in the shopping, per item sub-category, from linked receipts. */
-  itemBars: (opts: { period?: string; subcategory?: string; category?: string } = {}): Block => ({
+  /** What is in the shopping, per item type or per shop, from linked receipts. */
+  itemBars: (opts: ItemOptions & { period?: string; per?: "item_type" | "shop" } = {}): Block => ({
     id: id("items"),
-    title: isItemSubcategory(opts.subcategory) ? `${ITEM_SUBCATEGORY_LABELS[opts.subcategory]} on your receipts` : opts.category ? `What's in your ${opts.category} receipts` : "What's in your shopping",
+    title: itemTitle(opts, opts.per === "shop" ? "Shops on your receipts" : "What's in your shopping"),
     explanation:
-      "Every line of the receipts you have photographed and linked to a card payment, grouped by kind of item. Payments without a receipt are not itemised, so this is a sample: the caption says how much of the spending it covers.",
+      "The receipts you have photographed and linked to a card payment, " +
+      (opts.per === "shop" ? "grouped by the shop printed on them. " : "with every line grouped by kind of item. ") +
+      "Payments without a receipt are not included, so this is a sample: the caption says how much of the spending it covers.",
     source: "own",
-    data: {
-      kind: "engine",
-      fn: "itemSpend",
-      args: { ...(opts.period && { period: opts.period }), ...(opts.subcategory && { subcategory: opts.subcategory }), ...(opts.category && { category: opts.category }) },
-    },
+    data: { kind: "engine", fn: "itemSpend", args: { ...(opts.period && { period: opts.period }), ...(opts.per === "shop" && { per: "shop" }), ...itemArgs(opts) } },
     view: { kind: "template", template: "category_bars" },
+  }),
+
+  /** One kind of item, one shop or one word on the receipts, per month. */
+  itemTrend: (opts: ItemOptions & { months?: number } = {}): Block => ({
+    id: id("itemtrend"),
+    title: `${itemTitle(opts, "Receipts")} per month`,
+    explanation:
+      "Per month, the money on the receipts you have photographed and linked to a card payment. A month without receipts shows nothing because nothing was photographed, not because nothing was spent.",
+    source: "own",
+    data: { kind: "engine", fn: "itemTrend", args: { months: opts.months ?? 12, ...itemArgs(opts) } },
+    view: { kind: "template", template: "trend_line" },
   }),
 
   trend: (opts: { metric?: "spending" | "income" | "net" | "saving"; category?: string; months?: number } = {}): Block => ({

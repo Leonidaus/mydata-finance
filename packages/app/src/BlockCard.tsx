@@ -4,12 +4,12 @@ import type { TopLevelSpec } from "vega-lite";
 import { type Datum, VEGA_TEMPLATES } from "./blocks/templates";
 import type { SavedState } from "./conversation";
 import { useDataSource } from "./data";
-import { formatEur } from "./format";
+import { formatDate, formatEur } from "./format";
 import { useLatest } from "./latest";
 import LoadError from "./LoadError";
 import IframeBlock from "./renderers/IframeBlock";
 import VegaBlock from "./renderers/VegaBlock";
-import { type TranslationKey, useI18n } from "./i18n";
+import { categoryLabel, subcategoryLabel, type TranslationKey, useI18n } from "./i18n";
 import { useReceipts } from "./receipts";
 
 interface Props {
@@ -38,7 +38,7 @@ export default function BlockCard({ block, customerId, today, onChange, onRemove
   const source = useDataSource();
   // Item figures come from receipts, so they are fetched again when a receipt is linked or unlinked.
   const receiptsVersion = useReceipts().version;
-  const fromReceipts = block.data.kind === "engine" && block.data.fn === "itemSpend";
+  const fromReceipts = block.data.kind === "engine" && (block.data.fn === "itemSpend" || block.data.fn === "itemTrend");
   // The answer is kept together with the block it was computed for, so that the two always match.
   const outcome = useLatest(
     JSON.stringify([source.mode, customerId, block.data, fromReceipts ? receiptsVersion : 0]),
@@ -323,6 +323,8 @@ export function presentResult(block: Block, result: EngineResult, locale: Return
     };
   }
 
+  if (block.data.fn === "itemSpend" || block.data.fn === "itemTrend") return presentItems(block.data.fn, result, locale, t);
+
   if (block.data.fn === "monthSoFar") {
     const terms: readonly TranslationKey[] = [
       "card.term.moneyIn",
@@ -342,6 +344,39 @@ export function presentResult(block: Block, result: EngineResult, locale: Return
   }
 
   return result;
+}
+
+/** Receipt cards in Finnish, worded from the figures the engine gives as data. */
+function presentItems(fn: "itemSpend" | "itemTrend", result: EngineResult, locale: ReturnType<typeof useI18n>["locale"], t: Translate): PresentedResult {
+  const facts = result.facts ?? {};
+  const asked = [
+    typeof facts.subcategory === "string" ? `, ${subcategoryLabel(locale, facts.subcategory)}` : "",
+    typeof facts.shop === "string" ? t("card.itemsAskedShop", { shop: facts.shop }) : "",
+    typeof facts.search === "string" ? t("card.itemsAskedSearch", { search: facts.search }) : "",
+  ].join("");
+  if (!facts.receipts) return { ...result, caption: t("card.itemsNone", { asked }), explanation: t("card.itemsDescription"), assumptions: [t("card.itemsAssumption")] };
+  const categories = String(facts.categories ?? "")
+    .split(",")
+    .filter(Boolean)
+    .map((c) => categoryLabel(locale, c))
+    .join(", ");
+  if (fn === "itemTrend") {
+    return {
+      ...result,
+      caption: t("card.itemTrendScope", { months: facts.months ?? "", asked, receipts: facts.receipts }),
+      explanation: t("card.itemsDescription"),
+      assumptions: [t("card.itemTrendAssumption"), t("card.itemsAssumption")],
+    };
+  }
+  const first = String(facts.first ?? "");
+  const last = String(facts.last ?? "");
+  const span = first === last ? t("card.itemsSpanDay", { date: formatDate(first, locale) }) : t("card.itemsSpanRange", { first: formatDate(first, locale), last: formatDate(last, locale) });
+  return {
+    ...result,
+    caption: t("card.itemsScope", { receipts: facts.receipts, span, asked, coverage: facts.coverage ?? "", categories }),
+    explanation: t("card.itemsDescription"),
+    assumptions: [t("card.itemsAssumption")],
+  };
 }
 
 function SafeToSpendCalculation({ rows }: { rows: EngineResult["rows"] }) {
@@ -410,7 +445,9 @@ const isStr = (v: unknown, re: RegExp): v is string => typeof v === "string" && 
 
 function genericDrill(datum: Datum, block: Block): Partial<TxFilter> | null {
   const args = block.data.kind === "engine" ? block.data.args : {};
-  if (block.data.kind === "engine" && block.data.fn === "itemSpend" && typeof datum.key === "string" && datum.key) return { subcategory: datum.key };
+  if (block.data.kind === "engine" && block.data.fn === "itemSpend" && typeof datum.key === "string" && datum.key) {
+    return args.per === "shop" ? { shop: String(datum.label ?? datum.key) } : { subcategory: datum.key };
+  }
   if (block.data.kind === "engine" && block.data.fn === "spendBy" && typeof datum.key === "string" && datum.key) {
     return args.by === "merchant_type" ? { mcc: datum.key } : { category: datum.key };
   }
