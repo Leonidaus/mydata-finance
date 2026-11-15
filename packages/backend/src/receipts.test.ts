@@ -159,6 +159,21 @@ describe("receipts in the chat and the API", () => {
 
     assert.equal((await call(app, "/api/customers/CUST00001/receipts", { method: "POST", body: { image: { mimeType: "text/html", data: "AAAA" } } })).status, 400);
     assert.equal((await call(createApp(createFixtureDb()), "/api/customers/CUST00001/receipts", { method: "POST", body: { image } })).status, 503);
+
+    // A model that does not answer in time gives a clear 504, not an internal error.
+    const stuck: ChatModel = {
+      generate: (_request, signal) =>
+        new Promise((_, reject) => signal?.addEventListener("abort", () => reject(Object.assign(new Error("timed out"), { name: "TimeoutError" })))),
+    };
+    const realTimeout = AbortSignal.timeout;
+    AbortSignal.timeout = () => realTimeout.call(AbortSignal, 10);
+    try {
+      const slow = await call<{ error: string }>(createApp(createFixtureDb(), { chatModel: stuck }), "/api/customers/CUST00001/receipts", { method: "POST", body: { image } });
+      assert.equal(slow.status, 504);
+      assert.match(slow.body.error, /took too long/);
+    } finally {
+      AbortSignal.timeout = realTimeout;
+    }
   });
 
   it("refuses a second receipt for a payment that already has one", async () => {

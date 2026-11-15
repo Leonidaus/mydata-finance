@@ -320,7 +320,15 @@ export function createApp(db: FinanceDb, options: AppOptions = {}): Hono {
     const body = await jsonBody(c.req.raw);
     if (!isChatImage(body.image)) badRequest(`image must be { mimeType, data }: a ${IMAGE_MIME_TYPES.join(", ")} picture as base64`);
     const model = "generate" in options.chatModel ? options.chatModel : options.chatModel.fast;
-    const read = await readReceipt(model, { mimeType: body.image.mimeType, data: body.image.data }, AbortSignal.timeout(CHAT_TIMEOUT_MS));
+    let read: Awaited<ReturnType<typeof readReceipt>>;
+    try {
+      read = await readReceipt(model, { mimeType: body.image.mimeType, data: body.image.data }, AbortSignal.timeout(CHAT_TIMEOUT_MS));
+    } catch (error) {
+      // readReceipt passes on only a cancelled call: here, the time running out. Said as /api/chat says it.
+      if (error instanceof Error && error.name === "TimeoutError") throw new HTTPException(504, { message: "Reading the receipt took too long. Try again in a moment." });
+      console.error("Receipt reading failed:", error);
+      throw new HTTPException(502, { message: error instanceof Error ? error.message : "The receipt could not be read." });
+    }
     if (read.total === null && read.lines.length === 0) return c.json({ receipt: null, unreadable: true });
     return c.json({ receipt: saveAndMatch(receipts, id, read, loadEngineContext(db, id)?.tx ?? [], db.today), unreadable: false });
   });
