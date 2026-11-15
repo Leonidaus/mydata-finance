@@ -130,7 +130,8 @@ body {
   overflow-x: clip;
   white-space: nowrap;
   text-align: center;
-  font-size: 1.0625rem;
+  /* A little smaller on a narrow phone, so that "Rahavalmentaja" fits beside three buttons at 360 px. */
+  font-size: clamp(0.875rem, 4.4vw, 1.0625rem);
   font-weight: 700;
   color: var(--text);
 }
@@ -167,6 +168,8 @@ body {
   display: flex;
   justify-self: end;
 }
+/* Three buttons side by side are a little narrower than the back arrow, to leave the title its room. */
+.topbar-actions .topbar-icon { width: 36px; }
 
 button.topbar-icon {
   position: relative;
