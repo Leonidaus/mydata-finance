@@ -142,6 +142,25 @@ describe("receipts in the chat and the API", () => {
     assert.equal((await call(app, "/api/customers/CUST00001/receipts/not-a-uuid", { method: "DELETE" })).status, 400);
   });
 
+  it("reads one receipt photo without a chat answer, for sending several at once", async () => {
+    const { model, seen } = receiptModel(readArgs);
+    const app = createApp(createFixtureDb(), { chatModel: model });
+    const sent = await call<{ receipt: ReceiptView; unreadable: boolean }>(app, "/api/customers/CUST00001/receipts", { method: "POST", body: { image } });
+    assert.equal(sent.status, 200);
+    assert.equal(sent.body.receipt.txId, 3);
+    assert.equal(sent.body.unreadable, false);
+    assert.deepEqual(seen.map((r) => r.tools[0]?.name), ["receipt_read"]); // no photo classification, no coach
+
+    // Nothing readable: nothing is saved.
+    const blank = createApp(createFixtureDb(), { chatModel: receiptModel({ merchant: "", lines: [] }).model });
+    const empty = await call<{ receipt: null; unreadable: boolean }>(blank, "/api/customers/CUST00001/receipts", { method: "POST", body: { image } });
+    assert.deepEqual(empty.body, { receipt: null, unreadable: true });
+    assert.equal((await call<{ receipts: unknown[] }>(blank, "/api/customers/CUST00001/receipts")).body.receipts.length, 0);
+
+    assert.equal((await call(app, "/api/customers/CUST00001/receipts", { method: "POST", body: { image: { mimeType: "text/html", data: "AAAA" } } })).status, 400);
+    assert.equal((await call(createApp(createFixtureDb()), "/api/customers/CUST00001/receipts", { method: "POST", body: { image } })).status, 503);
+  });
+
   it("refuses a second receipt for a payment that already has one", async () => {
     const receipts = new ReceiptStore();
     const app = createApp(createFixtureDb(), { receipts });

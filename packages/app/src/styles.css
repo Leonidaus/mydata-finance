@@ -1090,3 +1090,20 @@ button.topbar-narration.on { background: var(--green-300); color: var(--green-90
   gap: 6px;
   margin-top: 6px;
 }
+
+/* Several receipt photos waiting to be sent, and the same in the sent bubble. */
+.chat-attached-photos { display: flex; flex-wrap: wrap; gap: 6px; flex: none; max-width: 60%; }
+.chat-attached .chat-attached-photo { position: relative; flex: none; }
+.chat-attached .chat-attached-photo img { width: 44px; height: 44px; }
+.chat-attached .chat-attached-photo button {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  font-size: 0.9rem;
+}
+.bubble-photos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 6px; }
+.bubble-photos .bubble-photo { width: 100%; height: 72px; max-width: none; }
