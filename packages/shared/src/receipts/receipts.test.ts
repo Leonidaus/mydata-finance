@@ -295,6 +295,19 @@ describe("itemSpend", () => {
     expect(runEngine(printedInFinnish, "itemSpend", { search: "sweets", category: "Groceries", period: "last_12_months" }).value).toBe(kind.value);
   });
 
+  it("says how many receipts a period left out, instead of that there are none", () => {
+    // Receipts on the two oldest grocery payments: long before the last 30 days.
+    const old: EngineContext = { ...ctx, receipts: groceries.slice(0, 2).map((t) => ({ txId: t.tx_id as number, merchant: "Prisma", lines: [{ name: "Maito", subcategory: "dairy_eggs", amount: -t.tx_amount_eur, kind: "item" }] })) };
+    const r = runEngine(old, "itemSpend", { period: "last_30_days" });
+    expect(r.rows).toEqual([]);
+    expect(r.assumptions?.[0]).toMatch(/^No linked receipt falls in this period, but 2 linked receipts from .* are outside it\. Look it up again without period to include them; do not tell the user there are no receipts\.$/);
+    expect(runEngine(old, "itemTrend", { months: 2 }).assumptions?.[0]).toMatch(/but 2 linked receipts .* are outside it/);
+    // Without a period they all count.
+    expect(runEngine(old, "itemSpend", {}).facts).toMatchObject({ receipts: 2 });
+    // One bank category with none of the receipts in it: nothing is outside the period either.
+    expect(runEngine(old, "itemSpend", { period: "last_30_days", category: "Travel" }).assumptions?.[0]).toMatch(/Another period may have some/);
+  });
+
   it("drops a search that only repeats the kind of item it comes with", () => {
     const kind = runEngine(printedInFinnish, "itemSpend", { subcategory: "snacks_sweets" });
     const both = runEngine(printedInFinnish, "itemSpend", { subcategory: "snacks_sweets", search: "sweets" });
