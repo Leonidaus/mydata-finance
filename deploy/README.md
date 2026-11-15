@@ -112,6 +112,44 @@ Without `DEPLOY_HOST` the workflow still publishes the image and skips the deplo
 replace the key, generate a new pair, run `gh secret set DEPLOY_SSH_KEY < new_key`, and
 update `deploy_key.pub` and the host's `authorized_keys`.
 
+## Access logs and traffic
+
+Caddy writes JSON access logs for the primary hostname and aliases to
+`/data/access-logs/access.log` inside the proxy container. This is in the existing
+`caddy_data` volume, so the logs survive container recreation and app releases.
+Files are readable only by their owner, rotate at 10 MiB or after 24 hours, and
+keep up to seven archives younger than seven days. Caddy redacts authorization
+and cookie headers by default. Request bodies are not included.
+
+After connecting to the host, follow requests with:
+
+```bash
+docker exec mydata-caddy-1 tail -f /data/access-logs/access.log
+```
+
+The log includes timestamps, request host/method/path, client addresses, user
+agents, response status, size and duration. Timestamps are Unix seconds; convert
+to `Europe/Helsinki` when reporting a Finnish calendar day. Archives in the same
+directory are compressed after rotation.
+
+Successful `GET /` requests approximate page opens. Count API paths separately;
+static asset requests are not extra visits. Filter health checks, test traffic
+and identifiable crawlers when reporting usage. Unique client addresses are an
+estimate of visitors, not a count of people, especially on shared event Wi-Fi.
+Logging only records requests received after it was enabled.
+
+For a logging-only configuration change, validate and reload the running proxy:
+
+```bash
+docker exec mydata-caddy-1 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+docker exec mydata-caddy-1 caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+```
+
+The Caddyfile is mounted as a single file. Update its contents in place so the
+container continues to see the same inode. Caddy requires a restart to change
+options for an already-open log filename; ordinary reloads are sufficient when
+first enabling logging or when changing unrelated proxy configuration.
+
 ## When the database must be rebuilt
 
 The backend refuses to start if the database was built with different basket rules
