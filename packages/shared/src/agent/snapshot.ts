@@ -44,6 +44,7 @@ const SNAPSHOT: { title: string; fn: EngineFn; args: Record<string, unknown>; if
   { title: "Monthly averages next to customers of the same age (context, not a target)", fn: "peerCompare", args: {} },
   { title: "Bills and saving transfers that repeat every month", fn: "recurring", args: {} },
   { title: "What is in the shopping, from the receipts the user has linked (a sample, see coverage)", fn: "itemSpend", args: {}, ifAny: true },
+  { title: "Shops on the receipts the user has linked (the bank data has no shop names)", fn: "itemSpend", args: { per: "shop" }, ifAny: true },
 ];
 
 const SNAPSHOT_ROWS = 30;

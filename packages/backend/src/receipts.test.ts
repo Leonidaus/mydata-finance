@@ -38,7 +38,7 @@ describe("ReceiptStore", () => {
     const b = store.save("CUST00001", groceryReceipt);
     assert.equal(store.link("CUST00001", a.id, 3)?.status, "confirmed");
     assert.throws(() => store.link("CUST00001", b.id, 3), ReceiptConflictError);
-    assert.deepEqual(store.linked("CUST00001"), [{ txId: 3, lines: groceryReceipt.lines }]);
+    assert.deepEqual(store.linked("CUST00001"), [{ txId: 3, merchant: "Prisma", lines: groceryReceipt.lines }]);
     assert.equal(store.unlink("CUST00001", a.id)?.txId, null);
     assert.equal(store.linked("CUST00001").length, 0);
     assert.equal(store.delete("CUST00001", a.id), true);
@@ -100,7 +100,12 @@ describe("receipts in the chat and the API", () => {
     // The engine now itemises the shopping, and the drawer finds the payment behind it.
     const items = await call<{ rows: { key: string; amount: number }[]; caption: string; filter: Record<string, unknown> }>(app, "/api/customers/CUST00001/engine/itemSpend");
     assert.deepEqual(items.body.rows.map((r) => [r.key, r.amount]), [["produce", 67.5], ["snacks_sweets", 12.5]]);
-    assert.match(items.body.caption, /from 1 receipt \(\d+% of Groceries\)/);
+    assert.match(items.body.caption, /^1 receipt on 5\.8\.2026 \(\d+% of Groceries spending\)$/);
+    // The shop's name comes from the receipt: the bank data has none.
+    const shop = await call<{ value: number; rows: { label: string }[] }>(app, "/api/customers/CUST00001/engine/itemSpend?shop=prisma");
+    assert.equal(shop.body.value, 80);
+    const byShop = await call<{ transactions: { tx_id: number }[] }>(app, "/api/transactions", { method: "POST", body: { customerId: "CUST00001", filter: { withReceipt: true, shop: "Prisma", item: "fazer" } } });
+    assert.deepEqual(byShop.body.transactions.map((t) => t.tx_id), [3]);
     const behind = await call<{ transactions: { tx_id: number }[] }>(app, "/api/transactions", { method: "POST", body: { customerId: "CUST00001", filter: { ...items.body.filter, subcategory: "snacks_sweets" } } });
     assert.deepEqual(behind.body.transactions.map((t) => t.tx_id), [3]);
   });

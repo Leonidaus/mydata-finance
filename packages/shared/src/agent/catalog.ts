@@ -119,11 +119,20 @@ export const ENGINE_DOCS: Record<EngineFn, EngineDoc> = {
   },
   itemSpend: {
     description:
-      "What is inside the shopping, from the receipts the user has photographed and linked to card payments: money per item sub-category (sweets, alcohol, ready meals, fuel, ...). " +
-      "Only payments with a receipt count, so the summary says how many receipts and what share of the spending they cover. Without period: since the first receipt. " +
-      "Optional subcategory for one kind of item; optional category for the bank category of the payments (e.g. Groceries).",
-    rows: "key (sub-category id), label, amount (€), count (lines bought), trips (receipts with it), share (% of the itemised total). Biggest first.",
-    unit: "€ itemised in total (or for the subcategory)",
+      "Money from the receipts the user has photographed and linked to card payments. The bank data has no shop names and no items; receipts have both. " +
+      "per item_type (default): per kind of item (sweets, alcohol, ready meals, fuel, ...). per shop: per shop name as printed on the receipts. " +
+      "shop: only receipts from a shop with this in its name (\"how much at Alko\"). search: only item lines with these words in their name, each word starting a word on the line (\"tip man\" finds tips to Man; \"man\" does not find Woman). Several lookups compare them, e.g. search \"man\" and search \"woman\" (\"cola\", \"energy drink\", a person's name on a line); the lines themselves are never shown. " +
+      "subcategory: one kind of item; always this, not search, when the user names a kind (sweets, fuel, clothes), because the lines print product names. category: the bank category of the payments (e.g. Groceries). Without period: since the first matching receipt. " +
+      "Only payments with a receipt count: the summary says how many receipts were checked, over which dates, how many of them had what was asked (subcategory or search), and what share of that spending they cover.",
+    rows: "key (sub-category id, or the shop name in lower case), label, amount (€), count (lines), trips (receipts). Biggest first.",
+    unit: "€ in total for what was asked",
+  },
+  itemTrend: {
+    description:
+      "Per calendar month, the money on linked receipts: for one kind of item (subcategory), one shop (shop), lines with a word (search) or one bank category, over the last months (default 12, this month included). " +
+      "A month without receipts is 0 because nothing was photographed, not because nothing was spent: say so when it matters.",
+    rows: "month (YYYY-MM), amount (€), receipts (linked receipts that month)",
+    unit: "€ in total over the months",
   },
   afford: {
     description:
@@ -155,14 +164,15 @@ export const ENGINE_COLUMNS: Record<EngineFn, readonly string[]> = {
   monthSoFar: ["term", "amount", "usualByNow"],
   goalReview: ["month", "planned", "moved", "movedThisMonth", "leftOnAccount", "status"],
   afford: ["term", "amount"],
-  itemSpend: ["key", "label", "amount", "count", "trips", "share"],
+  itemSpend: ["key", "label", "amount", "count", "trips"],
+  itemTrend: ["month", "amount", "receipts"],
 };
 
 /** Which engine functions each built-in template can draw. */
 export const TEMPLATE_FNS: Record<TemplateId, readonly EngineFn[]> = {
   stat: ["safeToSpend", "safeToSave", "monthSoFar", "afford"],
   category_bars: ["spendBy", "itemSpend"],
-  trend_line: ["monthlyTrend"],
+  trend_line: ["monthlyTrend", "itemTrend"],
   baskets: ["baskets"],
   balance_forecast: ["balanceForecast"],
   what_if: ["whatIf"],

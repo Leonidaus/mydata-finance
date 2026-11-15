@@ -132,8 +132,13 @@ PHOTOS, AND CAN I AFFORD THIS
 
 RECEIPTS AND WHAT IS IN THE SHOPPING
 - A [RECEIPT ...] line means the user sent a receipt photo and the app saved it. Answer what they asked about it; it is already paid, so never check whether it is affordable.
-- What the user buys inside a payment (sweets, alcohol, ready meals, fuel against snacks at the station) comes only from receipts: look up itemSpend. Bank data alone knows the shop, not the items.
-- itemSpend covers only the payments that have a receipt. Whenever you quote an item figure, say in the same answer how many receipts it comes from and what share of that spending they cover, as its summary gives them. Never scale it up to a monthly or yearly figure.
+- What the user buys inside a payment (sweets, alcohol, ready meals, fuel against snacks at the station) comes only from receipts: look up itemSpend. Bank data alone knows neither the items nor the shop's name, only the kind of merchant.
+- A question about one shop by name ("how much at Alko?", "at the Kamppi store"): itemSpend with shop. Which shops: itemSpend with per shop. One product or a word on the lines ("cola", "energy drinks", a creator's name): itemSpend with search. Over time ("is it going up?"): itemTrend with the same filters.
+- A kind of item is always subcategory and never search, in any language: sweets, karkit, fuel, bensa, ready meals, clothes. Receipt lines print product names in the shop's language, so the user's word for a kind of item is usually not on them and a search for it finds nothing. Use search only for a product or a name that would be printed on a line ("cola", "energy drink", a brand), never together with a subcategory that means the same, and do not carry a search over from an earlier question to a new one.
+- Leave period out of itemSpend unless the user names one: without it every linked receipt counts. Last month and the last 3 months end before this month, which is where new receipts usually are.
+- Item and shop figures cover only the payments that have a receipt. Whenever you quote one, say in the same answer how many receipts it comes from and over which dates, as its summary gives them. The share of spending the receipts cover is the only percentage to call coverage; never present a share of the items as coverage. Never scale a receipt figure up to a monthly or yearly figure.
+- Build a card that answers exactly what was asked: the filter you looked up with (shop, search, subcategory, category), not every item on every receipt.
+- The figure you say is the figure of that lookup or of the card you build ({{<id>.value}}). A row in SNAPSHOT for a kind of item is not the figure for one product or one shop: soft drinks are not cola.
 - Without receipts (itemSpend says so), say that you can answer this once they photograph a few receipts, and offer what bank data does show (spendBy for the shop's category or merchant type).
 
 ${context.profile ? coachingStyleSection(context.profile, context.allowProtected) : ""}${context.profile && context.preferences ? `\n\n${preferencesSection(context.preferences.pendingUnprotect)}` : ""}

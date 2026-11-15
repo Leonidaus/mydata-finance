@@ -98,6 +98,32 @@ export const ITEM_SUBCATEGORY_HINTS: Record<ItemSubcategory, string> = {
   other: "anything else, including delivery fees and tips",
 };
 
+/**
+ * Everyday words for a kind of item itself, in English and Finnish: what a user says when they
+ * mean the kind ("sweets", "karkkia"), not a product. Receipt lines are printed in the shop's
+ * language and carry product names, so a search for such a word usually finds nothing; the engine
+ * then answers with the kind (engine/items.ts). An English entry is a whole word (a plural -s is
+ * allowed); an entry ending in * is a Finnish stem, which also takes the word's endings. Several
+ * words in one entry must all be there. Only words that name one kind are listed: "alcohol" and
+ * "drinks" could be bought in a shop or out, and "coffee" at home or in a café.
+ */
+export const ITEM_TYPE_WORDS: Partial<Record<ItemSubcategory, readonly string[]>> = {
+  produce: ["fruit", "vegetable", "hedelm*", "vihannek*"],
+  meat_fish: ["meat", "fish", "liha*", "kala*"],
+  dairy_eggs: ["dairy", "maitotuot*"],
+  bread_bakery: ["bread", "leip*"],
+  frozen: ["frozen food", "pakaste*"],
+  ready_meals: ["ready meal", "valmisruo*", "eines*"],
+  snacks_sweets: ["sweet", "candy", "candies", "karkk*", "karki*", "makeis*", "namu*"],
+  soft_drinks: ["soft drink", "soda", "virvoitusjuom*", "limsa*", "limu*"],
+  tobacco: ["tobacco", "nicotine", "tupak*", "nikotiini*"],
+  hygiene_beauty: ["hygiene", "cosmetic", "hygieni*", "kosmetiik*"],
+  pharmacy: ["medicine", "medication", "laak*"],
+  clothing: ["clothes", "clothing", "vaat*"],
+  electronics: ["electronics", "elektroniik*"],
+  fuel: ["fuel", "petrol", "gasoline", "polttoaine*", "bensa*", "bensiini*"],
+};
+
 export const isItemSubcategory = (value: unknown): value is ItemSubcategory =>
   typeof value === "string" && (ITEM_SUBCATEGORIES as readonly string[]).includes(value);
 
@@ -177,5 +203,7 @@ export interface ReceiptView extends ReceiptRead {
 /** What the engine gets of a linked receipt. */
 export interface LinkedReceipt {
   txId: number;
+  /** The shop as printed on the receipt: the bank data has no shop names. */
+  merchant: string;
   lines: ReceiptLine[];
 }

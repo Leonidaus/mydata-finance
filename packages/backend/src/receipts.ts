@@ -171,7 +171,7 @@ export class ReceiptStore {
   linked(customerId: string): LinkedReceipt[] {
     return this.list(customerId)
       .filter((r) => r.status === "confirmed" && r.txId !== null)
-      .map((r) => ({ txId: r.txId as number, lines: r.lines }));
+      .map((r) => ({ txId: r.txId as number, merchant: r.merchant, lines: r.lines }));
   }
 
   close(): void {

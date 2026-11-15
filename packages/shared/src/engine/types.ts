@@ -40,6 +40,12 @@ export interface TxFilter {
   withReceipt?: boolean;
   /** Only payments whose receipt has a line of this item sub-category (implies withReceipt). */
   subcategory?: string;
+  /** Only payments whose receipt is from a shop with this in its name (implies withReceipt). */
+  shop?: string;
+  /** Only payments whose receipt has a line with this in its name (implies withReceipt). */
+  item?: string;
+  /** Only payments whose receipt is from exactly this shop, as its key (a tapped bar per shop). */
+  receiptShop?: string;
 }
 
 export type Row = Record<string, string | number | null>;
@@ -54,6 +60,8 @@ export interface EngineResult {
   assumptions?: string[];
   /** Filter for the transactions behind this result; templates add the clicked datum. */
   filter?: TxFilter;
+  /** The figures behind the caption as data, so the app can word it in the user's language. */
+  facts?: Record<string, string | number>;
 }
 
 export const ENGINE_FNS = [
@@ -75,5 +83,6 @@ export const ENGINE_FNS = [
   "goalReview",
   "afford",
   "itemSpend",
+  "itemTrend",
 ] as const;
 export type EngineFn = (typeof ENGINE_FNS)[number];

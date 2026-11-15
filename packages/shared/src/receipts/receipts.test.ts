@@ -5,6 +5,7 @@ import { cleanReceiptRead, foldLines, readReceipt, receiptQuestion } from "../ag
 import type { ChatModel } from "../agent/chat";
 import { contextFromFixture, type FixtureBundle, type FixtureIndex } from "../engine/fixture";
 import { filterTransactions, runEngine } from "../engine/functions";
+import { itemTypeNamed } from "../engine/items";
 import type { EngineContext } from "../engine/types";
 import type { Transaction } from "../schema";
 import { matchReceipt, nearbyPayments } from "./match";
@@ -148,6 +149,7 @@ describe("itemSpend", () => {
   const recent = groceries.slice(-3);
   const receipts: LinkedReceipt[] = recent.map((t) => ({
     txId: t.tx_id as number,
+    merchant: "Prisma Kamppi",
     lines: [
       { name: "Sweets", subcategory: "snacks_sweets", amount: 4, kind: "item" },
       { name: "Bananas", subcategory: "produce", amount: Math.round((-t.tx_amount_eur - 4) * 100) / 100, kind: "item" },
@@ -162,8 +164,12 @@ describe("itemSpend", () => {
     expect(sweets).toMatchObject({ amount: 12, count: 3, trips: 3 });
     const total = recent.reduce((s, t) => s - t.tx_amount_eur, 0);
     expect(r.value).toBeCloseTo(total, 2);
-    expect(r.caption).toMatch(/from 3 receipts \(\d+% of Groceries\)/);
-    expect(r.assumptions?.[0]).toMatch(/cover \d+% of the Groceries spending/);
+    // How many receipts, over which dates, and what share of the spending they cover.
+    expect(r.caption).toMatch(/^3 receipts from \d+\.\d+\.\d{4} to \d+\.\d+\.\d{4} \(\d+% of Groceries spending\)$/);
+    expect(r.assumptions?.[0]).toMatch(/Payments with a receipt are \d+% of the Groceries spending from/);
+    expect(r.facts).toMatchObject({ receipts: 3, first: recent[0].tx_date, last: recent[2].tx_date, categories: "Groceries" });
+    // A share of the items is not offered as a figure: the coach once quoted it as coverage.
+    expect(Object.keys(r.rows[0])).not.toContain("share");
   });
 
   it("gives one sub-category's figure, and its payments behind it", () => {
@@ -181,8 +187,150 @@ describe("itemSpend", () => {
     expect(r.assumptions?.[0]).toMatch(/not linked any receipts/);
   });
 
+  // Two receipts on cinema payments: the bank says Entertainment and cinema, the receipt names the cinema.
+  const cinema = ctx.tx.filter((t) => t.mcc_code === "7832").slice(-2);
+  const online: LinkedReceipt[] = cinema.map((t, i) => ({
+    txId: t.tx_id as number,
+    merchant: "Kino Kamppi",
+    lines: [
+      { name: `Ticket for ${i ? "Woman" : "Man"}`, subcategory: "other", amount: 4.99, kind: "item" },
+      { name: `Popcorn for ${i ? "Woman" : "Man"}`, subcategory: "other", amount: Math.round((-t.tx_amount_eur - 4.99) * 100) / 100, kind: "item" },
+    ],
+  }));
+  const both: EngineContext = { ...ctx, receipts: [...receipts, ...online] };
+
+  it("adds up a shop by the name on its receipts, which the bank data does not have", () => {
+    const r = runEngine(both, "itemSpend", { shop: "kino" });
+    const paid = cinema.reduce((s, t) => s - t.tx_amount_eur, 0);
+    expect(r.value).toBeCloseTo(paid, 2);
+    // Every receipt checked counts for coverage; two of them are from the cinema.
+    expect(r.facts).toMatchObject({ receipts: 5, matching: 2, shop: "kino" });
+    expect(r.facts?.coverage).toBe(runEngine(both, "itemSpend", {}).facts?.coverage);
+    expect(r.caption).toMatch(/, 2 from "kino" \(/);
+    expect(filterTransactions(both, r.filter ?? {}).map((t) => t.tx_id)).toEqual(cinema.map((t) => t.tx_id));
+
+    // A tapped bar per shop opens exactly that shop's payments, not every shop that starts the same.
+    const shops = runEngine(both, "itemSpend", { per: "shop" });
+    const kino = shops.rows.find((row) => row.label === "Kino Kamppi");
+    expect(filterTransactions(both, { ...shops.filter, receiptShop: kino?.key as string })).toHaveLength(2);
+    expect(filterTransactions(both, { ...shops.filter, receiptShop: "kino" })).toHaveLength(0);
+    expect(shops.rows.map((row) => [row.label, row.trips])).toEqual(expect.arrayContaining([["Prisma Kamppi", 3], ["Kino Kamppi", 2]]));
+  });
+
+  it("finds a word on the item lines without giving the lines out", () => {
+    const r = runEngine(both, "itemSpend", { search: "woman" });
+    expect(r.value).toBeCloseTo(-cinema[1].tx_amount_eur, 2);
+    // Every receipt checked counts for coverage, not only the one that had the word.
+    expect(r.facts).toMatchObject({ receipts: 5, matching: 1, search: "woman" });
+    expect(r.facts?.coverage).toBe(runEngine(both, "itemSpend", {}).facts?.coverage);
+    expect(r.caption).toMatch(/^5 receipts from .*, 1 with lines with "woman" \(/);
+    expect(JSON.stringify(r)).not.toContain("Popcorn for");
+    // A word matches from the start of a word: "man" is not part of "Woman". Every word must be there.
+    expect(runEngine(both, "itemSpend", { search: "man" }).value).toBeCloseTo(-cinema[0].tx_amount_eur, 2);
+    expect(runEngine(both, "itemSpend", { search: "popcorn man" }).rows[0].count).toBe(1);
+    expect(runEngine(both, "itemSpend", { search: "popcorn woman" }).value).toBeCloseTo(-cinema[1].tx_amount_eur - 4.99, 2);
+    const none = runEngine(both, "itemSpend", { search: "champagne" });
+    expect(none.rows).toEqual([]);
+    expect(none.value).toBe(0);
+    expect(none.assumptions).toContain('No receipt here matches what was asked (with lines with "champagne").');
+    // Punctuation alone is not a search.
+    expect(() => runEngine(both, "itemSpend", { search: '"' })).toThrow(/search must contain at least one word/);
+  });
+
+  it("follows receipts per month, with the months that have none at 0", () => {
+    const r = runEngine(both, "itemTrend", { shop: "Kino Kamppi", months: 24 });
+    expect(r.rows).toHaveLength(24);
+    expect(r.rows.at(-1)?.month).toBe(ctx.today.slice(0, 7));
+    // Every receipt checked is counted per month; the amounts are only the cinema's.
+    expect(r.rows.reduce((n, row) => n + (row.receipts as number), 0)).toBe(5);
+    expect(r.facts).toMatchObject({ receipts: 5, matching: 2 });
+    expect(r.value).toBeCloseTo(cinema.reduce((s, t) => s - t.tx_amount_eur, 0), 2);
+    expect(r.assumptions?.[0]).toMatch(/nothing was photographed/);
+  });
+
   it("rejects a sub-category that is not on the list", () => {
     expect(() => runEngine(withReceipts, "itemSpend", { subcategory: "candy" })).toThrow(/subcategory must be one of/);
+  });
+
+  // Receipts as a Finnish shop prints them: product names, not the kind of item.
+  const finnish: LinkedReceipt[] = recent.map((t) => ({
+    txId: t.tx_id as number,
+    merchant: "Ruokakauppa Kamppi",
+    lines: [
+      { name: "Irtokarkit 380g", subcategory: "snacks_sweets", amount: 4.18, kind: "item" },
+      { name: "Cola 1,5l", subcategory: "soft_drinks", amount: 2.89, kind: "item" },
+      { name: "Banaani", subcategory: "produce", amount: Math.round((-t.tx_amount_eur - 7.07) * 100) / 100, kind: "item" },
+    ],
+  }));
+  const printedInFinnish: EngineContext = { ...ctx, receipts: finnish };
+
+  it("knows an everyday word for a kind of item from a product or a word for two kinds", () => {
+    expect(itemTypeNamed("sweets")).toBe("snacks_sweets");
+    expect(itemTypeNamed("Candy")).toBe("snacks_sweets");
+    expect(itemTypeNamed("karkkia")).toBe("snacks_sweets");
+    expect(itemTypeNamed("karkit")).toBe("snacks_sweets");
+    expect(itemTypeNamed("polttoainetta")).toBe("fuel");
+    expect(itemTypeNamed("ready meals")).toBe("ready_meals");
+    expect(itemTypeNamed("lääkkeitä")).toBe("pharmacy");
+    for (const other of ["cola", "alcohol", "coffee", "lihapullat", "sweets and fuel", "frozen", "energy drink", ""]) expect(itemTypeNamed(other)).toBeUndefined();
+  });
+
+  it("answers with the kind of item when a search for its name finds no line", () => {
+    const kind = runEngine(printedInFinnish, "itemSpend", { subcategory: "snacks_sweets" });
+    expect(kind.value).toBeCloseTo(3 * 4.18, 2);
+    for (const search of ["sweets", "karkkia"]) {
+      const r = runEngine(printedInFinnish, "itemSpend", { search });
+      expect(r.value).toBe(kind.value);
+      expect(r.rows).toEqual(kind.rows);
+      expect(r.caption).toBe(kind.caption);
+      expect(r.assumptions?.[0]).toBe(`No line on these receipts has the word "${search}": lines print product names in the shop's language. This shows the kind of item, Snacks and sweets, instead.`);
+      // The card's own words and the payments behind it follow the kind, not the search.
+      expect(r.facts).toMatchObject({ subcategory: "snacks_sweets", matching: 3 });
+      expect(r.facts?.search).toBeUndefined();
+      expect(r.filter).toMatchObject({ subcategory: "snacks_sweets" });
+      expect(r.filter?.item).toBeUndefined();
+    }
+    // The same over time, and together with a period and a bank category.
+    expect(runEngine(printedInFinnish, "itemTrend", { search: "sweets", months: 6 }).rows).toEqual(runEngine(printedInFinnish, "itemTrend", { subcategory: "snacks_sweets", months: 6 }).rows);
+    expect(runEngine(printedInFinnish, "itemSpend", { search: "sweets", category: "Groceries", period: "last_12_months" }).value).toBe(kind.value);
+  });
+
+  it("says how many receipts a period left out, instead of that there are none", () => {
+    // Receipts on the two oldest grocery payments: long before the last 30 days.
+    const old: EngineContext = { ...ctx, receipts: groceries.slice(0, 2).map((t) => ({ txId: t.tx_id as number, merchant: "Prisma", lines: [{ name: "Maito", subcategory: "dairy_eggs", amount: -t.tx_amount_eur, kind: "item" }] })) };
+    const r = runEngine(old, "itemSpend", { period: "last_30_days" });
+    expect(r.rows).toEqual([]);
+    expect(r.assumptions?.[0]).toMatch(/^No linked receipt falls in this period, but 2 linked receipts from .* are outside it\. Look it up again without period to include them; do not tell the user there are no receipts\.$/);
+    expect(runEngine(old, "itemTrend", { months: 2 }).assumptions?.[0]).toMatch(/but 2 linked receipts .* are outside it/);
+    // Without a period they all count.
+    expect(runEngine(old, "itemSpend", {}).facts).toMatchObject({ receipts: 2 });
+    // One bank category with none of the receipts in it: nothing is outside the period either.
+    expect(runEngine(old, "itemSpend", { period: "last_30_days", category: "Travel" }).assumptions?.[0]).toMatch(/Another period may have some/);
+  });
+
+  it("drops a search that only repeats the kind of item it comes with", () => {
+    const kind = runEngine(printedInFinnish, "itemSpend", { subcategory: "snacks_sweets" });
+    const both = runEngine(printedInFinnish, "itemSpend", { subcategory: "snacks_sweets", search: "sweets" });
+    expect(both.value).toBe(kind.value);
+    expect(both.facts?.search).toBeUndefined();
+    // A search for something else within a kind still narrows it.
+    expect(runEngine(printedInFinnish, "itemSpend", { subcategory: "soft_drinks", search: "cola" }).facts).toMatchObject({ search: "cola", matching: 3 });
+    expect(runEngine(printedInFinnish, "itemSpend", { subcategory: "produce", search: "sweets" }).value).toBe(0);
+  });
+
+  it("leaves a search alone when it finds lines, or names no kind of item", () => {
+    // "Sweets" is printed on these receipts: the search stands.
+    expect(runEngine(withReceipts, "itemSpend", { search: "sweets" }).facts).toMatchObject({ search: "sweets", matching: 3 });
+    const cola = runEngine(printedInFinnish, "itemSpend", { search: "cola" });
+    expect(cola.value).toBeCloseTo(3 * 2.89, 2);
+    expect(cola.facts).toMatchObject({ search: "cola" });
+    // Nothing found and no kind named: the figure is 0, and the coach is told what a search is for.
+    const none = runEngine(printedInFinnish, "itemSpend", { search: "champagne" });
+    expect(none.value).toBe(0);
+    expect(none.assumptions?.at(-1)).toMatch(/For a kind of item .* use subcategory instead of search/);
+    expect(runEngine(printedInFinnish, "itemTrend", { search: "champagne" }).assumptions?.at(-1)).toMatch(/use subcategory instead of search/);
+    // A word for two kinds is not guessed at.
+    expect(runEngine(printedInFinnish, "itemSpend", { search: "alcohol" }).value).toBe(0);
   });
 });
 

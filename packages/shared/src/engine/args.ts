@@ -96,7 +96,22 @@ export const ENGINE_ARG_SPECS: Record<EngineFn, Record<string, ArgSpec>> = {
     /** As for safeToSpend: how much of the account the customer says is savings. */
     reserve: { type: "number", min: 0, max: 100_000_000 },
   },
-  itemSpend: { period, subcategory: { type: "enum", values: ITEM_SUBCATEGORIES }, category },
+  itemSpend: {
+    period,
+    /** Group by item type (default) or by the shop printed on the receipt. Not `by`: spendBy's `by` has other values. */
+    per: { type: "enum", values: ["item_type", "shop"] },
+    subcategory: { type: "enum", values: ITEM_SUBCATEGORIES },
+    category,
+    shop: { type: "text", maxLength: 60 },
+    search: { type: "text", maxLength: 40 },
+  },
+  itemTrend: {
+    months: { type: "number", min: 2, max: 24, integer: true },
+    subcategory: { type: "enum", values: ITEM_SUBCATEGORIES },
+    category,
+    shop: { type: "text", maxLength: 60 },
+    search: { type: "text", maxLength: 40 },
+  },
   savingsOptions: {
     protect: { type: "categories" },
     cutPct: { type: "number", min: 0, max: 100, exclusiveMin: true },
