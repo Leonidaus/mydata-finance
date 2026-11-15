@@ -108,7 +108,9 @@ body {
 
 .topbar {
   display: grid;
-  grid-template-columns: 80px 1fr 80px;
+  /* The title is centred while both sides have room for it, and moves over when the buttons on the
+     right need more: with three of them a fixed side column let them run over the title. */
+  grid-template-columns: minmax(40px, 1fr) minmax(0, auto) minmax(max-content, 1fr);
   align-items: center;
   padding: 10px 12px;
   padding-top: calc(10px + env(safe-area-inset-top));
@@ -122,6 +124,11 @@ body {
   justify-content: center;
   gap: 8px;
   margin: 0;
+  /* On a very narrow screen the title is cut short rather than drawn under the buttons.
+     Sideways only: the coach's face bounces a little above the line. */
+  min-width: 0;
+  overflow-x: clip;
+  white-space: nowrap;
   text-align: center;
   font-size: 1.0625rem;
   font-weight: 700;
@@ -174,6 +181,7 @@ button.topbar-icon:hover,
 button.topbar-icon:focus-visible { background: var(--green-100); }
 
 button.topbar-narration.on { background: var(--green-300); color: var(--green-900); }
+button.topbar-icon:disabled { opacity: 0.4; cursor: default; background: transparent; }
 
 .topbar-language-code {
   position: absolute;
@@ -1090,3 +1098,7 @@ button.topbar-narration.on { background: var(--green-300); color: var(--green-90
   gap: 6px;
   margin-top: 6px;
 }
+
+/* Several receipt photos in the sent bubble. */
+.bubble-photos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 6px; }
+.bubble-photos .bubble-photo { width: 100%; height: 72px; max-width: none; }
